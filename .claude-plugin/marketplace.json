@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "irama-skills",
+  "description": "Agentic development skills, agents and hooks for Claude Code — shipping verbs, planning chain, UI verification, production readiness.",
+  "owner": {
+    "name": "irama",
+    "url": "https://github.com/irama"
+  },
+  "plugins": [
+    {
+      "name": "irama-skills",
+      "description": "Skills for the full build-to-ship chain: commit/merge/push/prune shipping verbs, spec-to-tickets planning, UI verification, legal pages, app icons, network diagnostics.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

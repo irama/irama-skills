@@ -1,0 +1,14 @@
+{
+  "name": "deck-review-tests",
+  "private": true,
+  "type": "module",
+  "description": "Development-time browser harness for the deck-review runtime. Not a dependency of the shipped asset.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.0"
+  }
+}

@@ -1,0 +1,16 @@
+html, body { margin: 0; background: #0E0A08; color: #F5F0E8;
+  font: 400 18px/1.5 "Inter", system-ui, sans-serif; }
+deck-stage { display: block; position: relative; width: 100%; height: 100vh; }
+
+/* Layout. The overview copies every deck-stage-scoped rule onto .dcx-ovstage,
+   so this is what makes a thumbnail lay out at all. */
+deck-stage > section { position: absolute; inset: 0; box-sizing: border-box;
+  padding: 64px 72px 96px; background: #0E0A08; }
+deck-stage > section h1 { font-size: 44px; margin: 0 0 24px; }
+deck-stage > section p { max-width: 46em; margin: 0; }
+
+/* Which slide is showing. Scoped to an attribute the live stage carries and a
+   thumbnail's plain .dcx-ovstage box does not, so a clone is not blanked by the
+   rule that hides the eight slides behind the one on screen. */
+deck-stage[data-live] > section { opacity: 0; pointer-events: none; }
+deck-stage[data-live] > section[data-deck-active] { opacity: 1; pointer-events: auto; }

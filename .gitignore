@@ -1,0 +1,12 @@
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+*.log
+.env
+.env.*
+.scratch/
+
+# Private domain and name list for the leak guard, never published
+.leakrc

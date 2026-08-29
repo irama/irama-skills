@@ -1,0 +1,15 @@
+{
+  "name": "app-walkthrough-render",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "render": "remotion render Scene out/scene.mp4",
+    "studio": "remotion studio"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.486",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "^4.0.486"
+  }
+}

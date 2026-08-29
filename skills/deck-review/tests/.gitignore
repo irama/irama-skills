@@ -1,0 +1,4 @@
+# Screenshots and traces are for looking at, not for committing.
+out/
+playwright-report/
+test-results/
