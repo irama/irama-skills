@@ -100,7 +100,6 @@ The chain is deliberately split so that only one verb ever touches production.
 |---|---|
 | `verify-ui` | Screenshots the affected screen at desktop and mobile before you claim a UI change done |
 | `html-brief` | Interactive HTML briefs you answer in the browser, with persisted answers and copy-back JSON |
-| `deck-review` | Selection comments on an HTML slide deck, with one JSON payload copied back to Claude |
 | `app-icons` | Full PWA icon set, favicon and OG image from one source mark, wired into Next.js App Router |
 | `legal-pages` | `/privacy` and `/terms` with Australian-context content (Privacy Act 1988, ACL) |
 | `nano-banana` | Image generation into the current project |
