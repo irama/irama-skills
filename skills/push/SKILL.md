@@ -21,7 +21,7 @@ Deploy `main` to production. `/push` is the **only** actor that touches the remo
    b) Check for unapplied migrations: Supabase `npx supabase migration list --linked`; Prisma `npx prisma migrate status`.
    c) If pending, apply: `supabase db push --linked` / `prisma migrate deploy`.
    d) On success, if the project has type-gen (`npm run db:types`, `prisma generate`), run it and **commit** the regenerated types.
-   e) Update the migrations-applied log if one exists.
+   e) **Apply through the repo's own applier script if it has one** (`scripts/db/apply-migration.mjs` or equivalent), never bare `psql -f`. A repo that tracks applied migrations in a table records that row from inside the applier; applying by hand leaves the table silently stale, and a ledger that stops recording gives no warning — it just quietly stops being the answer to "what is on prod". Check for such a script before reaching for the CLI in (c). Then update the migrations-applied log if one exists.
    f) **If any migration fails, STOP — do not push.** Fix first.
    Skip only when there are zero migration files and no schema-touching changes on `main`.
 3. **Production build — authoritative deploy gate.** Run the real production build (`npm run build` / `next build`, or repo equivalent). This enforces checks the fast gates skip: lint-as-error architecture fences (`no-restricted-imports`), stricter type-elision, RSC/client-boundary violations, static analysis. A tree green on `tsc` + `vitest` can still fail `next build` and the deploy — this is the single most common way a red `main` ships. Red → fix and re-run until clean; **never push on a failing build.**
