@@ -165,6 +165,61 @@ a paper.
    answer box.
 9. **Next phase readiness** — what's unblocked, what's still waiting.
 
+## Terms block — put the vocabulary at the top
+
+**When a brief turns on words the reader and the writer may use differently, open with a Terms
+block.** Contested, ambiguous or newly-coined words are the commonest reason a brief gets answered
+at cross purposes, and the fix is cheap: say what each word means *here*, before anything rests on
+it. Borrowed from the SOURCED definitions block, so a brief and a position paper teach one layout.
+
+**Use it when** the brief coins a term, uses a word two parties define differently, or asks a
+question whose answer depends on which sense of a word is meant. **Skip it** for a brief with no
+such words — an empty Terms block is worse than none.
+
+Two halves, in this order, inside one `section.brief-section`:
+
+    <section class="brief-section" data-sec="terms">
+      <div class="sec-head">
+        <label class="tick"><input type="checkbox" aria-label="Mark section read"></label>
+        <h2>Terms</h2>
+      </div>
+      <div class="sec-body">
+
+        <p class="terms-h">Not used here</p>
+        <div class="terms-out">
+          <div class="term"><s>Decline</s> <span class="to">→</span> <b>depreciation</b> · <b>displacement</b>
+            <span class="why">used for two things that move on different clocks</span></div>
+        </div>
+
+        <p class="terms-h">Used here</p>
+        <div class="terms-in">
+          <div class="term">
+            <div class="fam">needs</div>
+            <h4>Risk</h4>
+            <ul>
+              <li><span class="k">In this brief</span> the exposure created by something that might go wrong</li>
+              <li><span class="k">Needs</span> a <b>likelihood</b> and an <b>impact</b> — neither is a kind of risk</li>
+            </ul>
+            <div class="foot">Bears on Q3 · Q7</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+- **`terms-out` is what the brief sets aside.** One line each: the word struck through, the word
+  used instead in bold, and a short `why`. Never a paragraph — if it needs one, it belongs in
+  `terms-in` as a term the brief does use.
+- **`terms-in` is what the brief uses.** The `fam` tag names the relation and is optional; the
+  SOURCED families are `split`, `needs`, `disambiguate`, `gap`, `rename`, `normative`.
+- **`foot` says which questions the term bears on**, so a reader can see why the word was worth
+  defining. Drop it rather than leave it vague.
+- **Never tell the reader their usage is wrong.** The block says what the words mean *in this
+  brief*. A definition good enough to borrow travels; an instruction seeds resistance.
+
+Pure CSS — the runtime does nothing with it, so the block ticks off and collapses like any other
+section.
+
 ## Question-writing rules (as important as the widgets)
 
 - **Every question is answerable from its own text — never a bare id.** Name the study
