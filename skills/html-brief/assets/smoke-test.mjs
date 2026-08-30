@@ -75,4 +75,67 @@ console.log(JSON.stringify({ crossMarks, popGone, crossReanchored, drawerRows, d
 console.log(JSON.stringify({ okTopbar, okProgress, collapsed, okProgress2, markCount, selectionSurvives,
   jsonAnswer: json.answers[0], jsonComment: json.comments[0], okDownload, dlName,
   persistTick, persistAns, reanchored, errors }, null, 1));
+
+// ── editable document: rich editing, source toggle, heading rail ──────────
+// Only runs when the page carries a [data-doc]; a brief without one skips it.
+if (await page.locator('[data-doc]').count()) {
+  const doc = page.locator('[data-doc]').first();
+
+
+const toolsHiddenAtRest = await doc.locator('.doc-tools').isHidden();
+const tocItems = await doc.locator('.doc-toc a').count();          // rail built while reading
+await doc.locator('.doc-btn', { hasText: 'Edit' }).click();
+const editable = await doc.locator('.doc-view').getAttribute('contenteditable');
+const toolCount = await doc.locator('.doc-tool').count();
+const toolsVisible = await doc.locator('.doc-tools').isVisible();
+
+// click into the rendered text: caret lands in the clicked paragraph
+const para = doc.locator('.doc-view p').first();
+await para.scrollIntoViewIfNeeded();
+const box = await para.boundingBox();
+await page.mouse.click(box.x + box.width - 40, box.y + box.height / 2);
+const caretInPara = await page.evaluate(() => {
+  const s = getSelection(); if (!s.rangeCount) return false;
+  let n = s.getRangeAt(0).startContainer;
+  while (n && n.nodeName !== 'P') n = n.parentNode;
+  return !!n;
+});
+await page.keyboard.type(' EDITED-IN-PLACE');
+await page.waitForTimeout(120);
+const flag = await doc.locator('.doc-flag').textContent();
+
+// bold button applies to a selection and survives the round-trip to markdown
+await page.evaluate(() => {
+  const el = document.querySelector('[data-doc] .doc-view p');
+  const r = document.createRange(); r.setStart(el.firstChild, 0); r.setEnd(el.firstChild, 5);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+});
+await doc.locator('.doc-tool.t-b').click();
+await page.waitForTimeout(120);
+
+// source mode carries the same text, as markdown
+await doc.locator('.doc-srcbtn').click();
+const md = await doc.locator('.doc-src').inputValue();
+const mdHasEdit = md.includes('EDITED-IN-PLACE');
+const mdHasHeading = /^# Heading one/m.test(md);
+const mdHasList = /^- one$/m.test(md);
+const mdHasQuote = /^> a quote/m.test(md);
+const mdHasBold = /\*\*/.test(md);
+const srcBtnLabel = await doc.locator('.doc-srcbtn').textContent();
+
+// back to rich, then Done, then reload: the edit persists as markdown
+await doc.locator('.doc-srcbtn').click();
+await doc.locator('.doc-btn', { hasText: 'Done' }).click();
+await page.reload();
+const persisted = (await doc.locator('.doc-view').textContent()).includes('EDITED-IN-PLACE');
+const stored = await page.evaluate(() => JSON.parse(localStorage.getItem(Object.keys(localStorage).find(k => k.includes('test-brief')))));
+const editStored = Object.values(stored.edits || {}).some(v => typeof v === 'string' && v.includes('EDITED-IN-PLACE'));
+
+// revert restores the original
+await doc.locator('.doc-revert').click();
+const afterRevert = await doc.locator('.doc-view').textContent();
+console.log(JSON.stringify({ toolsHiddenAtRest, tocItems, editable, toolCount, toolsVisible,
+  caretInPara, flag, mdHasEdit, mdHasHeading, mdHasList, mdHasQuote, mdHasBold, srcBtnLabel,
+  persisted, editStored, revertClean: !afterRevert.includes('EDITED-IN-PLACE'), errors }, null, 1));
+}
 await browser.close();

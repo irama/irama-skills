@@ -848,23 +848,151 @@
     flush();
     return out.join('\n');
   }
+  /* The way back: the rich view is edited in place, so what the reader sees is
+     what gets serialised. Markdown stays the stored form — it is what rides in
+     the responses JSON and what Revert compares against — so every keystroke in
+     rich mode walks the DOM back to markdown. Covers the same subset mdToHtml
+     renders; anything else the browser produces (a stray <div>, a <b>) is
+     normalised to its markdown equivalent rather than passed through. */
+  function mdInline(node) {
+    var out = '';
+    Array.prototype.forEach.call(node.childNodes, function (n) {
+      if (n.nodeType === 3) { out += n.nodeValue.replace(/\s+/g, ' '); return; }
+      if (n.nodeType !== 1) return;
+      var tag = n.nodeName.toLowerCase(), inner = mdInline(n);
+      if (tag === 'br') out += '\n';
+      else if (tag === 'strong' || tag === 'b') out += inner.trim() ? '**' + inner.trim() + '**' : '';
+      else if (tag === 'em' || tag === 'i') out += inner.trim() ? '*' + inner.trim() + '*' : '';
+      else if (tag === 'code') out += '`' + inner + '`';
+      else if (tag === 'a') out += '[' + inner + '](' + (n.getAttribute('href') || '') + ')';
+      else out += inner;
+    });
+    return out;
+  }
+  function htmlToMd(root) {
+    var out = [];
+    Array.prototype.forEach.call(root.childNodes, function (n) {
+      if (n.nodeType === 3) { if (n.nodeValue.trim()) out.push(n.nodeValue.trim()); return; }
+      if (n.nodeType !== 1) return;
+      var tag = n.nodeName.toLowerCase();
+      if (/^h[1-6]$/.test(tag)) out.push(new Array(+tag[1] + 1).join('#') + ' ' + mdInline(n).trim());
+      else if (tag === 'hr') out.push('---');
+      else if (tag === 'blockquote') out.push(htmlToMd(n).split('\n').map(function (l) {
+        return l.trim() ? '> ' + l : '>';
+      }).join('\n'));
+      else if (tag === 'pre') out.push('```\n' + (n.textContent || '').replace(/\n$/, '') + '\n```');
+      else if (tag === 'ul' || tag === 'ol') {
+        var i = 0;
+        Array.prototype.forEach.call(n.children, function (li) {
+          i += 1;
+          out.push((tag === 'ol' ? i + '. ' : '- ') + mdInline(li).trim());
+        });
+      } else if (tag === 'div' && n.children.length && !mdInline(n).trim()) out.push(htmlToMd(n));
+      else { var t = mdInline(n).trim(); if (t) out.push(t); }
+    });
+    return out.join('\n\n');
+  }
+
+  /* Toolbar. execCommand is deprecated and still the only zero-dependency way to
+     apply formatting to a contenteditable selection in every current browser; a
+     brief is one offline file, so a 200KB editor library is not on the table.
+     ponytail: execCommand, swap for a Selection/Range implementation the day a
+     browser drops it — the buttons are the only callers. */
+  var DOC_TOOLS = [
+    { cmd: 'bold', label: 'B', tip: 'Bold  ⌘B', cls: 'b' },
+    { cmd: 'italic', label: 'I', tip: 'Italic  ⌘I', cls: 'i' },
+    { block: 'h1', label: 'H1', tip: 'Heading 1' },
+    { block: 'h2', label: 'H2', tip: 'Heading 2' },
+    { block: 'h3', label: 'H3', tip: 'Heading 3' },
+    { block: 'p', label: '¶', tip: 'Body text' },
+    { cmd: 'insertUnorderedList', label: '•', tip: 'Bulleted list' },
+    { cmd: 'insertOrderedList', label: '1.', tip: 'Numbered list' },
+    { block: 'blockquote', label: '❝', tip: 'Quote' },
+    { code: true, label: '‹›', tip: 'Inline code' },
+    { link: true, label: '🔗', tip: 'Link  ⌘K' }
+  ];
+
   Array.prototype.forEach.call(document.querySelectorAll('[data-doc]'), function (doc) {
     var key = doc.dataset.doc;
+    var label = doc.dataset.docLabel || 'document';
     var view = document.createElement('div'); view.className = 'doc-view';
     var ta = document.createElement('textarea'); ta.className = 'doc-src';
-    ta.setAttribute('aria-label', 'Edit ' + (doc.dataset.docLabel || 'document') + ' source');
+    ta.setAttribute('aria-label', 'Edit ' + label + ' markdown source');
     ta.spellcheck = false;
     var bar = document.createElement('div'); bar.className = 'doc-bar';
+    var tools = document.createElement('div'); tools.className = 'doc-tools';
     var toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'doc-btn';
+    var srcBtn = document.createElement('button'); srcBtn.type = 'button'; srcBtn.className = 'doc-btn doc-srcbtn';
     var revert = document.createElement('button'); revert.type = 'button'; revert.className = 'doc-btn doc-revert';
     revert.textContent = 'Revert';
     var flag = document.createElement('span'); flag.className = 'doc-flag';
-    bar.appendChild(flag); bar.appendChild(revert); bar.appendChild(toggle);
-    doc.appendChild(bar); doc.appendChild(view); doc.appendChild(ta);
+    var toc = document.createElement('nav'); toc.className = 'doc-toc'; toc.hidden = true;
+    toc.setAttribute('aria-label', 'Headings in ' + label);
 
+    DOC_TOOLS.forEach(function (t) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'doc-tool' + (t.cls ? ' t-' + t.cls : '');
+      b.textContent = t.label; b.dataset.tip = t.tip;
+      /* mousedown, not click: the caret must still be in the document when the
+         command runs, and focusing a button collapses the selection. */
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); apply(t); });
+      tools.appendChild(b);
+    });
+    bar.appendChild(tools);
+    bar.appendChild(flag); bar.appendChild(revert); bar.appendChild(srcBtn); bar.appendChild(toggle);
+    doc.appendChild(bar); doc.appendChild(view); doc.appendChild(ta); doc.appendChild(toc);
+
+    function editing() { return doc.classList.contains('editing'); }
+    function raw() { return doc.classList.contains('raw'); }
     function current() {
       var e = state.edits[key];
       return e == null ? docSource(doc) : e;
+    }
+    function store(md) {
+      state.edits[key] = md; save();
+      var changed = md !== docSource(doc);
+      flag.textContent = changed ? 'edited' : '';
+      doc.classList.toggle('is-edited', changed);
+      revert.hidden = !changed;
+    }
+    function apply(t) {
+      if (!editing() || raw()) return;
+      view.focus();
+      if (t.block) document.execCommand('formatBlock', false, t.block);
+      else if (t.code) {
+        var s = window.getSelection();
+        if (s && !s.isCollapsed) {
+          var c = document.createElement('code');
+          try { s.getRangeAt(0).surroundContents(c); } catch (err) { document.execCommand('insertHTML', false, '<code>' + s.toString() + '</code>'); }
+        }
+      } else if (t.link) {
+        var href = window.prompt('Link URL');
+        if (href) document.execCommand('createLink', false, href);
+      } else document.execCommand(t.cmd, false, null);
+      onRichInput();
+    }
+    function onRichInput() {
+      store(htmlToMd(view));
+      buildToc();
+    }
+    /* The rail lists the headings of THIS document and follows the reader down
+       it. It is hidden unless the document is on screen, so several documents in
+       one brief never stack two rails on top of each other. */
+    function buildToc() {
+      var hs = view.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      toc.innerHTML = '';
+      Array.prototype.forEach.call(hs, function (h, i) {
+        if (!h.id) h.id = key + '-h' + i;
+        var a = document.createElement('a');
+        a.href = '#' + h.id; a.className = 'lv' + h.nodeName[1];
+        a.textContent = h.textContent.trim();
+        a.addEventListener('click', function (e) {
+          e.preventDefault();
+          h.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        toc.appendChild(a);
+      });
+      toc.hidden = !hs.length;
     }
     function paint() {
       var changed = current() !== docSource(doc);
@@ -872,27 +1000,52 @@
       flag.textContent = changed ? 'edited' : '';
       doc.classList.toggle('is-edited', changed);
       revert.hidden = !changed;
-      var editing = doc.classList.contains('editing');
-      toggle.textContent = editing ? 'Done' : 'Edit';
-      /* Grow the textarea to its content: a fixed-height box inside a long
-         document turns rewriting into scrolling inside scrolling. */
-      if (editing) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+      toggle.textContent = editing() ? 'Done' : 'Edit';
+      srcBtn.textContent = raw() ? 'Rich text' : 'Source';
+      srcBtn.hidden = !editing();
+      tools.hidden = !editing() || raw();
+      view.contentEditable = editing() && !raw() ? 'true' : 'false';
+      if (editing() && raw()) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+      buildToc();
     }
     toggle.addEventListener('click', function () {
-      var editing = doc.classList.toggle('editing');
-      if (editing) { ta.value = current(); paint(); ta.focus(); }
-      else paint();
+      if (editing()) {
+        if (!raw()) store(htmlToMd(view));
+        doc.classList.remove('editing', 'raw');
+        paint();
+      } else {
+        doc.classList.add('editing');
+        ta.value = current();
+        paint();
+        view.focus();
+      }
+    });
+    /* Both modes edit the same markdown string, so the switch is a conversion
+       either way and never a merge. */
+    srcBtn.addEventListener('click', function () {
+      if (raw()) { doc.classList.remove('raw'); paint(); view.focus(); }
+      else { store(htmlToMd(view)); ta.value = current(); doc.classList.add('raw'); paint(); ta.focus(); }
     });
     revert.addEventListener('click', function () {
       delete state.edits[key]; save(); ta.value = docSource(doc); paint();
       toast('Reverted to the original');
     });
-    ta.addEventListener('input', function () {
-      state.edits[key] = ta.value; save();
-      ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
-      flag.textContent = ta.value !== docSource(doc) ? 'edited' : '';
-      revert.hidden = ta.value === docSource(doc);
+    view.addEventListener('input', onRichInput);
+    view.addEventListener('keydown', function (e) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      var k = e.key.toLowerCase();
+      if (k === 'k') { e.preventDefault(); apply({ link: true }); }
+      else if (k === 'b' || k === 'i') setTimeout(onRichInput, 0);
     });
+    ta.addEventListener('input', function () {
+      store(ta.value);
+      ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
+    });
+    if (window.IntersectionObserver) {
+      new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) { doc.classList.toggle('on-screen', en.isIntersecting); });
+      }, { rootMargin: '-20% 0px -20% 0px' }).observe(doc);
+    } else doc.classList.add('on-screen');
     ta.value = current();
     paint();
   });

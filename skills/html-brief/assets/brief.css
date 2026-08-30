@@ -459,6 +459,51 @@ mark.cmt.resolved { opacity: .45; text-decoration-line: line-through;
   font-size: .84rem; line-height: 1.65; white-space: pre-wrap;
 }
 [data-doc] .doc-src:focus { outline: none; border-color: var(--accent); }
-[data-doc].editing .doc-view { display: none; }
-[data-doc].editing .doc-src { display: block; }
-@media print { [data-doc] .doc-bar, [data-doc] .doc-src { display: none !important; } }
+/* Rich edit shows the rendered document and lets the reader type into it, so
+   the source textarea only appears in Source mode. */
+[data-doc].editing.raw .doc-view { display: none; }
+[data-doc].editing.raw .doc-src { display: block; }
+[data-doc].editing .doc-view {
+  outline: none; border-radius: 6px; padding: .9rem 1rem; margin-left: -1rem;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+[data-doc].editing .doc-view:focus-within { box-shadow: inset 0 0 0 1px var(--accent); }
+[data-doc] .doc-view [contenteditable] { outline: none; }
+
+/* The toolbar rides the top of the viewport with the bar, so every control is
+   reachable at any scroll depth in a long document. */
+[data-doc] .doc-tools { display: flex; flex-wrap: wrap; gap: .2rem; margin-right: auto; }
+[data-doc] .doc-tools[hidden] { display: none; }
+[data-doc] .doc-tool {
+  font: inherit; font-size: .8rem; font-family: var(--sans, system-ui, sans-serif);
+  min-width: 1.9rem; padding: .2rem .4rem; border-radius: 5px; cursor: pointer;
+  border: 1px solid transparent; background: transparent; color: var(--muted);
+}
+[data-doc] .doc-tool:hover { border-color: var(--line); background: var(--card); color: var(--fg); }
+[data-doc] .doc-tool.t-b { font-weight: 800; }
+[data-doc] .doc-tool.t-i { font-style: italic; }
+[data-doc] .doc-srcbtn[hidden] { display: none; }
+
+/* Heading rail: vertically centred on the right, and only for the document the
+   reader is actually looking at. */
+[data-doc] .doc-toc {
+  position: fixed; right: .9rem; top: 50%; transform: translateY(-50%);
+  z-index: 4; display: none; flex-direction: column; gap: .1rem;
+  max-height: 60vh; overflow: auto; padding: .5rem .6rem;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card);
+  font-family: var(--sans, system-ui, sans-serif); font-size: .72rem;
+  max-width: 12rem;
+}
+[data-doc].on-screen .doc-toc:not([hidden]) { display: flex; }
+[data-doc] .doc-toc a {
+  color: var(--muted); text-decoration: none; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; padding: .12rem 0;
+}
+[data-doc] .doc-toc a:hover { color: var(--accent); }
+[data-doc] .doc-toc a.lv2 { padding-left: .6rem; }
+[data-doc] .doc-toc a.lv3 { padding-left: 1.2rem; }
+[data-doc] .doc-toc a.lv4, [data-doc] .doc-toc a.lv5, [data-doc] .doc-toc a.lv6 { padding-left: 1.8rem; }
+@media (max-width: 900px) { [data-doc] .doc-toc { display: none !important; } }
+@media print {
+  [data-doc] .doc-bar, [data-doc] .doc-src, [data-doc] .doc-toc { display: none !important; }
+}

@@ -185,16 +185,36 @@ The body, in markdown, exactly as it should ship.
 - **The source of truth is the `<script type="text/markdown">`**, which the browser never renders,
   so the original always survives and Revert always works. Do not write the rendered HTML yourself;
   the runtime renders it.
-- **The runtime injects the Edit / Done toggle, Revert, and the "edited" flag.** Reading view keeps
-  the brief's serif prose; Edit mode is a mono, wrapped, auto-growing textarea, because source is
-  source. Edits persist to localStorage on every keystroke.
+- **The runtime injects the whole editor** — Edit / Done, the formatting toolbar, the Source
+  toggle, Revert, the "edited" flag and the heading rail. Author only the markdown.
+- **Edit mode is rich text, edited in place.** Pressing Edit makes the rendered document itself
+  editable, so clicking anywhere in the prose puts the caret where you clicked — no mapping from a
+  preview to a source pane, and no hunting for the line. Formatting applies to the selection:
+  bold, italic, H1/H2/H3, body, bulleted and numbered lists, quote, inline code and link, plus
+  ⌘B / ⌘I / ⌘K.
+- **The toolbar is sticky**, so every button and the Source toggle stay on screen at any scroll
+  depth in a long document.
+- **Source mode is one click away.** "Source" swaps the rich view for the mono markdown textarea
+  and "Rich text" swaps back. Both modes edit the same markdown string — the switch is a
+  conversion, never a merge — so nothing is lost either way.
+- **A heading rail sits vertically centred on the right**, listing H1–H6 of the document being
+  read and scrolling to a heading on click. It appears only while that document is on screen, and
+  is hidden under 900px and in print.
+- **Markdown stays the stored form.** Every keystroke in rich mode serialises the DOM back to
+  markdown before saving, so the responses JSON and Revert compare markdown to markdown.
+  Edits persist to localStorage on every keystroke.
 - **Edits ride in the responses JSON** under `edits: [{id, label, original, edited}]`, both sides,
   so the author diffs rather than re-reads. An untouched document is omitted entirely.
 - **One `data-doc` per document, with a stable id** — it is the localStorage key, so keep it
   identical across regenerations or saved edits are orphaned.
-- The renderer covers headings, emphasis, links, inline and fenced code, lists, blockquotes and
-  rules. **It does not do tables.** Keep a table in a fenced block, or put it outside the editable
-  block in a normal `.tblwrap`.
+- The renderer and the serialiser both cover headings, emphasis, links, inline and fenced code,
+  lists, blockquotes and rules. **Neither does tables.** Keep a table in a fenced block, or put it
+  outside the editable block in a normal `.tblwrap` — a table pasted into rich mode will not
+  survive the trip back to markdown.
+- **Why not a real editor library:** a brief is one self-contained file opened from disk, so there
+  is no bundler and no network. nav's Description field runs TipTap for the same job; here the
+  behaviour is reimplemented on `contenteditable` plus `execCommand`, which is what makes
+  click-to-caret free rather than a caret-offset mapping.
 
 **Selection comments still work inside an editable document**, so a reader can mark up in reading
 view and rewrite in edit view, and both come back in the same payload.
@@ -417,6 +437,10 @@ compatible with stored state) — improvements then benefit every future brief.
 persistence, comment popover, JSON export). Run it after any runtime edit:
 build a minimal page from the template into a temp dir **named `test.html`**,
 alongside copies of `brief.css`/`brief.js`, then `node smoke-test.mjs <dir>`.
+Include a `[data-doc]` block in that page — the editor half of the suite (rich
+editing, click-to-caret, the toolbar, the Source toggle, the heading rail,
+markdown round-trip) is skipped when the page has none, and a skipped check
+reads exactly like a passing one.
 Playwright resolves from the *script's* location, so copy `smoke-test.mjs` into
 a repo that has playwright installed and run it from there. All booleans true +
 `errors: []` = pass.
