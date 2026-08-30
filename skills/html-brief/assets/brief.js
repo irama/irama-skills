@@ -126,6 +126,30 @@
     clearTimeout(t._h); t._h = setTimeout(function () { t.classList.remove('show'); }, 1800);
   }
 
+
+  /* ── comments the author has already addressed ──
+     A regenerated brief can declare which comments it has acted on, so the
+     reader is not asked to carry them back a second time. Put on <body>:
+
+         data-addressed="first 40 chars of a comment||another one"
+
+     Matching is on a normalised prefix of the comment text, because the comment
+     itself is the only stable identifier: it lives in the reader's
+     localStorage, not in the file, so the file cannot carry an id it never saw.
+     A resolved comment stays visible and readable, greyed, and is dropped from
+     the exported JSON. Nothing is deleted: the reader can untick it. */
+  var ADDRESSED = (document.body.dataset.addressed || '')
+    .split('||').map(function (x) { return norm(x); }).filter(Boolean);
+  function norm(x) { return (x || '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 40); }
+  function isAddressed(c) {
+    var n = norm(c.comment);
+    return ADDRESSED.some(function (a) { return n.indexOf(a) === 0 || a.indexOf(n) === 0; });
+  }
+  state.comments.forEach(function (c) {
+    if (c.resolved === undefined && isAddressed(c)) c.resolved = true;
+  });
+  save();
+
   /* ── free-standing note fields ──
      Any <textarea data-note="key"> persists under state.notes[key] and is
      exported in the JSON. Unlike the per-question answer boxes these are not
@@ -243,6 +267,7 @@
       }
     });
     state.comments.forEach(function (c) {
+      if (c.resolved) return;   // the author has already acted on it; do not round-trip it
       out.comments.push({
         selected_text: c.text, near_question: c.near || null, comment: c.comment,
         anchored: !!document.querySelector('mark.cmt[data-cid="' + c.cid + '"]')

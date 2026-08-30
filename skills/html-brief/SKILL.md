@@ -220,6 +220,29 @@ Two halves, in this order, inside one `section.brief-section`:
 Pure CSS — the runtime does nothing with it, so the block ticks off and collapses like any other
 section.
 
+**The six SOURCED families**, if the brief uses the `fam` tag. Each names the condition the word is
+in, so the tag is a diagnosis the author can check rather than an instruction they have to derive:
+`umbrella` (covers several kinds of itself) · `compound` (needs every part supplied together) ·
+`overloaded` (two unrelated meanings, one spelling) · `unmeasured` (names something nobody
+measured) · `imprecise` (vague where an exact term exists) · `judgement` (says what ought to be, so
+no evidence settles it).
+
+## Closing a comment the reader made
+
+**A regenerated brief declares what it has already acted on, so nothing is carried back twice.**
+Put the first forty characters of each addressed comment on `<body>`, separated by `||`:
+
+    <body data-brief-id="my-brief" data-addressed="the umbrella term is not non-pre||overloaded">
+
+Matching is on a normalised prefix of the comment text, because the comment is the only stable
+identifier there is: it lives in the reader's browser, not in the file, so the file cannot carry an
+id it never saw. A matched comment renders struck through and greyed, stays readable, and is
+**dropped from the exported JSON**. Nothing is deleted, and the reader can still see what they
+said.
+
+**Do this every time you regenerate a brief in response to comments.** Leaving them unmarked makes
+the reader re-send the same points, which is the round-trip this feature exists to remove.
+
 ## Question-writing rules (as important as the widgets)
 
 - **Every question is answerable from its own text — never a bare id.** Name the study
