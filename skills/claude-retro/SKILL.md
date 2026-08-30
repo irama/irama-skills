@@ -70,6 +70,52 @@ Merge the subagents' findings (dedupe overlapping patterns, sum counts across ch
 
 Keep it evidence-led and quantitative — counts and quotes, not impressions. End the turn as a plan; offer to build the proposed skills as next steps, don't build unprompted.
 
+## Optional: the collaboration-move census (`/claude-retro census`)
+
+A second, heavier mode. The main method above finds *what the user asks for repeatedly*. This
+finds *what kind of move each turn is*, so the mix can be tracked over time and the automatable
+part identified. Run it when the user asks for a census, a move breakdown, or wants to know
+whether a change to their instructions actually reduced a category.
+
+**Deliverable is a census plus a trend, not a report of impressions.**
+
+### Method
+
+1. **Extract.** `python3 scripts/extract-turns.py $SCRATCH/turns.jsonl [days]`. This applies the
+   contamination filters — see the warning below, it is the single biggest trap.
+2. **Sample.** Round-robin across projects so no single repo dominates; cap per project. 500
+   turns is enough for the ordering; fewer than 300 is not.
+3. **Code it twice.** Split into ~20 batches, fan out one agent per batch against
+   `CODEBOOK.md`, then **do the whole thing again as an independent second run.** Both runs use
+   the same model and the same codebook. Each agent returns CSV only: `id,move,outcome,conf`.
+4. **Report.** `python3 scripts/census.py run1.csv run2.csv`.
+
+### Two rules that make the difference between a finding and a number
+
+**Never report a rate from a single coding run.** Measured 2026-08-31 on 499 records: two runs
+agreed on the outcome column only 71.9% exactly, 80.4% collapsed to changed-or-not, and the
+"changed something" count came out 100 in one and 128 in the other. What *was* stable across
+runs was the **ordering** of moves by impact. So report the ordering as the finding and any
+ratio as a range across runs. `census.py` prints the warning automatically when agreement drops
+below 85%.
+
+**Machine text is not human input, and it is 40% of what looks like it.** Background-agent
+completion notices, pasted quiz or brief JSON, and compaction summaries all arrive in the log
+as user turns. Measured 2026-08-30 before filtering: 41.8% of all apparent user turns, and
+**84% of the long ones**, because they are long and full of the exact vocabulary a
+framework-shaped filter looks for. Selecting on message length without filtering measures the
+machinery. Three separate kinds were found by reader agents rather than by the filter, so treat
+the filter list in `extract-turns.py` as incomplete and have coders flag records with no human
+message in them.
+
+### Tracking across runs
+
+Keep each run's CSV plus its date, codebook version and coder model. The point is the trend:
+if a standing rule was added to reduce a category, that category should shrink. **Model drift is
+a real confound** — different models code the same records differently, so a change in the mix
+is only evidence if the coder model held constant. Record which model ran, and when it changes,
+re-code one prior run with the new model before comparing.
+
 ## Notes
 - Homophone typos from voice dictation are common in prompts ("superbase", "versal", "sppon") — don't mistake them for distinct patterns.
 - `<task-notification>` / heartbeat / "Resume" lines are automation, not human prompts — exclude from human-prompt counts.
