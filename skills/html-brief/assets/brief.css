@@ -543,3 +543,9 @@ mark.cmt.resolved { opacity: .45; text-decoration-line: line-through;
   [data-doc] .doc-bar, [data-doc] .doc-src, [data-doc] .doc-rail,
   [data-doc] .doc-tablebar { display: none !important; }
 }
+
+/* Prose lists in a brief body: the marker sits outside so a wrapped line returns to the
+   text indent rather than under the bullet. Explicit because a brief may be rendered
+   inside a page whose reset removed it. */
+.sec-body ul, .sec-body ol, .q-body ul.options { padding-left: 1.35rem; }
+.sec-body li, .q-body ul.options li { list-style-position: outside; margin: .3rem 0; }

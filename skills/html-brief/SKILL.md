@@ -437,14 +437,25 @@ compatible with stored state) — improvements then benefit every future brief.
 
 ## Verifying template changes
 
-`assets/smoke-test.mjs` drives a generated test page with Playwright (ticks,
-persistence, comment popover, JSON export). Run it after any runtime edit:
-build a minimal page from the template into a temp dir **named `test.html`**,
-alongside copies of `brief.css`/`brief.js`, then `node smoke-test.mjs <dir>`.
-Include a `[data-doc]` block in that page — the editor half of the suite (rich
-editing, click-to-caret, the toolbar, the Source toggle, the heading rail,
-markdown round-trip) is skipped when the page has none, and a skipped check
-reads exactly like a passing one.
-Playwright resolves from the *script's* location, so copy `smoke-test.mjs` into
-a repo that has playwright installed and run it from there. All booleans true +
-`errors: []` = pass.
+`assets/smoke-test.mjs` drives `assets/test-fixture.html` with Playwright and
+covers the lot: ticks, persistence, the comment popover and drawer, JSON export,
+and the whole document editor (click-to-edit, caret placement, toolbar states,
+Raw MD, tables, the heading rail). **Run it after any runtime edit.**
+
+    mkdir -p /tmp/bt && cp assets/{brief.css,brief.js} /tmp/bt/
+    cp assets/test-fixture.html /tmp/bt/test.html
+    # smoke-test.mjs resolves playwright from ITS OWN location, so run it from a
+    # repo that has playwright installed:
+    cp assets/smoke-test.mjs <a-repo-with-playwright>/ && node smoke-test.mjs /tmp/bt
+
+All booleans true + `errors: []` = pass. The fixture must keep its `[data-doc]`
+block: the editor half of the suite is skipped when a page has none, and a
+skipped check reads exactly like a passing one.
+
+## Updating an existing brief's runtime
+
+`brief.css` / `brief.js` are **copied next to each brief**, so an old brief keeps
+running its old runtime forever — a fixed bug will look unfixed in the file the
+reader actually has. When a brief is reopened after a runtime change, copy both
+assets over its folder again and hard-refresh (⌘⇧R); the page caches the script.
+Stored answers, comments and edits are keyed independently and survive the swap.
