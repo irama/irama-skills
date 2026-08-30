@@ -372,39 +372,39 @@
   #cdrawer .dempty { color: var(--muted); font-size: .85rem; line-height: 1.5; padding: .6rem 0; }
 
 
-/* ---- Terms block -------------------------------------------------------
+/* ---- Definitions block -------------------------------------------------------
    An optional vocabulary section for a brief whose subject has contested or
    ambiguous words in it. Two halves: terms the brief sets aside, and terms it
-   uses. Markup contract in SKILL.md § Terms block. Pure CSS, no runtime.
+   uses. Markup contract in SKILL.md § Definitions block. Pure CSS, no runtime.
    Shape borrowed from the SOURCED definitions block so a brief and a position
    paper teach one vocabulary layout.                                        */
 
-.terms-h { font-size: .78rem; letter-spacing: .09em; text-transform: uppercase;
+.defs-h { font-size: .78rem; letter-spacing: .09em; text-transform: uppercase;
            color: var(--muted); border-bottom: 1px solid var(--line);
            padding-bottom: .3rem; margin: 1.2rem 0 .7rem; }
-.terms-h:first-child { margin-top: 0; }
+.defs-h:first-child { margin-top: 0; }
 
 /* the half we are not using */
-.terms-out { display: flex; flex-wrap: wrap; gap: .45rem; }
-.terms-out .term { border: 1px dashed var(--line); border-radius: 6px;
+.defs-out { display: flex; flex-wrap: wrap; gap: .45rem; }
+.defs-out .term { border: 1px dashed var(--line); border-radius: 6px;
                    padding: .35rem .6rem; font-size: .86rem; }
-.terms-out .term s { opacity: .5; }
-.terms-out .term .to { color: var(--muted); margin: 0 .25rem; }
-.terms-out .term .why { display: block; color: var(--muted); font-size: .76rem; margin-top: .15rem; }
+.defs-out .term s { opacity: .5; }
+.defs-out .term .to { color: var(--muted); margin: 0 .25rem; }
+.defs-out .term .why { display: block; color: var(--muted); font-size: .76rem; margin-top: .15rem; }
 
 /* the half we are using */
-.terms-in { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .7rem; }
-.terms-in .term { border: 1px solid var(--line); border-radius: 8px; padding: .8rem;
+.defs-in { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .7rem; }
+.defs-in .term { border: 1px solid var(--line); border-radius: 8px; padding: .8rem;
                   position: relative; background: var(--card); }
-.terms-in .term h4 { margin: .1rem 0 .5rem; font-size: 1.02rem; }
-.terms-in .term .fam { position: absolute; top: .55rem; right: .6rem; font-size: .62rem;
+.defs-in .term h4 { margin: .1rem 0 .5rem; font-size: 1.02rem; }
+.defs-in .term .fam { position: absolute; top: .55rem; right: .6rem; font-size: .62rem;
                        letter-spacing: .09em; text-transform: uppercase; color: var(--muted);
                        border: 1px solid var(--line); border-radius: 999px; padding: .02rem .4rem; }
-.terms-in .term ul { list-style: none; margin: 0; padding: 0; }
-.terms-in .term li { margin: 0 0 .4rem; font-size: .88rem; }
-.terms-in .term li .k { display: block; font-size: .66rem; letter-spacing: .06em;
+.defs-in .term ul { list-style: none; margin: 0; padding: 0; }
+.defs-in .term li { margin: 0 0 .4rem; font-size: .88rem; }
+.defs-in .term li .k { display: block; font-size: .66rem; letter-spacing: .06em;
                         text-transform: uppercase; color: var(--muted); }
-.terms-in .term .foot { margin-top: .5rem; padding-top: .4rem; border-top: 1px solid var(--line);
+.defs-in .term .foot { margin-top: .5rem; padding-top: .4rem; border-top: 1px solid var(--line);
                         font-size: .72rem; color: var(--muted); }
 
-@media print { .terms-in { grid-template-columns: 1fr 1fr; } }
+@media print { .defs-in { grid-template-columns: 1fr 1fr; } }

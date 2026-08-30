@@ -165,7 +165,7 @@ a paper.
    answer box.
 9. **Next phase readiness** — what's unblocked, what's still waiting.
 
-## Terms block — put the vocabulary at the top
+## Definitions block — put the vocabulary at the top
 
 **When a brief turns on words the reader and the writer may use differently, open with a Terms
 block.** Contested, ambiguous or newly-coined words are the commonest reason a brief gets answered
@@ -174,25 +174,25 @@ it. Borrowed from the SOURCED definitions block, so a brief and a position paper
 
 **Use it when** the brief coins a term, uses a word two parties define differently, or asks a
 question whose answer depends on which sense of a word is meant. **Skip it** for a brief with no
-such words — an empty Terms block is worse than none.
+such words — an empty Definitions block is worse than none.
 
 Two halves, in this order, inside one `section.brief-section`:
 
-    <section class="brief-section" data-sec="terms">
+    <section class="brief-section" data-sec="definitions">
       <div class="sec-head">
         <label class="tick"><input type="checkbox" aria-label="Mark section read"></label>
-        <h2>Terms</h2>
+        <h2>Definitions</h2>
       </div>
       <div class="sec-body">
 
-        <p class="terms-h">Not used here</p>
-        <div class="terms-out">
+        <p class="defs-h">Not used here</p>
+        <div class="defs-out">
           <div class="term"><s>Decline</s> <span class="to">→</span> <b>depreciation</b> · <b>displacement</b>
             <span class="why">used for two things that move on different clocks</span></div>
         </div>
 
-        <p class="terms-h">Used here</p>
-        <div class="terms-in">
+        <p class="defs-h">Used here</p>
+        <div class="defs-in">
           <div class="term">
             <div class="fam">needs</div>
             <h4>Risk</h4>
@@ -207,10 +207,10 @@ Two halves, in this order, inside one `section.brief-section`:
       </div>
     </section>
 
-- **`terms-out` is what the brief sets aside.** One line each: the word struck through, the word
+- **`defs-out` is what the brief sets aside.** One line each: the word struck through, the word
   used instead in bold, and a short `why`. Never a paragraph — if it needs one, it belongs in
-  `terms-in` as a term the brief does use.
-- **`terms-in` is what the brief uses.** The `fam` tag names the relation and is optional; the
+  `defs-in` as a term the brief does use.
+- **`defs-in` is what the brief uses.** The `fam` tag names the relation and is optional; the
   SOURCED families are `split`, `needs`, `disambiguate`, `gap`, `rename`, `normative`.
 - **`foot` says which questions the term bears on**, so a reader can see why the word was worth
   defining. Drop it rather than leave it vague.
