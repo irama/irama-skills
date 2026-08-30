@@ -48,15 +48,15 @@ extras you add.
    `section.q` (not a bare `<h2>`), so it gets one.
 3. **Selection-comment system** — provided by the runtime; requires `brief.js`
    loaded and `<main>` present. Never omit the script.
-4. **"Copy responses" + "Download responses" buttons** — provided by the runtime top bar; require
-   `brief.js` + `data-brief-id` on `<body>`.
+4. **Copy + download icon buttons** — one combo control in the runtime top bar;
+   require `brief.js` + `data-brief-id` on `<body>`.
 5. **A References section with numbered footnotes** — whenever the brief rests on
    sources outside itself (documents, videos, transcripts, papers, web pages, other
    repo files). See the next section; it is not optional and not a nice-to-have.
 
 Self-check before sending: open the file, confirm you can see numbered questions,
-a "Your answer" box under each, "Copy responses" + "Download responses" buttons top-right, and — if the
-brief cites anything — footnote markers that jump to a References section carrying
+a "Your answer" box under each, the comments / width / theme / copy+download icons
+top-right, and — if the brief cites anything — footnote markers that jump to a References section carrying
 the quoted passages. If any is missing, you didn't build it as a brief — fix it.
 
 ## References and footnotes — every sourced claim is traceable
@@ -225,11 +225,29 @@ a paper.
   button into every `<pre>` (copies its `<code>`/text content, ✓ + toast on
   success). Just write plain `<pre><code>…</code></pre>` — never hand-roll a
   copy button.
-- **Copy responses** button → JSON of `{id, question, resolved, answer}` pairs
-  plus all selection comments **and all note fields**.
-- **Download responses** button → same JSON, saved as
-  `<brief-id>-responses-<YYYY-MM-DD>.json`. For a brief read offline, or answers
-  worth keeping as a file rather than a clipboard.
+- **Copy + download combo button** → JSON of `{id, question, resolved, answer}`
+  pairs plus all selection comments, all drafts and all note fields. The download
+  half writes `<brief-id>-responses-<YYYY-MM-DD>.json`, for a brief read offline or
+  answers worth keeping as a file. Both are icon-only with hover tooltips.
+- **Comments drawer** (speech-bubble icon, or press `C`) → every comment and every
+  unsaved draft in one scrollable list, with Show / Edit / Delete per row and
+  Resume / Discard per draft. A comment whose highlight could not be restored is
+  listed with a **not highlighted** badge rather than disappearing — the drawer is
+  what makes a lost highlight cosmetic instead of a lost thought.
+- **Draft rescue** — text typed into a comment popup is persisted on every
+  keystroke. Clicking away, pressing Escape, or reloading keeps it as a draft in the
+  drawer and in the exported JSON under `drafts`. Only the explicit **Discard**
+  button throws it away.
+- **Keyboard in the comment popup** — `Cmd/Ctrl+Enter` saves, `Escape` closes and
+  keeps the draft.
+- **Tooltips carry their shortcut.** Every top-bar control renders a CSS tooltip
+  from `data-tip` naming what it does and its key (`Copy responses JSON · ⌘C`).
+  Never use the `title` attribute — it is slow, unstyleable and hides the shortcut.
+- **Comment anchoring survives element boundaries.** Selections flatten to a
+  whitespace-normalised string with an index map back into the text nodes, so a quote
+  crossing a `<strong>` or spanning two paragraphs anchors as one comment and
+  re-anchors on reload. The occurrence index is stored, so a repeated phrase
+  re-anchors onto the copy that was actually selected.
 - **Per-item note fields** — put `<textarea data-note="unique-key"
   data-note-label="human label">` anywhere (under an audio sample, a mockup, a
   table row) and the runtime persists it to localStorage and exports it under
@@ -266,7 +284,10 @@ stated"; a non-empty `answer` is the reply regardless of `ticked`. Do **not** re
 `resolved: false` as "unanswered" when `answer` is non-empty — that combination
 can only come from a brief generated before this contract, and the answer still
 stands. Comments are keyed by `selected_text` +
-`near_question` — locate the passage before acting on the comment. After
+`near_question` — locate the passage before acting on the comment. A comment with
+`anchored: false` lost its highlight and was recovered from the drawer; treat it
+exactly like any other. Entries under `drafts` are text the reader typed but never
+saved — read them, but confirm before acting, since they may be abandoned thoughts. After
 processing, update whatever register/doc the questions came from and, if
 questions remain, regenerate the SAME brief file (same `{{BRIEF_ID}}`, same
 path) with resolved questions removed or marked, so their saved state stays

@@ -2,15 +2,43 @@
   'use strict';
   function init() {
   var BRIEF = document.body.dataset.briefId || location.pathname;
+  var isMac = /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent);
+  var MOD = isMac ? '\u2318' : 'Ctrl-';
+  /* Stroke SVGs rather than glyphs: the old \u21F2 / \u2194 pair for width read as
+     "resize window", not "narrow column vs full bleed". Rails + arrows say it. */
+  function svg(body) {
+    return '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+  }
+  var ICON = {
+    goFull: svg('<path d="M2.5 4v16"/><path d="M21.5 4v16"/><path d="M10 12H5.5"/><path d="m8 9-3 3 3 3"/><path d="M14 12h4.5"/><path d="m16 9 3 3-3 3"/>'),
+    goFixed: svg('<path d="M2.5 4v16"/><path d="M21.5 4v16"/><path d="M5.5 12H10"/><path d="m7.5 9 3 3-3 3"/><path d="M18.5 12H14"/><path d="m16.5 9-3 3 3 3"/>'),
+    auto: svg('<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16Z" fill="currentColor" stroke="none"/>'),
+    light: svg('<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2"/><path d="M12 19.5v2"/><path d="M2.5 12h2"/><path d="M19.5 12h2"/><path d="m5.3 5.3 1.4 1.4"/><path d="m17.3 17.3 1.4 1.4"/><path d="m18.7 5.3-1.4 1.4"/><path d="m6.7 17.3-1.4 1.4"/>'),
+    dark: svg('<path d="M20.5 14.3A8.6 8.6 0 0 1 9.7 3.5a8.6 8.6 0 1 0 10.8 10.8Z"/>'),
+    comment: svg('<path d="M20.5 11.8a7.8 7.8 0 0 1-7.8 7.8H8.4L4 22.3v-4.6a7.8 7.8 0 0 1-.5-2.7v-3.2A7.8 7.8 0 0 1 11.3 4h1.4a7.8 7.8 0 0 1 7.8 7.8Z"/>'),
+    copy: svg('<rect x="9" y="9" width="11.5" height="11.5" rx="2.2"/><path d="M15.5 5.6A2.2 2.2 0 0 0 13.4 3.5H5.7a2.2 2.2 0 0 0-2.2 2.2v7.7a2.2 2.2 0 0 0 2.1 2.1"/>'),
+    download: svg('<path d="M12 3.5v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4 20.5h16"/>')
+  };
+  /* No title-attribute tooltips: they are slow, unstyleable and invisible to
+     touch. data-tip renders through CSS, and carries the keyboard shortcut. */
+  function tip(el, text, key) {
+    if (!el) return;
+    el.setAttribute('data-tip', text + (key ? '  \u00b7  ' + key : ''));
+    el.setAttribute('aria-label', text + (key ? ' (' + key + ')' : ''));
+  }
   /* bootstrap chrome if the page didn't include it */
   if (!document.querySelector('.topbar')) {
     var tb = document.createElement('div');
     tb.className = 'topbar';
     tb.innerHTML = '<h1></h1><a class="progress" id="progress"></a>' +
+      '<button class="btn icon" id="cmtBtn" type="button"></button>' +
       '<button class="btn icon" id="widthBtn" type="button"></button>' +
       '<button class="btn icon" id="themeBtn" type="button"></button>' +
-      '<button class="btn" id="copyBtn" type="button">Copy responses</button>' +
-      '<button class="btn" id="downloadBtn" type="button">Download responses</button>';
+      '<span class="btncombo">' +
+      '<button class="btn icon" id="copyBtn" type="button"></button>' +
+      '<button class="btn icon" id="downloadBtn" type="button"></button>' +
+      '</span>';
     tb.querySelector('h1').textContent = document.title;
     document.body.insertBefore(tb, document.body.firstChild);
   }
@@ -26,12 +54,14 @@
     document.body.classList.toggle('fullwidth', ui.width === 'full');
     var tbn = document.getElementById('themeBtn'), wbn = document.getElementById('widthBtn');
     if (tbn) {
-      tbn.textContent = TICON[ui.theme];
-      tbn.setAttribute('aria-label', TLABEL[ui.theme] + ' — click to switch');
+      tbn.innerHTML = ICON[ui.theme === 'auto' ? 'auto' : ui.theme];
+      tip(tbn, TLABEL[ui.theme] + ' \u2014 click to switch');
     }
     if (wbn) {
-      wbn.textContent = ui.width === 'full' ? '\u2194' : '\u21F2';
-      wbn.setAttribute('aria-label', (ui.width === 'full' ? 'Full width' : 'Fixed width') + ' — click to toggle');
+      /* The icon shows what the click DOES, not the current state: an arrow set
+         pointing outward means "widen", inward means "narrow back". */
+      wbn.innerHTML = ui.width === 'full' ? ICON.goFixed : ICON.goFull;
+      tip(wbn, ui.width === 'full' ? 'Narrow to fixed width' : 'Expand to full width');
     }
     localStorage.setItem('briefUI', JSON.stringify(ui));
   }
@@ -84,9 +114,11 @@
     if (m) m.id = 'briefMain';
   }
   var KEY = 'brief:' + BRIEF;
-  var state = { ticks: {}, answers: {}, notes: {}, comments: [] };
+  var state = { ticks: {}, answers: {}, notes: {}, comments: [], drafts: [] };
   if (!state.notes) state.notes = {};
   try { state = Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch {}
+  if (!Array.isArray(state.drafts)) state.drafts = [];
+  if (!Array.isArray(state.comments)) state.comments = [];
   function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
   function toast(msg) {
     var t = document.getElementById('toast');
@@ -211,11 +243,21 @@
       }
     });
     state.comments.forEach(function (c) {
-      out.comments.push({ selected_text: c.text, near_question: c.near || null, comment: c.comment });
+      out.comments.push({
+        selected_text: c.text, near_question: c.near || null, comment: c.comment,
+        anchored: !!document.querySelector('mark.cmt[data-cid="' + c.cid + '"]')
+      });
     });
+    /* Drafts are comments the reader typed but never saved. They ship in the
+       payload rather than being dropped: losing a typed thought to a stray
+       click outside the box is the failure this whole subsystem exists to stop. */
+    out.drafts = state.drafts.filter(function (d) { return (d.comment || '').trim(); })
+      .map(function (d) {
+        return { selected_text: d.text || '', near_question: d.near || null,
+                 comment: d.comment, draft: true };
+      });
     return JSON.stringify(out, null, 2);
   }
-  var isMac = /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent);
   function copyText(txt, msg) {
     function fallback() {
       var ta = document.createElement('textarea');
@@ -228,7 +270,10 @@
     } else fallback();
   }
   function copyJSON() { copyText(responsesJSON(), 'Responses JSON copied'); }
-  document.getElementById('copyBtn').addEventListener('click', copyJSON);
+  var copyBtnEl = document.getElementById('copyBtn');
+  copyBtnEl.innerHTML = ICON.copy;
+  tip(copyBtnEl, 'Copy responses JSON', MOD + 'C');
+  copyBtnEl.addEventListener('click', copyJSON);
   /* Download the same payload as a file — a brief read offline, or one whose
      answers must be kept, needs an artefact rather than a clipboard. */
   function downloadJSON() {
@@ -243,7 +288,11 @@
     toast('Responses JSON downloaded');
   }
   var dlBtn = document.getElementById('downloadBtn');
-  if (dlBtn) dlBtn.addEventListener('click', downloadJSON);
+  if (dlBtn) {
+    dlBtn.innerHTML = ICON.download;
+    tip(dlBtn, 'Download responses JSON');
+    dlBtn.addEventListener('click', downloadJSON);
+  }
   document.addEventListener('keydown', function (e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
       var sel = window.getSelection();
@@ -254,116 +303,367 @@
     if (e.key === 'Escape') closePop();
   });
 
-  /* ── selection comments ── */
-  var pop = null, editing = null; // editing = comment object being edited
+  /* ── selection comments ───────────────────────────────────────────────
+     Three defects fixed here, all of which presented as "my comment vanished":
+       1. surroundContents() throws on any selection crossing an element
+          boundary, so the comment saved but was never highlighted, and nothing
+          in the UI could reach it again.
+       2. re-anchoring searched one text node at a time, so a quote spanning a
+          <strong> or two paragraphs could never re-match on reload.
+       3. text typed into the popup was lost the moment the reader clicked away.
+     The drawer is the backstop: every comment and every draft is reachable
+     from it whether or not its highlight survived. */
+  var CHROME = '.topbar, #cpop, #cdrawer, #toast, .codecopy';
+  var pop = null, editing = null, pendingRange = null, popDraftKey = null;
+
+  function main() { return document.getElementById('briefMain') || document.querySelector('main'); }
+  function norm(t) { return String(t).replace(/\s+/g, ' ').trim(); }
   function nearestQ(node) {
-    var el = node.nodeType === 1 ? node : node.parentElement;
+    var el = node && node.nodeType === 1 ? node : (node && node.parentElement);
     var q = el && el.closest ? el.closest('section.q, section.brief-section') : null;
     return q ? (q.dataset.q || q.dataset.sec) : null;
   }
-  function closePop() { if (pop) { pop.remove(); pop = null; editing = null; } }
-  function openPop(x, y, quote, existing) {
+
+  function textNodesIn(root) {
+    if (!root) return [];
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        if (!n.nodeValue || !n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        var pe = n.parentElement;
+        if (!pe || pe.closest(CHROME)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    var out = [], n;
+    while ((n = w.nextNode())) out.push(n);
+    return out;
+  }
+
+  /* Flatten the document to one whitespace-normalised string with an index map
+     back into its text nodes, so a quote spanning several elements still
+     resolves to a single Range. */
+  function flatten(root) {
+    var nodes = textNodesIn(root), str = '', map = [];
+    nodes.forEach(function (n) {
+      var v = n.nodeValue;
+      for (var i = 0; i < v.length; i++) {
+        var ch = /\s/.test(v[i]) ? ' ' : v[i];
+        if (ch === ' ' && str.slice(-1) === ' ') continue;
+        str += ch; map.push({ node: n, offset: i });
+      }
+    });
+    return { text: str, map: map };
+  }
+
+  function findRange(root, quote, nth) {
+    if (!root || !quote) return null;
+    var f = flatten(root), q = norm(quote);
+    if (!q) return null;
+    var from = 0, at = -1, seen = 0, hit;
+    while ((hit = f.text.indexOf(q, from)) !== -1) {
+      at = hit;
+      if (seen === (nth || 0)) break;
+      seen++; from = hit + 1; at = -1;
+    }
+    if (at === -1 || !f.map[at] || !f.map[at + q.length - 1]) return null;
+    var a = f.map[at], b = f.map[at + q.length - 1];
+    var r = document.createRange();
+    r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset + 1);
+    return r;
+  }
+
+  /* Which occurrence of this text the reader actually selected — without it,
+     a repeated phrase re-anchors onto the first match on reload. */
+  function occurrenceOf(root, range) {
+    var f = flatten(root), q = norm(range.toString());
+    if (!q) return 0;
+    var probe = document.createRange(), from = 0, at, i = 0;
+    while ((at = f.text.indexOf(q, from)) !== -1) {
+      var a = f.map[at], b = f.map[at + q.length - 1];
+      if (a && b) {
+        probe.setStart(a.node, a.offset); probe.setEnd(b.node, b.offset + 1);
+        if (probe.compareBoundaryPoints(Range.START_TO_START, range) === 0) return i;
+      }
+      i++; from = at + 1;
+    }
+    return 0;
+  }
+
+  /* Wrap every text node the range touches in its own <mark>, instead of one
+     surroundContents() that throws the moment the range crosses an element. */
+  function wrapRange(range, cid) {
+    var all = textNodesIn(main()).filter(function (n) {
+      try { return range.intersectsNode(n); } catch { return false; }
+    });
+    if (!all.length) return false;
+    var sc = range.startContainer, so = range.startOffset;
+    var ec = range.endContainer, eo = range.endOffset;
+    var made = false;
+    all.forEach(function (node) {
+      var a = (node === sc) ? so : 0;
+      var b = (node === ec) ? eo : node.nodeValue.length;
+      if (b <= a) return;
+      var r = document.createRange();
+      try { r.setStart(node, a); r.setEnd(node, b); } catch { return; }
+      var mk = document.createElement('mark');
+      mk.className = 'cmt'; mk.dataset.cid = cid;
+      try { r.surroundContents(mk); made = true; } catch {}
+    });
+    return made;
+  }
+
+  function unpaint(cid) {
+    Array.prototype.forEach.call(document.querySelectorAll('mark.cmt[data-cid="' + cid + '"]'), function (m) {
+      var parent = m.parentNode;
+      while (m.firstChild) parent.insertBefore(m.firstChild, m);
+      m.remove(); parent.normalize();
+    });
+  }
+  function isAnchored(cid) { return !!document.querySelector('mark.cmt[data-cid="' + cid + '"]'); }
+
+  /* ── drafts ── */
+  function draftKey(existing, quote) { return existing ? 'cid:' + existing.cid : 'sel:' + norm(quote); }
+  function draftFor(key) {
+    return state.drafts.filter(function (d) { return d.key === key; })[0] || null;
+  }
+  function putDraft(key, quote, body, near, cid) {
+    var d = draftFor(key);
+    if (!body.trim()) { return dropDraft(key); }
+    if (!d) { d = { key: key, text: quote || '', near: near || null, cid: cid || null }; state.drafts.push(d); }
+    d.comment = body; d.at = new Date().toISOString();
+    save(); renderDrawer();
+  }
+  function dropDraft(key) {
+    var before = state.drafts.length;
+    state.drafts = state.drafts.filter(function (d) { return d.key !== key; });
+    if (state.drafts.length !== before) { save(); renderDrawer(); }
+  }
+
+  /* ── the popup ── */
+  function closePop() { if (pop) { pop.remove(); pop = null; editing = null; popDraftKey = null; } }
+
+  function openPop(x, y, quote, existing, prefill) {
     closePop();
+    var key = draftKey(existing, quote);
+    popDraftKey = key;
+    var draft = draftFor(key);
     pop = document.createElement('div');
     pop.id = 'cpop';
     pop.innerHTML =
-      '<div class="quote">“' + quote.replace(/</g, '&lt;').slice(0, 140) + '”</div>' +
+      '<div class="quote">“' + String(quote).replace(/[<&]/g, function (c) { return c === '<' ? '&lt;' : '&amp;'; }).slice(0, 180) + '”</div>' +
       '<textarea placeholder="Comment — saved locally"></textarea>' +
       '<div class="row">' +
       (existing ? '<button class="btn small danger" data-act="del" type="button">Delete</button>' : '') +
       (existing ? '' : '<button class="btn small" data-act="copy" type="button">Copy text</button>') +
-      '<button class="btn small" data-act="cancel" type="button">Cancel</button>' +
-      '<button class="btn small" data-act="save" type="button">Save</button></div>' +
-      (existing ? '' : '<p class="pophint">Selection is still live — ' + (isMac ? '⌘C' : 'Ctrl-C') + ' copies it. Click the box to comment.</p>');
+      '<button class="btn small" data-act="cancel" type="button">Discard</button>' +
+      '<button class="btn small primary" data-act="save" type="button">Save</button></div>' +
+      '<p class="pophint">' + MOD + 'Enter saves · Esc closes and keeps a draft' +
+      (existing ? '' : ' · selection stays live, ' + MOD + 'C copies it') + '</p>';
     document.body.appendChild(pop);
     var vw = document.documentElement.clientWidth;
     var w = pop.offsetWidth;
-    var left = Math.max(8, Math.min(x - w / 2, vw - w - 8));
-    pop.style.left = left + 'px';
+    pop.style.left = Math.max(8, Math.min(x - w / 2, vw - w - 8)) + 'px';
     pop.style.top = (y + 8) + 'px';
+
     var ta = pop.querySelector('textarea');
-    if (existing) { ta.value = existing.comment; ta.focus(); }
-    /* On a fresh selection we deliberately do NOT focus the textarea: focusing it
-       collapses the document selection, which would break plain copy. The range is
-       already cloned into pendingRange, so the user can copy first and comment after. */
+    ta.value = (prefill != null ? prefill : (draft ? draft.comment : (existing ? existing.comment : '')));
+    /* On a FRESH selection we deliberately do not focus: focusing collapses the
+       document selection and would break a plain copy. */
+    if (existing || prefill != null) setTimeout(function () { ta.focus(); }, 10);
+
+    ta.addEventListener('input', function () {
+      putDraft(key, quote, ta.value, existing ? existing.near : (pendingRange ? nearestQ(pendingRange.startContainer) : null),
+               existing ? existing.cid : null);
+    });
+    pop.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePop(); return; }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopPropagation(); commit(); }
+    }, true);
     pop.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+
+    function commit() {
+      var val = ta.value.trim();
+      if (!val) { dropDraft(key); closePop(); return; }
+      if (existing) {
+        existing.comment = val; existing.at = new Date().toISOString();
+        dropDraft(key); save(); renderDrawer(); closePop(); toast('Comment updated');
+        return;
+      }
+      var cid = 'c' + Date.now() + Math.floor(Math.random() * 1000);
+      var range = pendingRange || (draft ? findRange(main(), draft.text, draft.nth || 0) : null);
+      var c = {
+        cid: cid, text: quote, comment: val,
+        near: range ? nearestQ(range.startContainer) : (draft ? draft.near : null),
+        nth: range ? occurrenceOf(main(), range) : 0,
+        at: new Date().toISOString()
+      };
+      state.comments.push(c);
+      if (range) wrapRange(range, cid);
+      dropDraft(key); save(); renderDrawer(); closePop();
+      var sel = window.getSelection(); if (sel) sel.removeAllRanges();
+      toast(isAnchored(cid) ? 'Comment saved' : 'Comment saved (no highlight — find it in Comments)');
+    }
+
     pop.addEventListener('click', function (e) {
-      var act = e.target.dataset && e.target.dataset.act;
+      var btn = e.target.closest && e.target.closest('button');
+      var act = btn && btn.dataset.act;
       if (!act) return;
-      if (act === 'cancel') closePop();
-      if (act === 'copy') { copyText(quote, 'Selected text copied'); closePop(); }
-      if (act === 'del' && editing) {
-        var m = document.querySelector('mark.cmt[data-cid="' + editing.cid + '"]');
-        if (m) m.replaceWith(document.createTextNode(m.textContent));
-        state.comments = state.comments.filter(function (c) { return c.cid !== editing.cid; });
-        save(); closePop(); toast('Comment deleted');
+      if (act === 'cancel') { dropDraft(key); closePop(); return; }
+      if (act === 'copy') { copyText(quote, 'Selected text copied'); return; }
+      if (act === 'del' && existing) {
+        unpaint(existing.cid);
+        state.comments = state.comments.filter(function (c) { return c.cid !== existing.cid; });
+        dropDraft(key); save(); renderDrawer(); closePop(); toast('Comment deleted');
+        return;
       }
-      if (act === 'save') {
-        var val = ta.value.trim();
-        if (!val) { closePop(); return; }
-        if (editing) { editing.comment = val; save(); closePop(); toast('Comment updated'); }
-        else if (pendingRange) {
-          var cid = 'c' + Date.now();
-          var c = { cid: cid, text: quote, comment: val, near: nearestQ(pendingRange.startContainer) };
-          try {
-            var mark = document.createElement('mark');
-            mark.className = 'cmt'; mark.dataset.cid = cid;
-            pendingRange.surroundContents(mark);
-          } catch { /* cross-element selection — keep comment unanchored */ }
-          state.comments.push(c); save(); closePop(); toast('Comment saved');
-          window.getSelection().removeAllRanges();
-        }
-      }
+      if (act === 'save') commit();
     });
   }
-  var pendingRange = null;
+
+  function editComment(c) {
+    editing = c;
+    var mk = document.querySelector('mark.cmt[data-cid="' + c.cid + '"]');
+    var r = mk ? mk.getBoundingClientRect() : { left: innerWidth / 2 - 170, width: 0, bottom: 120 };
+    if (mk) mk.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    openPop(r.left + r.width / 2 + window.scrollX, r.bottom + window.scrollY, c.text, c, null);
+  }
+
   document.addEventListener('mouseup', function (e) {
     if (pop && pop.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('#cdrawer, .topbar')) return;
     var mark = e.target.closest && e.target.closest('mark.cmt');
     setTimeout(function () {
       var sel = window.getSelection();
-      if (sel && !sel.isCollapsed && sel.toString().trim() && document.getElementById('briefMain').contains(sel.anchorNode)) {
+      if (sel && !sel.isCollapsed && sel.toString().trim() && main() && main().contains(sel.anchorNode)) {
         pendingRange = sel.getRangeAt(0).cloneRange();
         var r = pendingRange.getBoundingClientRect();
-        openPop(r.left + r.width / 2 + window.scrollX, r.bottom + window.scrollY, sel.toString().trim(), null);
+        openPop(r.left + r.width / 2 + window.scrollX, r.bottom + window.scrollY, sel.toString().trim(), null, null);
       } else if (mark) {
         var c = state.comments.filter(function (x) { return x.cid === mark.dataset.cid; })[0];
-        if (c) {
-          editing = c;
-          var r2 = mark.getBoundingClientRect();
-          openPop(r2.left + r2.width / 2 + window.scrollX, r2.bottom + window.scrollY, c.text, c);
-        }
+        if (c) editComment(c);
       } else if (pop) closePop();
     }, 0);
   });
 
-  /* re-anchor saved comments: text search in text nodes. Whitespace-insensitive —
-     Selection.toString() collapses the newlines that source markup leaves in the
-     text node, so an exact indexOf misses every multi-line quote. */
-  function looseMatcher(text) {
-    var esc = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-    return new RegExp(esc);
-  }
   function reanchor() {
     state.comments.forEach(function (c) {
-      if (document.querySelector('mark.cmt[data-cid="' + c.cid + '"]')) return;
-      var walker = document.createTreeWalker(document.getElementById('briefMain'), NodeFilter.SHOW_TEXT);
-      var re = looseMatcher(c.text), n;
-      while ((n = walker.nextNode())) {
-        var m = re.exec(n.nodeValue);
-        if (!m) continue;
-        var i = m.index;
-        var range = document.createRange();
-        range.setStart(n, i); range.setEnd(n, i + m[0].length);
-        try {
-          var mark = document.createElement('mark');
-          mark.className = 'cmt'; mark.dataset.cid = c.cid;
-          range.surroundContents(mark);
-        } catch {}
-        break;
-      }
+      if (isAnchored(c.cid)) return;
+      var r = findRange(main(), c.text, c.nth || 0);
+      if (r) wrapRange(r, c.cid);
+    });
+    renderDrawer();
+  }
+
+  /* ── comments drawer ──
+     Every comment and draft in one list, anchored or not. This is what makes a
+     lost highlight a cosmetic problem instead of a lost thought. */
+  var drawer = document.createElement('div');
+  drawer.id = 'cdrawer'; drawer.hidden = true;
+  drawer.setAttribute('role', 'dialog');
+  drawer.setAttribute('aria-label', 'Comments and drafts');
+  document.body.appendChild(drawer);
+
+  function esc(t) {
+    return String(t == null ? '' : t).replace(/[<>&]/g, function (c) {
+      return c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;';
     });
   }
+
+  function renderDrawer() {
+    var cmtBtn = document.getElementById('cmtBtn');
+    var drafts = state.drafts.filter(function (d) { return (d.comment || '').trim(); });
+    var n = state.comments.length;
+    if (cmtBtn) {
+      cmtBtn.innerHTML = ICON.comment +
+        (n || drafts.length ? '<span class="cbadge' + (drafts.length ? ' hasdraft' : '') + '">' + (n + drafts.length) + '</span>' : '');
+      tip(cmtBtn, 'Comments' + (drafts.length ? ' — ' + drafts.length + ' unsaved draft' + (drafts.length > 1 ? 's' : '') : ''), 'C');
+    }
+    if (drawer.hidden) return;
+    var html = '<div class="dhead"><strong>Comments</strong><button class="btn small" data-d="close" type="button">Close</button></div>';
+    if (drafts.length) {
+      html += '<p class="dlabel">Unsaved drafts</p>';
+      drafts.forEach(function (d) {
+        html += '<div class="drow draft" data-key="' + esc(d.key) + '">' +
+          '<div class="dq">' + (d.text ? '“' + esc(d.text).slice(0, 160) + '”' : '<em>no selection</em>') + '</div>' +
+          '<div class="db">' + esc(d.comment) + '</div>' +
+          '<div class="dacts"><button class="btn small" data-d="resume" type="button">Resume</button>' +
+          '<button class="btn small danger" data-d="discard" type="button">Discard</button></div></div>';
+      });
+    }
+    if (!n) {
+      html += '<p class="dempty">No saved comments yet. Select any text in the brief to comment on it.</p>';
+    } else {
+      html += '<p class="dlabel">Saved</p>';
+      state.comments.forEach(function (c) {
+        var anchored = isAnchored(c.cid);
+        html += '<div class="drow" data-cid="' + esc(c.cid) + '">' +
+          '<div class="dq">“' + esc(c.text).slice(0, 160) + '”' +
+          (anchored ? '' : '<span class="dbadge">not highlighted</span>') + '</div>' +
+          '<div class="db">' + esc(c.comment) + '</div>' +
+          '<div class="dacts">' +
+          (anchored ? '<button class="btn small" data-d="goto" type="button">Show</button>' : '') +
+          '<button class="btn small" data-d="edit" type="button">Edit</button>' +
+          '<button class="btn small danger" data-d="del" type="button">Delete</button></div></div>';
+      });
+    }
+    drawer.innerHTML = html;
+  }
+
+  drawer.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('button');
+    if (!btn) return;
+    var act = btn.dataset.d;
+    var row = btn.closest('.drow');
+    if (act === 'close') return toggleDrawer(false);
+    if (act === 'discard') { dropDraft(row.dataset.key); return; }
+    if (act === 'resume') {
+      var d = draftFor(row.dataset.key);
+      if (!d) return;
+      toggleDrawer(false);
+      if (d.cid) {
+        var c0 = state.comments.filter(function (c) { return c.cid === d.cid; })[0];
+        if (c0) { editing = c0; return openPop(innerWidth / 2, window.scrollY + 100, c0.text, c0, d.comment); }
+      }
+      pendingRange = d.text ? findRange(main(), d.text, d.nth || 0) : null;
+      return openPop(innerWidth / 2, window.scrollY + 100, d.text || '(no selection)', null, d.comment);
+    }
+    var c = state.comments.filter(function (x) { return x.cid === row.dataset.cid; })[0];
+    if (!c) return;
+    if (act === 'goto') {
+      toggleDrawer(false);
+      var mk = document.querySelector('mark.cmt[data-cid="' + c.cid + '"]');
+      if (mk) { mk.scrollIntoView({ block: 'center', behavior: 'smooth' }); mk.classList.add('flash');
+                setTimeout(function () { mk.classList.remove('flash'); }, 1600); }
+      return;
+    }
+    if (act === 'edit') { toggleDrawer(false); return editComment(c); }
+    if (act === 'del') {
+      unpaint(c.cid);
+      state.comments = state.comments.filter(function (x) { return x.cid !== c.cid; });
+      save(); renderDrawer(); toast('Comment deleted');
+    }
+  });
+
+  function toggleDrawer(on) {
+    drawer.hidden = (on === undefined) ? !drawer.hidden : !on;
+    if (!drawer.hidden) renderDrawer();
+  }
+  var cmtBtnEl = document.getElementById('cmtBtn');
+  if (cmtBtnEl) cmtBtnEl.addEventListener('click', function () { toggleDrawer(); });
+  document.addEventListener('click', function (e) {
+    if (drawer.hidden) return;
+    if (e.target.closest && e.target.closest('#cdrawer, #cmtBtn, #cpop')) return;
+    toggleDrawer(false);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'c' && e.key !== 'C') return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var a = document.activeElement;
+    if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT' || a.isContentEditable)) return;
+    var sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    e.preventDefault(); toggleDrawer();
+  });
 
   /* ── footnotes → references ──
      A footnote target may sit inside a collapsed <details> or a ticked-off
