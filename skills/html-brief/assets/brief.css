@@ -460,50 +460,86 @@ mark.cmt.resolved { opacity: .45; text-decoration-line: line-through;
 }
 [data-doc] .doc-src:focus { outline: none; border-color: var(--accent); }
 /* Rich edit shows the rendered document and lets the reader type into it, so
-   the source textarea only appears in Source mode. */
+   the source textarea only appears in Raw MD mode. */
 [data-doc].editing.raw .doc-view { display: none; }
 [data-doc].editing.raw .doc-src { display: block; }
-[data-doc].editing .doc-view {
-  outline: none; border-radius: 6px; padding: .9rem 1rem; margin-left: -1rem;
-  box-shadow: inset 0 0 0 1px var(--line);
+/* Reading view IS the edit affordance: it says "click me" with a text cursor
+   and a hairline that firms up on hover, the way the source app's Description box does. */
+[data-doc] .doc-view {
+  cursor: text; border-radius: 6px; padding: .9rem 3rem .9rem 1rem; margin-left: -1rem;
+  box-shadow: inset 0 0 0 1px transparent; transition: box-shadow .15s;
 }
-[data-doc].editing .doc-view:focus-within { box-shadow: inset 0 0 0 1px var(--accent); }
-[data-doc] .doc-view [contenteditable] { outline: none; }
+[data-doc] .doc-view:hover { box-shadow: inset 0 0 0 1px var(--line); }
+[data-doc].editing .doc-view { box-shadow: inset 0 0 0 1px var(--line); outline: none; }
+[data-doc].editing .doc-view:focus { box-shadow: inset 0 0 0 1px var(--accent); }
+[data-doc] .doc-hint {
+  font-size: .7rem; letter-spacing: .04em; text-transform: uppercase;
+  font-family: var(--sans, system-ui, sans-serif); color: var(--muted);
+}
+[data-doc] .doc-hint[hidden], [data-doc] .doc-done[hidden], [data-doc] .doc-srcbtn[hidden] { display: none; }
 
-/* The toolbar rides the top of the viewport with the bar, so every control is
-   reachable at any scroll depth in a long document. */
-[data-doc] .doc-tools { display: flex; flex-wrap: wrap; gap: .2rem; margin-right: auto; }
-[data-doc] .doc-tools[hidden] { display: none; }
+/* Toolbar rides the top of the viewport with the bar, so every control stays
+   reachable at any scroll depth. Buttons light up for the caret's context. */
+[data-doc] .doc-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .12rem; margin-right: auto; }
+[data-doc] .doc-tools[hidden], [data-doc] .doc-tablebar[hidden] { display: none; }
+[data-doc] .doc-tablebar {
+  display: flex; gap: .2rem; padding: .3rem .4rem; margin: .2rem 0 .4rem;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--card);
+  position: sticky; top: 5.4rem; z-index: 3;
+}
 [data-doc] .doc-tool {
-  font: inherit; font-size: .8rem; font-family: var(--sans, system-ui, sans-serif);
-  min-width: 1.9rem; padding: .2rem .4rem; border-radius: 5px; cursor: pointer;
-  border: 1px solid transparent; background: transparent; color: var(--muted);
+  font: inherit; font-size: .78rem; font-family: var(--sans, system-ui, sans-serif);
+  min-width: 1.75rem; padding: .18rem .35rem; border-radius: 5px; cursor: pointer;
+  border: 1px solid transparent; background: transparent; color: var(--muted); line-height: 1.2;
 }
 [data-doc] .doc-tool:hover { border-color: var(--line); background: var(--card); color: var(--fg); }
+[data-doc] .doc-tool.on { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 [data-doc] .doc-tool.t-b { font-weight: 800; }
 [data-doc] .doc-tool.t-i { font-style: italic; }
-[data-doc] .doc-srcbtn[hidden] { display: none; }
+[data-doc] .doc-tool.t-s { text-decoration: line-through; }
+[data-doc] .doc-sep { width: 1px; height: 1rem; background: var(--line); margin: 0 .25rem; }
 
-/* Heading rail: vertically centred on the right, and only for the document the
-   reader is actually looking at. */
-[data-doc] .doc-toc {
-  position: fixed; right: .9rem; top: 50%; transform: translateY(-50%);
-  z-index: 4; display: none; flex-direction: column; gap: .1rem;
-  max-height: 60vh; overflow: auto; padding: .5rem .6rem;
-  border: 1px solid var(--line); border-radius: 8px; background: var(--card);
-  font-family: var(--sans, system-ui, sans-serif); font-size: .72rem;
-  max-width: 12rem;
+/* Heading rail (the source app's MiniTocSidebar): thin bars inside the document's right
+   edge, sticky and vertically centred, widening by heading level. Hovering the
+   rail opens a flyout of titles to its left. */
+[data-doc] .doc-rail {
+  position: absolute; top: 0; bottom: 0; right: 0; width: 28px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  pointer-events: none;
 }
-[data-doc].on-screen .doc-toc:not([hidden]) { display: flex; }
-[data-doc] .doc-toc a {
-  color: var(--muted); text-decoration: none; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; padding: .12rem 0;
+[data-doc] .doc-rail[hidden] { display: none; }
+[data-doc] .doc-bars { position: sticky; top: 45vh; pointer-events: auto; padding: .4rem 0; }
+[data-doc] .doc-bar-i {
+  display: flex; align-items: center; justify-content: flex-end;
+  width: 28px; padding: 3px 3px 3px 0; cursor: pointer;
 }
-[data-doc] .doc-toc a:hover { color: var(--accent); }
-[data-doc] .doc-toc a.lv2 { padding-left: .6rem; }
-[data-doc] .doc-toc a.lv3 { padding-left: 1.2rem; }
-[data-doc] .doc-toc a.lv4, [data-doc] .doc-toc a.lv5, [data-doc] .doc-toc a.lv6 { padding-left: 1.8rem; }
-@media (max-width: 900px) { [data-doc] .doc-toc { display: none !important; } }
+[data-doc] .doc-bar-l {
+  height: 1.5px; border-radius: 999px; background: var(--line);
+  transition: width .2s, background .2s, height .2s;
+}
+[data-doc] .doc-bar-i.hov .doc-bar-l { background: var(--accent); }
+[data-doc] .doc-bar-i.on .doc-bar-l { background: var(--fg); height: 2px; }
+[data-doc] .doc-fly {
+  position: absolute; right: 30px; top: 50%; transform: translateY(-50%);
+  z-index: 6; pointer-events: auto; display: flex; flex-direction: column;
+  min-width: 140px; max-width: 220px; max-height: 70vh; overflow-y: auto;
+  padding: .25rem 0; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--card); box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+[data-doc] .doc-fly[hidden] { display: none; }
+[data-doc] .doc-fly-i {
+  font: inherit; font-family: var(--sans, system-ui, sans-serif); font-size: .74rem;
+  text-align: left; background: none; border: 0; cursor: pointer; color: var(--muted);
+  padding: 3px .7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+[data-doc] .doc-fly-i.lv1 { font-weight: 600; }
+[data-doc] .doc-fly-i.lv2 { padding-left: 1.2rem; }
+[data-doc] .doc-fly-i.lv3 { padding-left: 1.7rem; }
+[data-doc] .doc-fly-i.lv4, [data-doc] .doc-fly-i.lv5, [data-doc] .doc-fly-i.lv6 { padding-left: 2rem; font-size: .68rem; }
+[data-doc] .doc-fly-i.hov { color: var(--accent); background: var(--bg); }
+[data-doc] .doc-fly-i.on { color: var(--fg); background: var(--bg); }
+@media (max-width: 900px) { [data-doc] .doc-rail { display: none; } [data-doc] .doc-view { padding-right: 1rem; } }
 @media print {
-  [data-doc] .doc-bar, [data-doc] .doc-src, [data-doc] .doc-toc { display: none !important; }
+  [data-doc] .doc-bar, [data-doc] .doc-src, [data-doc] .doc-rail,
+  [data-doc] .doc-tablebar { display: none !important; }
 }

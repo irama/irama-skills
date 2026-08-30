@@ -704,9 +704,21 @@
     if (!drawer.hidden) renderDrawer();
   }
   var cmtBtnEl = document.getElementById('cmtBtn');
-  if (cmtBtnEl) cmtBtnEl.addEventListener('click', function () { toggleDrawer(); });
+  /* stopPropagation, because opening the drawer re-renders this button's icon:
+     by the time the document listener below runs, the <svg> the click landed on
+     has been replaced, its closest('#cmtBtn') walks a detached tree, the
+     click-outside guard misses, and the drawer closes on the very click that
+     opened it. Hitting the button's padding worked, the icon did not. */
+  if (cmtBtnEl) cmtBtnEl.addEventListener('click', function (e) { e.stopPropagation(); toggleDrawer(); });
   document.addEventListener('click', function (e) {
     if (drawer.hidden) return;
+    /* composedPath() is captured at dispatch, so it still names the button even
+       if the node the click hit has since been re-rendered. */
+    var path = e.composedPath ? e.composedPath() : [];
+    for (var i = 0; i < path.length; i++) {
+      var el = path[i];
+      if (el && el.id && /^(cdrawer|cmtBtn|cpop)$/.test(el.id)) return;
+    }
     if (e.target.closest && e.target.closest('#cdrawer, #cmtBtn, #cpop')) return;
     toggleDrawer(false);
   });
@@ -817,13 +829,43 @@
       .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
       .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>');
   }
+  /* GFM pipe tables. A brief's editable document is usually a draft of something
+     that ships, and shipping prose has tables in it; without this a pasted table
+     is silently flattened on the way back to markdown. */
+  function tableRow(line) {
+    return line.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(function (c) { return c.trim(); });
+  }
+  function isTableDivider(line) {
+    return /^\s*\|?[\s:-]*-[\s:|-]*\|?\s*$/.test(line) && line.indexOf('-') > -1;
+  }
   function mdToHtml(md) {
     var out = [], para = [], list = null, fence = null;
     function flush() {
       if (para.length) { out.push('<p>' + inline(para.join(' ')) + '</p>'); para = []; }
       if (list) { out.push('</' + list + '>'); list = null; }
     }
-    md.split('\n').forEach(function (line) {
+    var lines = md.split('\n');
+    /* Tables are handled by a pre-pass so the line loop below stays a line loop:
+       a table needs two lines of lookahead, which the per-line reducer cannot do. */
+    var html = [], i = 0;
+    while (i < lines.length) {
+      if (/\|/.test(lines[i]) && lines[i + 1] !== undefined && isTableDivider(lines[i + 1]) &&
+          !/^```/.test(lines[i])) {
+        var head = tableRow(lines[i]), rows = [];
+        i += 2;
+        while (i < lines.length && /\|/.test(lines[i]) && lines[i].trim()) { rows.push(tableRow(lines[i])); i += 1; }
+        var t = '<div class="tblwrap nopin"><table><thead><tr>' +
+          head.map(function (c) { return '<th>' + inline(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+          rows.map(function (r) {
+            return '<tr>' + r.map(function (c) { return '<td>' + inline(c) + '</td>'; }).join('') + '</tr>';
+          }).join('') + '</tbody></table></div>';
+        html.push({ raw: t });
+        continue;
+      }
+      html.push(lines[i]); i += 1;
+    }
+    html.forEach(function (line) {
+      if (line && line.raw !== undefined) { flush(); out.push(line.raw); return; }
       if (/^```/.test(line)) {
         if (fence === null) { flush(); fence = []; }
         else { out.push('<pre><code>' + esc(fence.join('\n')) + '</code></pre>'); fence = null; }
@@ -887,60 +929,141 @@
           i += 1;
           out.push((tag === 'ol' ? i + '. ' : '- ') + mdInline(li).trim());
         });
+      } else if (tag === 'table' || (tag === 'div' && n.querySelector('table'))) {
+        var tbl = tag === 'table' ? n : n.querySelector('table');
+        var rows = tbl.querySelectorAll('tr'), lines = [], cols = 0;
+        Array.prototype.forEach.call(rows, function (tr, ri) {
+          var cells = Array.prototype.map.call(tr.children, function (td) {
+            return mdInline(td).trim().replace(/\|/g, '\\|');
+          });
+          cols = Math.max(cols, cells.length);
+          lines.push('| ' + cells.join(' | ') + ' |');
+          if (ri === 0) lines.push('| ' + new Array(cells.length + 1).join('--- |').replace(/ \|$/, ' |').split('--- |').join('--- | ').trim());
+        });
+        if (lines[1]) lines[1] = '|' + new Array(cols + 1).join(' --- |');
+        out.push(lines.join('\n'));
       } else if (tag === 'div' && n.children.length && !mdInline(n).trim()) out.push(htmlToMd(n));
       else { var t = mdInline(n).trim(); if (t) out.push(t); }
     });
     return out.join('\n\n');
   }
 
-  /* Toolbar. execCommand is deprecated and still the only zero-dependency way to
-     apply formatting to a contenteditable selection in every current browser; a
-     brief is one offline file, so a 200KB editor library is not on the table.
-     ponytail: execCommand, swap for a Selection/Range implementation the day a
-     browser drops it — the buttons are the only callers. */
+  /* ── the editor ──────────────────────────────────────────────────────────
+     Ported from the project-lightbox Description field in a sibling app
+     (its src/components/ui/{MarkdownEditor,RichTextEditor,MiniTocSidebar}.tsx).
+     That app runs TipTap through a bundler; a brief is one file opened from disk, so
+     the behaviour is rebuilt on contenteditable + execCommand. What is copied
+     deliberately: click the rendered text to start editing with the caret where
+     you clicked, a sticky toolbar whose buttons light up for the caret's
+     context, a Raw MD / Rich editor toggle over the same markdown string, and a
+     hover-to-expand heading rail of thin bars.
+
+     ponytail: execCommand is deprecated and still the only zero-dependency way
+     to format a contenteditable selection. Swap for Selection/Range surgery the
+     day a browser drops it — apply() is the only caller. */
+
+  /* MiniTocSidebar.tsx:39 — width per level, non-linear so H1 and H2 read
+     as different things at a glance. */
+  var TOC_BAR = [22, 15, 9, 6, 4, 3];
+  /* MiniTocSidebar.tsx:79 — the active heading is the last one whose top
+     edge is at or above the fold. */
+  var TOC_FOLD = 112;
+
   var DOC_TOOLS = [
-    { cmd: 'bold', label: 'B', tip: 'Bold  ⌘B', cls: 'b' },
-    { cmd: 'italic', label: 'I', tip: 'Italic  ⌘I', cls: 'i' },
-    { block: 'h1', label: 'H1', tip: 'Heading 1' },
-    { block: 'h2', label: 'H2', tip: 'Heading 2' },
-    { block: 'h3', label: 'H3', tip: 'Heading 3' },
-    { block: 'p', label: '¶', tip: 'Body text' },
-    { cmd: 'insertUnorderedList', label: '•', tip: 'Bulleted list' },
-    { cmd: 'insertOrderedList', label: '1.', tip: 'Numbered list' },
-    { block: 'blockquote', label: '❝', tip: 'Quote' },
-    { code: true, label: '‹›', tip: 'Inline code' },
-    { link: true, label: '🔗', tip: 'Link  ⌘K' }
+    { block: 'h1', label: 'H1', tip: 'Heading 1', is: 'h1' },
+    { block: 'h2', label: 'H2', tip: 'Heading 2', is: 'h2' },
+    { block: 'h3', label: 'H3', tip: 'Heading 3', is: 'h3' },
+    { sep: true },
+    { cmd: 'bold', label: 'B', tip: 'Bold (⌘B)', cls: 'b', state: 'bold' },
+    { cmd: 'italic', label: 'I', tip: 'Italic (⌘I)', cls: 'i', state: 'italic' },
+    { cmd: 'strikeThrough', label: 'S', tip: 'Strikethrough', cls: 's', state: 'strikeThrough' },
+    { code: true, label: '‹›', tip: 'Inline code', is: 'code' },
+    { block: 'pre', label: '{ }', tip: 'Code block', is: 'pre' },
+    { sep: true },
+    { cmd: 'insertUnorderedList', label: '•', tip: 'Bullet list', state: 'insertUnorderedList' },
+    { cmd: 'insertOrderedList', label: '1.', tip: 'Ordered list', state: 'insertOrderedList' },
+    { sep: true },
+    { block: 'blockquote', label: '❝', tip: 'Blockquote (>)', is: 'blockquote' },
+    { block: 'p', label: '¶', tip: 'Body text', is: 'p' },
+    { hr: true, label: '—', tip: 'Horizontal rule (---)' },
+    { sep: true },
+    { link: true, label: '🔗', tip: 'Add link (⌘K)', is: 'a' },
+    { unlink: true, label: '⛓', tip: 'Remove link' },
+    { table: true, label: '▦', tip: 'Table controls' },
+    { sep: true },
+    { copy: true, label: '⧉', tip: 'Copy as markdown' }
   ];
+  var TABLE_TOOLS = [
+    { act: 'insert', label: 'Insert 3×3', tip: 'Insert 3×3 table' },
+    { act: 'rowAfter', label: '+ row', tip: 'Add row below' },
+    { act: 'rowDel', label: '− row', tip: 'Delete row' },
+    { act: 'colAfter', label: '+ col', tip: 'Add column right' },
+    { act: 'colDel', label: '− col', tip: 'Delete column' }
+  ];
+
+  /* MarkdownEditor.tsx:355 — resolve a click to a plain-text character
+     offset in the rendered document. the source app needs this because its preview
+     and its editor are two different DOMs; here they are the same DOM, so the offset
+     round-trips exactly rather than approximately. */
+  function offsetFromPoint(root, x, y) {
+    var node = null, off = 0;
+    if (document.caretPositionFromPoint) {
+      var pos = document.caretPositionFromPoint(x, y);
+      if (pos) { node = pos.offsetNode; off = pos.offset; }
+    } else if (document.caretRangeFromPoint) {
+      var rg = document.caretRangeFromPoint(x, y);
+      if (rg) { node = rg.startContainer; off = rg.startOffset; }
+    }
+    if (!node || !root.contains(node)) return null;
+    var count = 0, w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), n = w.nextNode();
+    while (n) {
+      if (n === node) return count + off;
+      count += (n.nodeValue || '').length;
+      n = w.nextNode();
+    }
+    return null;
+  }
+  function caretToOffset(root, offset) {
+    var count = 0, w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), n = w.nextNode();
+    while (n) {
+      var len = (n.nodeValue || '').length;
+      if (count + len >= offset) {
+        var r = document.createRange();
+        r.setStart(n, Math.max(0, Math.min(len, offset - count)));
+        r.collapse(true);
+        var s = window.getSelection();
+        s.removeAllRanges(); s.addRange(r);
+        return true;
+      }
+      count += len; n = w.nextNode();
+    }
+    return false;
+  }
 
   Array.prototype.forEach.call(document.querySelectorAll('[data-doc]'), function (doc) {
     var key = doc.dataset.doc;
     var label = doc.dataset.docLabel || 'document';
     var view = document.createElement('div'); view.className = 'doc-view';
+    view.setAttribute('role', 'textbox');
+    view.setAttribute('aria-label', label + ' — click the text to edit it');
     var ta = document.createElement('textarea'); ta.className = 'doc-src';
     ta.setAttribute('aria-label', 'Edit ' + label + ' markdown source');
     ta.spellcheck = false;
     var bar = document.createElement('div'); bar.className = 'doc-bar';
     var tools = document.createElement('div'); tools.className = 'doc-tools';
-    var toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'doc-btn';
+    var tblbar = document.createElement('div'); tblbar.className = 'doc-tablebar'; tblbar.hidden = true;
+    var done = document.createElement('button'); done.type = 'button'; done.className = 'doc-btn doc-done';
+    done.textContent = 'Done';
     var srcBtn = document.createElement('button'); srcBtn.type = 'button'; srcBtn.className = 'doc-btn doc-srcbtn';
     var revert = document.createElement('button'); revert.type = 'button'; revert.className = 'doc-btn doc-revert';
     revert.textContent = 'Revert';
     var flag = document.createElement('span'); flag.className = 'doc-flag';
-    var toc = document.createElement('nav'); toc.className = 'doc-toc'; toc.hidden = true;
-    toc.setAttribute('aria-label', 'Headings in ' + label);
-
-    DOC_TOOLS.forEach(function (t) {
-      var b = document.createElement('button');
-      b.type = 'button'; b.className = 'doc-tool' + (t.cls ? ' t-' + t.cls : '');
-      b.textContent = t.label; b.dataset.tip = t.tip;
-      /* mousedown, not click: the caret must still be in the document when the
-         command runs, and focusing a button collapses the selection. */
-      b.addEventListener('mousedown', function (e) { e.preventDefault(); apply(t); });
-      tools.appendChild(b);
-    });
-    bar.appendChild(tools);
-    bar.appendChild(flag); bar.appendChild(revert); bar.appendChild(srcBtn); bar.appendChild(toggle);
-    doc.appendChild(bar); doc.appendChild(view); doc.appendChild(ta); doc.appendChild(toc);
+    var hint = document.createElement('span'); hint.className = 'doc-hint'; hint.textContent = 'Click the text to edit';
+    var rail = document.createElement('div'); rail.className = 'doc-rail';
+    var bars = document.createElement('div'); bars.className = 'doc-bars';
+    var fly = document.createElement('div'); fly.className = 'doc-fly'; fly.hidden = true;
+    rail.appendChild(fly); rail.appendChild(bars);
+    rail.setAttribute('aria-label', 'Headings in ' + label);
 
     function editing() { return doc.classList.contains('editing'); }
     function raw() { return doc.classList.contains('raw'); }
@@ -955,71 +1078,204 @@
       doc.classList.toggle('is-edited', changed);
       revert.hidden = !changed;
     }
+    function inTable() {
+      var s = window.getSelection();
+      if (!s || !s.rangeCount) return null;
+      var n = s.getRangeAt(0).startContainer;
+      n = n.nodeType === 1 ? n : n.parentNode;
+      return n && n.closest ? n.closest('td, th') : null;
+    }
+    function activeTag(tag) {
+      var s = window.getSelection();
+      if (!s || !s.rangeCount || !view.contains(s.anchorNode)) return false;
+      var n = s.anchorNode;
+      n = n.nodeType === 1 ? n : n.parentNode;
+      return !!(n && n.closest && n.closest(tag) && view.contains(n.closest(tag)));
+    }
+    /* the source app lights its buttons from editor.isActive(); execCommand gives the same
+       answer for inline marks, and the caret's ancestors give it for blocks. */
+    function syncTools() {
+      Array.prototype.forEach.call(tools.children, function (b) {
+        if (!b.dataset.i) return;
+        var t = DOC_TOOLS[+b.dataset.i], on = false;
+        try {
+          if (t.state) on = document.queryCommandState(t.state);
+          else if (t.is) on = activeTag(t.is);
+        } catch (err) { on = false; }
+        b.classList.toggle('on', !!on);
+      });
+      var cell = inTable();
+      if (cell) tblbar.hidden = false;      /* RichTextEditor.tsx:502 — the table
+                                               controls open themselves when the caret
+                                               lands in a table, and close by hand. */
+    }
     function apply(t) {
       if (!editing() || raw()) return;
       view.focus();
-      if (t.block) document.execCommand('formatBlock', false, t.block);
-      else if (t.code) {
+      if (t.block) {
+        /* Toggle back to a paragraph when the caret is already in that block,
+           the way the source app's toggleHeading does. */
+        document.execCommand('formatBlock', false, t.is && activeTag(t.is) && t.block !== 'p' ? 'p' : t.block);
+      } else if (t.code) {
         var s = window.getSelection();
         if (s && !s.isCollapsed) {
-          var c = document.createElement('code');
-          try { s.getRangeAt(0).surroundContents(c); } catch (err) { document.execCommand('insertHTML', false, '<code>' + s.toString() + '</code>'); }
+          if (activeTag('code')) document.execCommand('removeFormat', false, null);
+          else {
+            var c = document.createElement('code');
+            try { s.getRangeAt(0).surroundContents(c); }
+            catch (err) { document.execCommand('insertHTML', false, '<code>' + esc(s.toString()) + '</code>'); }
+          }
         }
-      } else if (t.link) {
+      } else if (t.hr) document.execCommand('insertHorizontalRule', false, null);
+      else if (t.link) {
         var href = window.prompt('Link URL');
         if (href) document.execCommand('createLink', false, href);
+      } else if (t.unlink) document.execCommand('unlink', false, null);
+      else if (t.table) { tblbar.hidden = !tblbar.hidden; return; }
+      else if (t.copy) {
+        copyText(current(), 'Markdown copied');
+        return;
       } else document.execCommand(t.cmd, false, null);
+      onRichInput();
+    }
+    function tableAct(act) {
+      view.focus();
+      var cell = inTable();
+      if (act === 'insert') {
+        var rows = [], head = [];
+        for (var c = 0; c < 3; c++) head.push('<th>Head ' + (c + 1) + '</th>');
+        for (var r = 0; r < 2; r++) rows.push('<tr><td> </td><td> </td><td> </td></tr>');
+        document.execCommand('insertHTML', false,
+          '<div class="tblwrap nopin"><table><thead><tr>' + head.join('') + '</tr></thead><tbody>' +
+          rows.join('') + '</tbody></table></div><p><br></p>');
+      } else if (cell) {
+        var tr = cell.parentNode, tbl = cell.closest('table');
+        var idx = Array.prototype.indexOf.call(tr.children, cell);
+        if (act === 'rowAfter') {
+          var nr = tr.cloneNode(true);
+          Array.prototype.forEach.call(nr.children, function (td) { td.textContent = ' '; });
+          tr.parentNode.insertBefore(nr, tr.nextSibling);
+        } else if (act === 'rowDel') { if (tbl.querySelectorAll('tr').length > 2) tr.remove(); }
+        else if (act === 'colAfter') {
+          Array.prototype.forEach.call(tbl.querySelectorAll('tr'), function (row) {
+            var ref = row.children[idx];
+            var cellEl = document.createElement(ref && ref.tagName === 'TH' ? 'th' : 'td');
+            cellEl.textContent = ' ';
+            row.insertBefore(cellEl, ref ? ref.nextSibling : null);
+          });
+        } else if (act === 'colDel') {
+          Array.prototype.forEach.call(tbl.querySelectorAll('tr'), function (row) {
+            if (row.children.length > 1 && row.children[idx]) row.children[idx].remove();
+          });
+        }
+      }
       onRichInput();
     }
     function onRichInput() {
       store(htmlToMd(view));
-      buildToc();
+      buildRail();
+      syncTools();
     }
-    /* The rail lists the headings of THIS document and follows the reader down
-       it. It is hidden unless the document is on screen, so several documents in
-       one brief never stack two rails on top of each other. */
-    function buildToc() {
+
+    /* ── heading rail (the source app's MiniTocSidebar) ──
+       Thin bars, one per heading, width by level; hovering the rail opens a
+       flyout of titles to its left; the bar for the heading you are reading is
+       highlighted. */
+    var entries = [];
+    function buildRail() {
+      entries = [];
       var hs = view.querySelectorAll('h1, h2, h3, h4, h5, h6');
-      toc.innerHTML = '';
+      bars.innerHTML = ''; fly.innerHTML = '';
       Array.prototype.forEach.call(hs, function (h, i) {
         if (!h.id) h.id = key + '-h' + i;
-        var a = document.createElement('a');
-        a.href = '#' + h.id; a.className = 'lv' + h.nodeName[1];
-        a.textContent = h.textContent.trim();
-        a.addEventListener('click', function (e) {
-          e.preventDefault();
-          h.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
-        toc.appendChild(a);
+        var lvl = +h.nodeName[1];
+        var text = h.textContent.trim();
+        var b = document.createElement('div'); b.className = 'doc-bar-i';
+        var line = document.createElement('span'); line.className = 'doc-bar-l';
+        line.style.width = TOC_BAR[Math.min(lvl, 6) - 1] + 'px';
+        b.appendChild(line);
+        b.setAttribute('aria-label', 'Scroll to ' + text);
+        var a = document.createElement('button');
+        a.type = 'button'; a.className = 'doc-fly-i lv' + lvl; a.textContent = text;
+        function go(e) { e.preventDefault(); e.stopPropagation(); h.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        b.addEventListener('click', go); a.addEventListener('click', go);
+        b.addEventListener('mouseenter', function () { hover(i, true); });
+        a.addEventListener('mouseenter', function () { hover(i, true); });
+        bars.appendChild(b); fly.appendChild(a);
+        entries.push({ h: h, bar: b, item: a });
       });
-      toc.hidden = !hs.length;
+      rail.hidden = !entries.length;
+      markActive();
     }
+    function hover(i, on) {
+      entries.forEach(function (e, j) {
+        e.bar.classList.toggle('hov', on && j === i);
+        e.item.classList.toggle('hov', on && j === i);
+      });
+    }
+    function markActive() {
+      if (!entries.length) return;
+      var hit = 0;
+      entries.forEach(function (e, i) {
+        if (e.h.getBoundingClientRect().top <= TOC_FOLD) hit = i;
+      });
+      entries.forEach(function (e, i) {
+        e.bar.classList.toggle('on', i === hit);
+        e.item.classList.toggle('on', i === hit);
+      });
+    }
+    var flyTimer = null;
+    rail.addEventListener('mouseenter', function () { clearTimeout(flyTimer); fly.hidden = false; });
+    rail.addEventListener('mouseleave', function () {
+      /* 180ms, MiniTocSidebar.tsx:112 — long enough to cross the gap from
+         the rail to the flyout without it vanishing. */
+      flyTimer = setTimeout(function () { fly.hidden = true; hover(-1, false); }, 180);
+    });
+    window.addEventListener('scroll', markActive, { passive: true });
+
     function paint() {
       var changed = current() !== docSource(doc);
       view.innerHTML = mdToHtml(current());
       flag.textContent = changed ? 'edited' : '';
       doc.classList.toggle('is-edited', changed);
       revert.hidden = !changed;
-      toggle.textContent = editing() ? 'Done' : 'Edit';
-      srcBtn.textContent = raw() ? 'Rich text' : 'Source';
+      srcBtn.textContent = raw() ? 'Rich editor' : 'Raw MD';
       srcBtn.hidden = !editing();
+      done.hidden = !editing();
+      hint.hidden = editing();
       tools.hidden = !editing() || raw();
+      tblbar.hidden = true;
       view.contentEditable = editing() && !raw() ? 'true' : 'false';
       if (editing() && raw()) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
-      buildToc();
+      buildRail();
     }
-    toggle.addEventListener('click', function () {
-      if (editing()) {
-        if (!raw()) store(htmlToMd(view));
-        doc.classList.remove('editing', 'raw');
-        paint();
-      } else {
-        doc.classList.add('editing');
-        ta.value = current();
-        paint();
-        view.focus();
-      }
+    /* MarkdownEditor.tsx:463 — the reading view IS the edit affordance. No
+       Edit button: click the sentence you want to change and the caret is there. */
+    view.addEventListener('click', function (e) {
+      if (editing()) return;
+      if (e.target.closest && e.target.closest('a')) return;      /* let links be links */
+      var off = offsetFromPoint(view, e.clientX, e.clientY);
+      doc.classList.add('editing');
+      paint();
+      view.focus();
+      if (off != null) caretToOffset(view, off);
+      syncTools();
     });
+    view.addEventListener('keydown', function (e) {
+      if (!editing() && e.key === 'Enter') { doc.classList.add('editing'); paint(); view.focus(); return; }
+      if (e.key === 'Escape' && editing()) { e.stopPropagation(); finish(); return; }
+      if (!(e.metaKey || e.ctrlKey)) return;
+      var k = e.key.toLowerCase();
+      if (k === 'k') { e.preventDefault(); apply({ link: true }); }
+      else if (k === 'enter' || k === 's') { e.preventDefault(); finish(); }
+      else if (k === 'b' || k === 'i') setTimeout(onRichInput, 0);
+    });
+    function finish() {
+      if (!raw()) store(htmlToMd(view));
+      doc.classList.remove('editing', 'raw');
+      paint();
+    }
+    done.addEventListener('click', finish);
     /* Both modes edit the same markdown string, so the switch is a conversion
        either way and never a merge. */
     srcBtn.addEventListener('click', function () {
@@ -1031,21 +1287,38 @@
       toast('Reverted to the original');
     });
     view.addEventListener('input', onRichInput);
-    view.addEventListener('keydown', function (e) {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      var k = e.key.toLowerCase();
-      if (k === 'k') { e.preventDefault(); apply({ link: true }); }
-      else if (k === 'b' || k === 'i') setTimeout(onRichInput, 0);
-    });
+    view.addEventListener('keyup', syncTools);
+    view.addEventListener('mouseup', syncTools);
     ta.addEventListener('input', function () {
       store(ta.value);
       ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
     });
-    if (window.IntersectionObserver) {
-      new IntersectionObserver(function (entries) {
-        entries.forEach(function (en) { doc.classList.toggle('on-screen', en.isIntersecting); });
-      }, { rootMargin: '-20% 0px -20% 0px' }).observe(doc);
-    } else doc.classList.add('on-screen');
+
+    DOC_TOOLS.forEach(function (t, i) {
+      if (t.sep) { var s = document.createElement('span'); s.className = 'doc-sep'; tools.appendChild(s); return; }
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'doc-tool' + (t.cls ? ' t-' + t.cls : '');
+      b.textContent = t.label; b.dataset.tip = t.tip; b.dataset.i = i;
+      /* mousedown, not click: the caret must still be in the document when the
+         command runs, and focusing a button collapses the selection. */
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); apply(t); });
+      tools.appendChild(b);
+    });
+    TABLE_TOOLS.forEach(function (t) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'doc-tool'; b.textContent = t.label; b.dataset.tip = t.tip;
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); tableAct(t.act); });
+      tblbar.appendChild(b);
+    });
+    var tclose = document.createElement('button');
+    tclose.type = 'button'; tclose.className = 'doc-tool'; tclose.textContent = '×'; tclose.dataset.tip = 'Hide table controls';
+    tclose.addEventListener('mousedown', function (e) { e.preventDefault(); tblbar.hidden = true; });
+    tblbar.appendChild(tclose);
+
+    bar.appendChild(tools);
+    bar.appendChild(hint); bar.appendChild(flag); bar.appendChild(revert);
+    bar.appendChild(srcBtn); bar.appendChild(done);
+    doc.appendChild(bar); doc.appendChild(tblbar); doc.appendChild(view); doc.appendChild(ta); doc.appendChild(rail);
     ta.value = current();
     paint();
   });

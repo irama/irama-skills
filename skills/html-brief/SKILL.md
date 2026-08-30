@@ -185,36 +185,40 @@ The body, in markdown, exactly as it should ship.
 - **The source of truth is the `<script type="text/markdown">`**, which the browser never renders,
   so the original always survives and Revert always works. Do not write the rendered HTML yourself;
   the runtime renders it.
-- **The runtime injects the whole editor** — Edit / Done, the formatting toolbar, the Source
-  toggle, Revert, the "edited" flag and the heading rail. Author only the markdown.
-- **Edit mode is rich text, edited in place.** Pressing Edit makes the rendered document itself
-  editable, so clicking anywhere in the prose puts the caret where you clicked — no mapping from a
-  preview to a source pane, and no hunting for the line. Formatting applies to the selection:
-  bold, italic, H1/H2/H3, body, bulleted and numbered lists, quote, inline code and link, plus
-  ⌘B / ⌘I / ⌘K.
-- **The toolbar is sticky**, so every button and the Source toggle stay on screen at any scroll
-  depth in a long document.
-- **Source mode is one click away.** "Source" swaps the rich view for the mono markdown textarea
-  and "Rich text" swaps back. Both modes edit the same markdown string — the switch is a
-  conversion, never a merge — so nothing is lost either way.
-- **A heading rail sits vertically centred on the right**, listing H1–H6 of the document being
-  read and scrolling to a heading on click. It appears only while that document is on screen, and
-  is hidden under 900px and in print.
-- **Markdown stays the stored form.** Every keystroke in rich mode serialises the DOM back to
-  markdown before saving, so the responses JSON and Revert compare markdown to markdown.
-  Edits persist to localStorage on every keystroke.
+- **The runtime injects the whole editor** — the toolbar, the Raw MD toggle, Done, Revert, the
+  "edited" flag and the heading rail. Author only the markdown.
+- **Click the text to edit it. There is no Edit button.** Clicking a sentence in the rendered
+  document starts editing with the caret at the character you clicked, the way nav's project
+  Description box works. Escape or Done ends editing; ⌘Enter / ⌘S also finish.
+- **The toolbar is sticky and context-aware**, mirroring nav's: H1 H2 H3, bold, italic,
+  strikethrough, inline code, code block, bulleted and numbered lists, blockquote, body text,
+  horizontal rule, link and unlink, table controls, copy-as-markdown. A button lights up when the
+  caret is inside what it applies — H1 is highlighted inside a heading, B inside bold.
+- **Tables are supported both ways.** The table button opens a sub-toolbar (insert 3×3, add or
+  delete a row or column) which also opens itself whenever the caret lands in a table. GFM pipe
+  tables render, and serialise back to pipe tables.
+- **Raw MD is one click away**, and swaps back with "Rich editor". Both modes edit the same
+  markdown string, so the switch is a conversion, never a merge.
+- **The heading rail is nav's MiniTocSidebar**: thin bars down the document's right edge, one per
+  heading, width by level (H1 widest); the bar for the heading you are reading is highlighted as
+  you scroll; hovering the rail opens a flyout of the titles, and clicking either scrolls there.
+  Hidden under 900px and in print.
+- **Markdown stays the stored form.** Every keystroke serialises the DOM back to markdown, so the
+  responses JSON and Revert compare markdown to markdown. Edits persist to localStorage on every
+  keystroke.
 - **Edits ride in the responses JSON** under `edits: [{id, label, original, edited}]`, both sides,
   so the author diffs rather than re-reads. An untouched document is omitted entirely.
 - **One `data-doc` per document, with a stable id** — it is the localStorage key, so keep it
   identical across regenerations or saved edits are orphaned.
-- The renderer and the serialiser both cover headings, emphasis, links, inline and fenced code,
-  lists, blockquotes and rules. **Neither does tables.** Keep a table in a fenced block, or put it
-  outside the editable block in a normal `.tblwrap` — a table pasted into rich mode will not
-  survive the trip back to markdown.
-- **Why not a real editor library:** a brief is one self-contained file opened from disk, so there
-  is no bundler and no network. nav's Description field runs TipTap for the same job; here the
-  behaviour is reimplemented on `contenteditable` plus `execCommand`, which is what makes
-  click-to-caret free rather than a caret-offset mapping.
+- The renderer and the serialiser cover headings, emphasis, links, inline and fenced code, lists,
+  blockquotes, rules and GFM pipe tables. Anything outside that set is normalised to its nearest
+  markdown equivalent rather than passed through as HTML.
+- **Why it is not TipTap:** a brief is one self-contained file opened from disk, so there is no
+  bundler and no network. nav does this job with TipTap v3 + tiptap-markdown; here the same
+  behaviour is rebuilt on `contenteditable` + `execCommand`, ported from
+  `src/components/ui/{MarkdownEditor,RichTextEditor,MiniTocSidebar}.tsx`. Read those files before
+  changing the editor — the click-to-caret offset walk, the 112px active-heading fold and the
+  180ms flyout delay are all lifted from them deliberately.
 
 **Selection comments still work inside an editable document**, so a reader can mark up in reading
 view and rewrite in edit view, and both come back in the same payload.
