@@ -138,17 +138,30 @@
      localStorage, not in the file, so the file cannot carry an id it never saw.
      A resolved comment stays visible and readable, greyed, and is dropped from
      the exported JSON. Nothing is deleted: the reader can untick it. */
+  function addrKey(x) { return (x || '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 40); }
   var ADDRESSED = (document.body.dataset.addressed || '')
-    .split('||').map(function (x) { return norm(x); }).filter(Boolean);
-  function norm(x) { return (x || '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 40); }
+    .split('||').map(addrKey).filter(Boolean);
   function isAddressed(c) {
-    var n = norm(c.comment);
+    var n = addrKey(c.comment);
     return ADDRESSED.some(function (a) { return n.indexOf(a) === 0 || a.indexOf(n) === 0; });
   }
   state.comments.forEach(function (c) {
     if (c.resolved === undefined && isAddressed(c)) c.resolved = true;
   });
   save();
+
+  /* Paint the strike-through once the marks exist. Runs after init rather than
+     inside it, because a mark is created when its text is found in the DOM and
+     that happens later in this file. */
+  function paintResolved() {
+    state.comments.forEach(function (c) {
+      if (!c.resolved) return;
+      Array.prototype.forEach.call(
+        document.querySelectorAll('mark.cmt[data-cid="' + c.cid + '"]'),
+        function (m) { m.classList.add('resolved'); m.title = 'Addressed — not sent again'; });
+    });
+  }
+  setTimeout(paintResolved, 0);
 
   /* ── free-standing note fields ──
      Any <textarea data-note="key"> persists under state.notes[key] and is
