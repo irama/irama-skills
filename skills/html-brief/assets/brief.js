@@ -114,8 +114,9 @@
     if (m) m.id = 'briefMain';
   }
   var KEY = 'brief:' + BRIEF;
-  var state = { ticks: {}, answers: {}, notes: {}, comments: [], drafts: [] };
+  var state = { ticks: {}, answers: {}, notes: {}, edits: {}, comments: [], drafts: [] };
   if (!state.notes) state.notes = {};
+  if (!state.edits) state.edits = {};
   try { state = Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch {}
   if (!Array.isArray(state.drafts)) state.drafts = [];
   if (!Array.isArray(state.comments)) state.comments = [];
@@ -278,6 +279,15 @@
         out.notes.push({ id: k, label: ta.dataset.noteLabel || ta.getAttribute('aria-label') || k,
                          note: state.notes[k] });
       }
+    });
+    /* An edited document ships as the reader left it, with the original beside it,
+       because a rewrite the author cannot diff is a rewrite they have to re-read whole. */
+    out.edits = [];
+    Array.prototype.forEach.call(document.querySelectorAll('[data-doc]'), function (doc) {
+      var k = doc.dataset.doc, edited = state.edits[k];
+      if (edited == null || edited === docSource(doc)) return;
+      out.edits.push({ id: k, label: doc.dataset.docLabel || k,
+                       original: docSource(doc), edited: edited });
     });
     state.comments.forEach(function (c) {
       if (c.resolved) return;   // the author has already acted on it; do not round-trip it
@@ -780,7 +790,114 @@
 
   reanchor();
   renderProgress();
+
+  /* ── editable documents ──────────────────────────────────────────────────
+     A `[data-doc]` block is a document the reader may rewrite, not just comment
+     on. Source is source, so Edit mode is mono, wrapped and syntax-tinted, the
+     same call prima's workbench makes; the reading view stays serif. The
+     original is held in the DOM (a <script type="text/markdown">) so a revert is
+     always possible and the export can carry both sides.
+
+     ponytail: a ~40-line markdown renderer, not a parser. It covers what an
+     article uses (headings, emphasis, links, code, lists, quotes, rules, tables
+     are NOT covered) and the source is always one keystroke away in Edit mode,
+     which is the escape hatch that makes the small renderer safe. Swap in a real
+     parser the day a brief needs one. */
+  function docSource(doc) {
+    var src = doc.querySelector('script[type="text/markdown"]');
+    return src ? src.textContent.replace(/^\n/, '') : '';
+  }
+  function esc(t) {
+    return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function inline(t) {
+    return esc(t)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>');
+  }
+  function mdToHtml(md) {
+    var out = [], para = [], list = null, fence = null;
+    function flush() {
+      if (para.length) { out.push('<p>' + inline(para.join(' ')) + '</p>'); para = []; }
+      if (list) { out.push('</' + list + '>'); list = null; }
+    }
+    md.split('\n').forEach(function (line) {
+      if (/^```/.test(line)) {
+        if (fence === null) { flush(); fence = []; }
+        else { out.push('<pre><code>' + esc(fence.join('\n')) + '</code></pre>'); fence = null; }
+        return;
+      }
+      if (fence !== null) { fence.push(line); return; }
+      var h = line.match(/^(#{1,6})\s+(.*)$/);
+      if (h) { flush(); out.push('<h' + h[1].length + '>' + inline(h[2]) + '</h' + h[1].length + '>'); return; }
+      if (/^\s*(---|\*\*\*)\s*$/.test(line)) { flush(); out.push('<hr>'); return; }
+      if (/^>\s?/.test(line)) { flush(); out.push('<blockquote>' + inline(line.replace(/^>\s?/, '')) + '</blockquote>'); return; }
+      var li = line.match(/^\s*([-*]|\d+\.)\s+(.*)$/);
+      if (li) {
+        var want = /^\d/.test(li[1]) ? 'ol' : 'ul';
+        if (list !== want) { flush(); out.push('<' + want + '>'); list = want; }
+        out.push('<li>' + inline(li[2]) + '</li>');
+        return;
+      }
+      if (!line.trim()) { flush(); return; }
+      if (list) { out.push('</' + list + '>'); list = null; }
+      para.push(line.trim());
+    });
+    flush();
+    return out.join('\n');
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-doc]'), function (doc) {
+    var key = doc.dataset.doc;
+    var view = document.createElement('div'); view.className = 'doc-view';
+    var ta = document.createElement('textarea'); ta.className = 'doc-src';
+    ta.setAttribute('aria-label', 'Edit ' + (doc.dataset.docLabel || 'document') + ' source');
+    ta.spellcheck = false;
+    var bar = document.createElement('div'); bar.className = 'doc-bar';
+    var toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'doc-btn';
+    var revert = document.createElement('button'); revert.type = 'button'; revert.className = 'doc-btn doc-revert';
+    revert.textContent = 'Revert';
+    var flag = document.createElement('span'); flag.className = 'doc-flag';
+    bar.appendChild(flag); bar.appendChild(revert); bar.appendChild(toggle);
+    doc.appendChild(bar); doc.appendChild(view); doc.appendChild(ta);
+
+    function current() {
+      var e = state.edits[key];
+      return e == null ? docSource(doc) : e;
+    }
+    function paint() {
+      var changed = current() !== docSource(doc);
+      view.innerHTML = mdToHtml(current());
+      flag.textContent = changed ? 'edited' : '';
+      doc.classList.toggle('is-edited', changed);
+      revert.hidden = !changed;
+      var editing = doc.classList.contains('editing');
+      toggle.textContent = editing ? 'Done' : 'Edit';
+      /* Grow the textarea to its content: a fixed-height box inside a long
+         document turns rewriting into scrolling inside scrolling. */
+      if (editing) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+    }
+    toggle.addEventListener('click', function () {
+      var editing = doc.classList.toggle('editing');
+      if (editing) { ta.value = current(); paint(); ta.focus(); }
+      else paint();
+    });
+    revert.addEventListener('click', function () {
+      delete state.edits[key]; save(); ta.value = docSource(doc); paint();
+      toast('Reverted to the original');
+    });
+    ta.addEventListener('input', function () {
+      state.edits[key] = ta.value; save();
+      ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
+      flag.textContent = ta.value !== docSource(doc) ? 'edited' : '';
+      revert.hidden = ta.value === docSource(doc);
+    });
+    ta.value = current();
+    paint();
+  });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
+
 })();

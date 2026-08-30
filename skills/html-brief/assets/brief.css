@@ -421,3 +421,44 @@ mark.cmt.resolved { opacity: .45; text-decoration-line: line-through;
 #cdrawer .drow.resolved { opacity: .5; }
 #cdrawer .drow.resolved .db { text-decoration: line-through; text-decoration-color: var(--muted); }
 #cdrawer .dbadge.done { border-color: #1a7f37; color: #1a7f37; }
+
+/* ── editable documents ──────────────────────────────────────────────────
+   A [data-doc] block is a document the reader may rewrite. The reading view
+   keeps the brief's serif prose; Edit mode goes mono and syntax-neutral,
+   because source is source (the call prima's document workbench makes). */
+[data-doc] { position: relative; margin: 1.4rem 0 2rem; }
+[data-doc] .doc-bar {
+  display: flex; align-items: center; gap: .5rem; justify-content: flex-end;
+  position: sticky; top: 3.2rem; z-index: 3; padding: .35rem 0;
+  background: linear-gradient(var(--bg) 70%, transparent);
+}
+[data-doc] .doc-btn {
+  font: inherit; font-size: .78rem; font-family: var(--sans, system-ui, sans-serif);
+  padding: .22rem .7rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--fg);
+}
+[data-doc] .doc-btn:hover { border-color: var(--accent); color: var(--accent); }
+[data-doc] .doc-revert[hidden] { display: none; }
+[data-doc] .doc-flag {
+  font-size: .7rem; letter-spacing: .04em; text-transform: uppercase;
+  font-family: var(--sans, system-ui, sans-serif); color: var(--accent);
+}
+[data-doc].is-edited { border-left: 2px solid var(--accent); padding-left: 1rem; }
+[data-doc] .doc-view > :first-child { margin-top: 0; }
+[data-doc] .doc-view h1 { font-size: 1.5rem; }
+[data-doc] .doc-view h2 { font-size: 1.15rem; margin-top: 1.8rem; }
+[data-doc] .doc-view blockquote {
+  margin: 1rem 0; padding-left: 1rem; border-left: 2px solid var(--line);
+  color: var(--muted); font-style: italic;
+}
+[data-doc] .doc-src {
+  display: none; width: 100%; box-sizing: border-box; resize: vertical;
+  min-height: 22rem; padding: 1rem; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--card); color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .84rem; line-height: 1.65; white-space: pre-wrap;
+}
+[data-doc] .doc-src:focus { outline: none; border-color: var(--accent); }
+[data-doc].editing .doc-view { display: none; }
+[data-doc].editing .doc-src { display: block; }
+@media print { [data-doc] .doc-bar, [data-doc] .doc-src { display: none !important; } }

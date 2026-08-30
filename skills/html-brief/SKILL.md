@@ -49,7 +49,8 @@ extras you add.
 3. **Selection-comment system** — provided by the runtime; requires `brief.js`
    loaded and `<main>` present. Never omit the script.
 4. **Copy + download icon buttons** — one combo control in the runtime top bar;
-   require `brief.js` + `data-brief-id` on `<body>`.
+   require `brief.js` + `data-brief-id` on `<body>`. Edited documents ride in
+   the same payload under `edits`.
 5. **A References section with numbered footnotes** — whenever the brief rests on
    sources outside itself (documents, videos, transcripts, papers, web pages, other
    repo files). See the next section; it is not optional and not a nice-to-have.
@@ -164,6 +165,39 @@ a paper.
    named specifically (not "the UI"), each with its OK / Needs work tick and
    answer box.
 9. **Next phase readiness** — what's unblocked, what's still waiting.
+
+## Editable documents — when the reader rewrites, not just comments
+
+**A brief carrying a draft the reader is meant to CHANGE uses a `[data-doc]` block, not a question
+with a textarea.** Comments are right for "this line is wrong"; an editable document is right for an
+article, a policy, a spec or a page of copy where the reader wants to fix the wording in place and
+hand it back. Asking someone to describe an edit in a comment box is asking them to write the diff
+by hand.
+
+    <div data-doc="article-body" data-doc-label="Article (a) body">
+      <script type="text/markdown">
+# The heading
+
+The body, in markdown, exactly as it should ship.
+      </script>
+    </div>
+
+- **The source of truth is the `<script type="text/markdown">`**, which the browser never renders,
+  so the original always survives and Revert always works. Do not write the rendered HTML yourself;
+  the runtime renders it.
+- **The runtime injects the Edit / Done toggle, Revert, and the "edited" flag.** Reading view keeps
+  the brief's serif prose; Edit mode is a mono, wrapped, auto-growing textarea, because source is
+  source. Edits persist to localStorage on every keystroke.
+- **Edits ride in the responses JSON** under `edits: [{id, label, original, edited}]`, both sides,
+  so the author diffs rather than re-reads. An untouched document is omitted entirely.
+- **One `data-doc` per document, with a stable id** — it is the localStorage key, so keep it
+  identical across regenerations or saved edits are orphaned.
+- The renderer covers headings, emphasis, links, inline and fenced code, lists, blockquotes and
+  rules. **It does not do tables.** Keep a table in a fenced block, or put it outside the editable
+  block in a normal `.tblwrap`.
+
+**Selection comments still work inside an editable document**, so a reader can mark up in reading
+view and rewrite in edit view, and both come back in the same payload.
 
 ## Definitions block — put the vocabulary at the top
 
