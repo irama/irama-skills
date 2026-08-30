@@ -586,9 +586,15 @@
   function reanchor() {
     state.comments.forEach(function (c) {
       if (isAnchored(c.cid)) return;
+      /* A comment whose quoted text is no longer in the document cannot anchor,
+         and findRange walks every text node to discover that. Retrying it on
+         every drawer open made the first few clicks crawl on a brief carrying
+         two dozen comments from earlier versions. Remember the miss instead. */
+      if (c.noAnchor) return;
       var r = findRange(main(), c.text, c.nth || 0);
-      if (r) wrapRange(r, c.cid);
+      if (r) wrapRange(r, c.cid); else c.noAnchor = true;
     });
+    paintResolved();
     renderDrawer();
   }
 
@@ -634,8 +640,9 @@
       html += '<p class="dlabel">Saved</p>';
       state.comments.forEach(function (c) {
         var anchored = isAnchored(c.cid);
-        html += '<div class="drow" data-cid="' + esc(c.cid) + '">' +
+        html += '<div class="drow' + (c.resolved ? ' resolved' : '') + '" data-cid="' + esc(c.cid) + '">' +
           '<div class="dq">“' + esc(c.text).slice(0, 160) + '”' +
+          (c.resolved ? '<span class="dbadge done">addressed</span>' : '') +
           (anchored ? '' : '<span class="dbadge">not highlighted</span>') + '</div>' +
           '<div class="db">' + esc(c.comment) + '</div>' +
           '<div class="dacts">' +

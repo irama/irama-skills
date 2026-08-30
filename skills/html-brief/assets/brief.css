@@ -417,3 +417,7 @@ mark.cmt.resolved { opacity: .45; text-decoration-line: line-through;
 .defs-out .term .badge { font-size: .62rem; letter-spacing: .07em; text-transform: uppercase;
                          color: var(--muted); border: 1px solid var(--line); border-radius: 999px;
                          padding: .02rem .35rem; margin-left: .25rem; }
+
+#cdrawer .drow.resolved { opacity: .5; }
+#cdrawer .drow.resolved .db { text-decoration: line-through; text-decoration-color: var(--muted); }
+#cdrawer .dbadge.done { border-color: #1a7f37; color: #1a7f37; }
