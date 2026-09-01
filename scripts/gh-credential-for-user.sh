@@ -1,34 +1,30 @@
 #!/bin/bash
-# Git credential helper that routes to a specific gh account.
+# Git credential helper that routes a repo to a specific gh account.
+#
 # Usage in .git/config:
 #   [credential "https://github.com"]
 #     helper = !'$HOME/.claude/scripts/gh-credential-for-user.sh' <github-user>
+#
+# It asks gh for that account's token directly. The previous version switched
+# the ACTIVE account, read the token, then switched back — which raced: a push
+# could be handed the wrong account's token and fail with a 403 naming the other
+# user. Never switch a global setting to read a per-repo value.
 
 set -e
 TARGET_USER="$1"
 ACTION="$2"
 
-if [ "$ACTION" != "get" ]; then
-  exit 0
-fi
+[ "$ACTION" = "get" ] || exit 0
 
-# Read stdin (git credential protocol)
+# Drain the git credential request; the target account is the argument, not
+# anything git tells us.
 while IFS= read -r line; do
   [ -z "$line" ] && break
 done
 
-# Get current active user
-CURRENT=$(gh auth status 2>&1 | awk '/Active account: true/{found=1} found && /account /{print $NF; exit}' | tr -d '()')
-CURRENT=$(gh api user --jq '.login' 2>/dev/null || echo "")
+TOKEN=$(gh auth token --user "$TARGET_USER" 2>/dev/null) || {
+  echo "gh-credential-for-user: no gh token for '$TARGET_USER' — run: gh auth login --user $TARGET_USER" >&2
+  exit 1
+}
 
-SWITCHED=false
-if [ "$CURRENT" != "$TARGET_USER" ]; then
-  gh auth switch --user "$TARGET_USER" 2>/dev/null
-  SWITCHED=true
-fi
-
-printf 'protocol=https\nhost=github.com\nusername=%s\n\n' "$TARGET_USER" | gh auth git-credential get
-
-if [ "$SWITCHED" = true ] && [ -n "$CURRENT" ]; then
-  gh auth switch --user "$CURRENT" 2>/dev/null
-fi
+printf 'protocol=https\nhost=github.com\nusername=%s\npassword=%s\n' "$TARGET_USER" "$TOKEN"
