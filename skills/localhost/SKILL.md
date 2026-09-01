@@ -31,7 +31,7 @@ Manage local `npm run dev` servers via `~/.claude/scripts/localhost-dev.sh` (own
 ## Notes
 
 - The dev server runs **detached** — it survives the turn; the user tests in the browser.
-- This same script runs automatically after each worktree auto-commit (without `--clean`, for fast restarts) via the Stop hook — see [~/.claude/docs/multithread-workflow.md](../../docs/multithread-workflow.md).
+- This same script runs automatically after each worktree auto-commit (without `--clean`, for fast restarts) via the Stop hook — see `~/.claude/docs/multithread-workflow.md`.
 - **431 errors (request header fields too large):** cookies ignore the port, so
   `localhost` is ONE cookie jar shared by every app ever run on 3000-3010. Several
   Supabase apps at once push the `Cookie` header past Node's default 16KB cap and the

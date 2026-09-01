@@ -154,19 +154,29 @@ CoWork, or any host that reads this SKILL.md but cannot place sibling files next
 to the output. It is the same template with the two `<link>`/`<script>` tags
 pointed at the public copies of the runtime instead of at sibling files:
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.css">
-    <script src="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.css"
+          integrity="sha384-dRvvSaiTeCurJzTY/GCH2246mFZ/fT2Kw528F9jGdKFyUiJ0BHgkyf2DpsIwIS2f" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.js"
+            integrity="sha384-D2jtrkZtZFzJ+BXeBfVetDsKeKoxH+o+QpwT+KXFirUrzzT4psziM02+JPIidIj7" crossorigin="anonymous"></script>
 
 Everything else is identical — same markup contract, same `data-brief-id`, same
 four requirements. Answers still persist in the reader's own browser
 localStorage and the brief content never leaves their machine; only the two
 static assets are fetched.
 
+**Copy the tags from `assets/brief-standalone.html` — do not retype them.** They
+carry Subresource Integrity hashes, so a tampered or wrong file fails loudly
+instead of running. The hashes belong to the pinned tag: if the tag ever moves,
+recompute both (`openssl dgst -sha384 -binary <file> | openssl base64 -A`) and
+update the template, or every new brief silently refuses to load its runtime.
+
 **Three things to know before choosing it.** The version is pinned to a tag on
 purpose — never point a delivered brief at `@main`, or a later runtime change
 rewrites every brief anyone has already generated. A CDN brief does not work
-offline, which the copied-assets build always does. And when you *can* copy the
-files, copy them: local assets stay correct forever with no network and no
+offline, which the copied-assets build always does; the template carries a
+visible fallback that tells a blocked or offline reader exactly how to repair it,
+so they see an instruction rather than an unstyled page. And when you *can* copy
+the files, copy them: local assets stay correct forever with no network and no
 third party in the path.
 
 ## End-of-phase brief — required section order

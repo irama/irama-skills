@@ -46,3 +46,14 @@ A pinned tag means a brief generated today still renders the same way after the
 runtime changes. When the runtime gains something worth publishing, cut the next
 tag and bump the template — do not move an existing tag, because briefs already
 in someone's hands are pointing at it.
+
+Both tags also carry a Subresource Integrity hash, so the browser refuses a file
+that does not match what was published. Recompute both whenever the pinned tag
+changes:
+
+    openssl dgst -sha384 -binary brief.css | openssl base64 -A
+    openssl dgst -sha384 -binary brief.js  | openssl base64 -A
+
+A stale hash is a hard failure, not a warning — the runtime simply will not run,
+and the brief's built-in fallback message tells the reader how to load the assets
+locally instead.

@@ -3,7 +3,7 @@ name: commit
 description: Stage, gate, and commit the current changes; push the feature branch if on one. Use when the user says "commit", "commit and push my branch", or invokes /commit. Never pushes the default branch — that is /push. (Formerly /git.)
 ---
 
-Commit the current repo's changes and, when on a feature branch, push **that branch only**. `/commit` **never** pushes the default branch and never applies migrations — deploying `main` is `/push`, merging is `/merge`. This keeps every `/commit` fully reversible until you `/push`. See [~/.claude/docs/multithread-workflow.md](../../docs/multithread-workflow.md).
+Commit the current repo's changes and, when on a feature branch, push **that branch only**. `/commit` **never** pushes the default branch and never applies migrations — deploying `main` is `/push`, merging is `/merge`. This keeps every `/commit` fully reversible until you `/push`. See `~/.claude/docs/multithread-workflow.md`.
 
 > Part of the four-verb multi-thread flow: **`/commit`** (here) → `/merge` (branch → local main) → `/push` (deploy main) → `/prune` (clean up worktrees). `/commit` replaces the old `/git`.
 
@@ -38,4 +38,4 @@ If there is nothing to commit, say so — do not create an empty commit.
 
 ## Auth
 
-If `git push` prompts for credentials, the credential helper is missing or expired. Don't paste tokens into commands. Tell the user to push once interactively to seed the credential store (Keychain on macOS), or rotate their PAT. Per-repo identity routing: [~/.claude/docs/git-auth-per-repo-routing.md](../../docs/git-auth-per-repo-routing.md).
+If `git push` prompts for credentials, the credential helper is missing or expired. Don't paste tokens into commands. Tell the user to push once interactively to seed the credential store (Keychain on macOS), or rotate their PAT. Per-repo identity routing: `~/.claude/docs/git-auth-per-repo-routing.md`.

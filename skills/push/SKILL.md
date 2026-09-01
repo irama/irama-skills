@@ -3,20 +3,20 @@ name: push
 description: Deploy the local default branch to production — apply migrations, run the production build, push main, confirm deploy. Use when the user says "push", "push to prod", "deploy", or invokes /push. The ONLY verb that touches the remote default branch and prod. No "all" variant.
 ---
 
-Deploy `main` to production. `/push` is the **only** actor that touches the remote default branch and prod — it owns the migration gate (moved here from the old `/git`/`/flatten` because migrations must hit the prod DB *before* the push that triggers the deploy). Run it after `/merge` has landed the branches onto local `main`. See [~/.claude/docs/multithread-workflow.md](../../docs/multithread-workflow.md).
+Deploy `main` to production. `/push` is the **only** actor that touches the remote default branch and prod — it owns the migration gate (moved here from the old `/git`/`/flatten` because migrations must hit the prod DB *before* the push that triggers the deploy). Run it after `/merge` has landed the branches onto local `main`. See `~/.claude/docs/multithread-workflow.md`.
 
 > Four-verb flow: `/commit` → `/merge` (branch → local main) → **`/push`** (here) → `/prune`.
 
 ## Preconditions
 
 - `git rev-parse --abbrev-ref HEAD` must be the **default branch** (`main`/`master`) in the **main checkout** (not a worktree). If not, stop — run `/merge` first, or switch to the main checkout.
-- `git remote get-url origin`; confirm the per-repo push identity is configured ([~/.claude/docs/git-auth-per-repo-routing.md](../../docs/git-auth-per-repo-routing.md)).
+- `git remote get-url origin`; confirm the per-repo push identity is configured (`~/.claude/docs/git-auth-per-repo-routing.md`).
 - `git status` should show the merged, committed state `/merge` left. Uncommitted stray changes → stop and ask.
 
 ## Steps
 
 1. **Confirm a code review actually ran at `/merge`.** Codex reviews the diff during `/merge`, not here. Codex clean → proceed. **`adversarial-reviewer` clean → also proceed** — a completed fallback review satisfies the gate and is not a reason to stop and ask (~/.claude/CLAUDE.md § Codex unavailable; revised 2026-08-03, and there is no exempt class for auth/payments/deletion/migrations). Report which reviewer ran and that the cross-model axis was missing; that disclosure IS the requirement, not permission-seeking. Stop only if **no** review ran at all, or one left a P0/P1/P2 finding unresolved — don't silently push past a gate that never ran.
-2. **Migration gate (hard rule — [~/.claude/CLAUDE.md](../../CLAUDE.md)).** All projects auto-deploy on push; migrations must be applied to the linked/prod DB *before* the push.
+2. **Migration gate (hard rule — `~/.claude/CLAUDE.md`).** All projects auto-deploy on push; migrations must be applied to the linked/prod DB *before* the push.
    a) Check the migrations dir (`data/supabase/migrations/`, `supabase/migrations/`, `prisma/migrations/`).
    b) Check for unapplied migrations: Supabase `npx supabase migration list --linked`; Prisma `npx prisma migrate status`.
    c) If pending, apply: `supabase db push --linked` / `prisma migrate deploy`.

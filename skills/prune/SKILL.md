@@ -3,7 +3,7 @@ name: prune
 description: Remove merged worktree(s) and their branches, then resync the VSCode workspace file. "/prune" removes the current worktree/branch; "/prune all" removes every merged one. Refuses to remove anything unmerged or with uncommitted work. Use when the user says "prune", "clean up worktrees", "remove merged branches", "prune all", or invokes /prune.
 ---
 
-Clean up worktrees and branches after they have been merged and pushed. `/prune` is guarded: it **refuses** to remove any worktree with uncommitted work or any branch not fully merged into the default branch — that is the one operation no tooling can undo. See [~/.claude/docs/multithread-workflow.md](../../docs/multithread-workflow.md).
+Clean up worktrees and branches after they have been merged and pushed. `/prune` is guarded: it **refuses** to remove any worktree with uncommitted work or any branch not fully merged into the default branch — that is the one operation no tooling can undo. See `~/.claude/docs/multithread-workflow.md`.
 
 > Four-verb flow: `/commit` → `/merge` → `/push` → **`/prune` / `/prune all`** (here). Run after `/push` so you only ever prune work that is safely on prod.
 

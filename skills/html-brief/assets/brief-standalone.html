@@ -10,7 +10,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{TITLE}}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.css"
+      integrity="sha384-dRvvSaiTeCurJzTY/GCH2246mFZ/fT2Kw528F9jGdKFyUiJ0BHgkyf2DpsIwIS2f" crossorigin="anonymous">
 </head>
 <body data-brief-id="{{BRIEF_ID}}">
 <main>
@@ -76,6 +77,22 @@
 </section>
 <!-- /SAMPLE -->
 </main>
-<script src="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.js"
+        integrity="sha384-D2jtrkZtZFzJ+BXeBfVetDsKeKoxH+o+QpwT+KXFirUrzzT4psziM02+JPIidIj7" crossorigin="anonymous"></script>
+<noscript><p style="font:14px system-ui;max-width:60ch;margin:2rem auto">
+  This brief needs JavaScript. Enable it, or ask the sender for the copied-assets build.</p></noscript>
+<script>
+addEventListener('DOMContentLoaded', function () {
+  if (window.__briefRuntimeLoaded || document.querySelector('.topbar')) return;
+  var d = document.createElement('p');
+  d.style.cssText = 'font:14px system-ui;line-height:1.6;max-width:62ch;margin:2rem auto;padding:1rem;border:1px solid #c33;border-radius:6px';
+  d.innerHTML = 'The interactive runtime for this brief did not load \u2014 your network is probably blocking ' +
+    '<code>cdn.jsdelivr.net</code>, or you are offline. The text below is still complete and readable. ' +
+    'To restore ticking, answers and Copy&nbsp;responses: download <code>brief.css</code> and <code>brief.js</code> ' +
+    'from the html-brief skill, save them beside this file, and change the two tags in the page source to ' +
+    '<code>href="brief.css"</code> and <code>src="brief.js"</code>.';
+  document.body.insertBefore(d, document.body.firstChild);
+});
+</script>
 </body>
 </html>

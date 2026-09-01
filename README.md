@@ -59,6 +59,10 @@ SKILL.md — in OneDrive for Microsoft 365 Copilot CoWork.
   this author's worktree layout, hooks and helper scripts. They are personal
   tooling, not portable skills, and they keep their absolute references on
   purpose. Everything else is expected to run anywhere.
+- **Referenced docs are not in this repo.** Some skills name a file under
+  `~/.claude/docs/` — the author's private config notes, deliberately unpublished. They
+  are cited as plain text, never as a link, so nothing here promises a page that is not
+  there. The skills work without them.
 - **No filesystem at all?** A skill that ships a browser-side runtime (currently
   `html-brief`) also carries a CDN build pinned to a git tag, so a chat tool or
   CoWork can produce a single working file with nothing to copy. See

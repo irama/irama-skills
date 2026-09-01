@@ -3,7 +3,7 @@ name: merge
 description: Merge shipped feature branch(es) down onto the default branch locally — no migrations, no push. "/merge" merges the current branch; "/merge all" merges every feature branch oldest-first. Use when the user says "merge", "merge down", "merge to main", "merge all", or invokes /merge. (Formerly /flatten.)
 ---
 
-Merge feature branch(es) onto the default branch **locally**. `/merge` does NOT apply migrations and does NOT push — those are `/push`. Merging locally first gives you a checkpoint: land the branches, inspect `main`, then `/push` to deploy when ready. See [~/.claude/docs/multithread-workflow.md](../../docs/multithread-workflow.md).
+Merge feature branch(es) onto the default branch **locally**. `/merge` does NOT apply migrations and does NOT push — those are `/push`. Merging locally first gives you a checkpoint: land the branches, inspect `main`, then `/push` to deploy when ready. See `~/.claude/docs/multithread-workflow.md`.
 
 > Four-verb flow: `/commit` (each worktree) → **`/merge` / `/merge all`** (here) → `/push` (deploy) → `/prune` (clean up). `/merge` replaces the old `/flatten`.
 

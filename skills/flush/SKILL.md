@@ -3,7 +3,7 @@ name: flush
 description: Run the whole shipping pipeline end-to-end — /commit, /merge, /push, /prune — skipping the steps that don't apply. Use when the user says "flush", "ship it all", "take it all the way to prod", or invokes /flush. Pushes prod, so it is only ever user-invoked.
 ---
 
-Flush the current work all the way out: **`/commit` → `/merge` → `/push` → `/prune`**, running only the verbs that are relevant to the repo's actual state. It is exactly the four-verb flow from [~/.claude/docs/multithread-workflow.md](../../docs/multithread-workflow.md), invoked in one word instead of four turns.
+Flush the current work all the way out: **`/commit` → `/merge` → `/push` → `/prune`**, running only the verbs that are relevant to the repo's actual state. It is exactly the four-verb flow from `~/.claude/docs/multithread-workflow.md`, invoked in one word instead of four turns.
 
 **Invoking `/flush` IS the explicit request for every verb in it — including `/push`.** That is the whole point of the verb, so it does not re-ask for permission to merge or deploy. This is the one place where the standing "never merge or push without being asked" rule is already satisfied up-front: the user asked, by name, for the pipeline. Nothing else — not "go", not "ship it", not a green gate — expands into a `/flush`.
 

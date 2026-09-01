@@ -12,7 +12,7 @@ disable-model-invocation: true
 > plugin, as a project `.claude/skills/` folder, and on Windows, so its location varies.
 
 Full design rationale, the Codex plan-review findings, and what got cut for v1 live in
-[~/.claude/docs/driver-spec.md](../../docs/driver-spec.md) — read it once per session if this
+`~/.claude/docs/driver-spec.md` — read it once per session if this
 is your first time running `/driver` in a while; don't re-derive these decisions from scratch.
 
 **What this is not:** a replacement for `/goal` on small, non-ticket-shaped work, or for
