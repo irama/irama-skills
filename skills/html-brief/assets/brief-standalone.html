@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<!-- STANDALONE BUILD — one self-contained file, no sibling assets to copy.
+  Use this when the agent has no filesystem: a chat tool (ChatGPT, Copilot),
+  Microsoft 365 Copilot CoWork, or anywhere brief.css/brief.js cannot be placed
+  next to the output. The runtime loads from a version-PINNED CDN tag; never
+  change it to @main. Needs network on first open, then the browser caches it.
+  When you CAN copy files, use brief-template.html instead. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.css">
+</head>
+<body data-brief-id="{{BRIEF_ID}}">
+<main>
+<!-- ===================================================================
+  {{CONTENT}} — REPLACE the two live sample sections below with your own.
+  brief.js auto-creates the top bar, progress counter, "Copy responses"
+  button, per-question answer textareas, selection comments and toast —
+  author ONLY the sections. Markup contract:
+
+  Non-question section (tickable → collapses):
+    <section class="brief-section" data-sec="slug">
+      <div class="sec-head">
+        <label class="tick"><input type="checkbox" aria-label="Mark section read"></label>
+        <h2>Section title</h2>
+      </div>
+      <div class="sec-body"> …content… </div>
+    </section>
+
+  Question: numbered data-q="Qn" + visible <span class="qid">Qn</span>, lead
+  with the plain-English ask, assumption first. The answer textarea is
+  AUTO-INJECTED — add <div class="answerwrap">…</div> manually only to pin its
+  placement. Examples collapsed in <details class="example">, E-numbers globally
+  unique. See SKILL.md "Hard requirements".
+==================================================================== -->
+
+<!-- SAMPLE — delete once you've added real content -->
+<section class="brief-section" data-sec="overview">
+  <div class="sec-head">
+    <label class="tick"><input type="checkbox" aria-label="Mark section read"></label>
+    <h2>Overview</h2>
+  </div>
+  <div class="sec-body">
+    <p>One or two sentences framing what this brief asks and why, so the reader
+      has context before the questions. Tick this off when read.</p>
+  </div>
+</section>
+
+<section class="q" data-q="Q1">
+  <div class="q-head">
+    <label class="tick"><input type="checkbox" aria-label="Mark Q1 resolved"></label>
+    <h2><span class="qid">Q1</span> Confirm: does M=No on a purchase row mean the item was bought second-hand?</h2>
+  </div>
+  <div class="q-body">
+    <p class="assume"><strong>My assumption:</strong> M=No means second-hand, GST claimed under Div 66 when sold. <strong>If wrong:</strong> the BAS export mislabels ~40 rows.</p>
+    <p>The column is unlabelled in the source sheet, so I inferred the meaning from the values — confirm before I lock it in.</p>
+    <ul class="options">
+      <li><b>a)</b> Yes — M=No = second-hand (my assumption).</li>
+      <li><b>b)</b> No — M=No means something else (say what in your answer).</li>
+    </ul>
+    <p class="ex-label">Examples</p>
+    <details class="example">
+      <summary><span class="dp">E1</span> Digga broom (PSS0100) — M=Yes — X=X <span class="ex-tag">BAS 2026_4!A7:AF10</span></summary>
+      <div class="legend"><span class="chip hl-focus"></span>cell in question <span class="chip hl-warn"></span>defect</div>
+      <div class="tblwrap"><table>
+        <tr><th>Row</th><th>M</th><th>X</th></tr>
+        <tr><td>8</td><td class="hl-focus">Yes</td><td>X</td></tr>
+      </table></div>
+      <!-- header row + first column pin automatically; first col = identifier.
+           .tblwrap.nopin disables the column pin. Legend REQUIRED whenever
+           hl-focus/hl-warn/hl-info highlights are used. -->
+    </details>
+  </div>
+</section>
+<!-- /SAMPLE -->
+</main>
+<script src="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.js"></script>
+</body>
+</html>

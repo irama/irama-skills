@@ -2,8 +2,8 @@
 # Send a Telegram message. Usage: send.sh "message text"
 set -euo pipefail
 
-ENV_FILE="${TELEGRAM_ENV:-$HOME/.claude/.telegram.env}"
-[ -f "$ENV_FILE" ] || { echo "telegram: not configured — run the setup wizard: bash ~/.claude/skills/telegram/setup.sh" >&2; exit 1; }
+ENV_FILE="${TELEGRAM_ENV:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.telegram.env}"
+[ -f "$ENV_FILE" ] || { echo "telegram: not configured — run the setup wizard: bash "$(dirname "$0")/setup.sh"" >&2; exit 1; }
 # shellcheck disable=SC1090
 set -a; . "$ENV_FILE"; set +a
 : "${TELEGRAM_BOT_TOKEN:?missing TELEGRAM_BOT_TOKEN in $ENV_FILE}"

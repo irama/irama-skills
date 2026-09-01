@@ -3,6 +3,10 @@ name: claude-retro
 description: Analyze the user's own Claude Code session history to find how they actually work — repeated requests, correction loops, skill/hook candidates, and built-but-unused tooling. Use when the user says "claude retro", "analyze how I work", "audit my usage", "what do I repeat", or invokes /claude-retro. Optional arg = number of days to look back (default 30).
 ---
 
+> **Config dir.** Every command below reads Claude Code's own data directory via
+> `CC="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` — set it once at the start of the run. The
+> fallback is the default location, so this behaves identically when the variable is unset.
+
 Read the user's Claude Code session history and report how they actually work over a lookback window: what they ask for repeatedly, where turns burn on corrections, which manual workflows deserve a skill/hook, and what they built but never use.
 
 **Deliverable is a plan/report, not code changes.** Do not build the skills you propose unless the user then asks.
@@ -20,16 +24,17 @@ Read the user's Claude Code session history and report how they actually work ov
 
 ### 1. Survey volume
 ```
-find ~/.claude/projects -name "*.jsonl" -mtime -<DAYS> | wc -l
-find ~/.claude/projects -name "*.jsonl" -mtime -<DAYS> -exec du -ch {} + | tail -1
-wc -l ~/.claude/history.jsonl
+CC="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+find "$CC"/projects -name "*.jsonl" -mtime -<DAYS> | wc -l
+find "$CC"/projects -name "*.jsonl" -mtime -<DAYS> -exec du -ch {} + | tail -1
+wc -l "$CC"/history.jsonl
 ```
 
 ### 2. Extract genuine user prompts to a scratch JSONL
 Skip tool results, hooks, meta, and agent-* subagent transcripts. Capture both string-content and array-content user text. Write `{p:project, m:prompt[:600]}` per line to the scratchpad:
 ```
 SCRATCH=<scratchpad>/retro; mkdir -p $SCRATCH
-find ~/.claude/projects -name "*.jsonl" -mtime -<DAYS> -not -name "agent-*" | while read f; do
+find "$CC"/projects -name "*.jsonl" -mtime -<DAYS> -not -name "agent-*" | while read f; do
   proj=$(basename $(dirname "$f"))
   jq -rc --arg p "$proj" 'select(.type=="user" and (.message.content|type)=="string") | select(.isMeta!=true) | {p:$p, m:(.message.content[:600])}' "$f" 2>/dev/null
   jq -rc --arg p "$proj" 'select(.type=="user" and (.message.content|type)=="array") | select(.isMeta!=true) | .message.content[] | select(.type=="text") | {p:$p, m:(.text[:600])}' "$f" 2>/dev/null
@@ -55,7 +60,7 @@ Wait for all to complete (you'll be notified). While waiting, do step 3 if not a
 ### 5. Built-but-unused inventory
 List what exists vs. what the usage data shows invoked:
 ```
-ls ~/.claude/skills ~/.claude/commands ~/.claude/agents 2>/dev/null
+ls "$CC"/skills "$CC"/commands "$CC"/agents 2>/dev/null
 ls <project>/.claude/skills <project>/.claude/commands <project>/.claude/agents 2>/dev/null
 ```
 Cross-reference against the slash-usage counts from step 3. Flag skills/commands/agents with **0 invocations** in the window. Note that some skills auto-trigger silently (no slash), so caveat rather than declare dead.

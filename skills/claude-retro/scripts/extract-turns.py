@@ -12,7 +12,8 @@ Usage: extract-turns.py <out.jsonl> [days]
 import json, os, sys, re, glob
 from datetime import datetime, timezone
 
-ROOT = os.path.expanduser("~/.claude/projects")
+ROOT = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR")
+                    or os.path.expanduser("~/.claude"), "projects")
 CHECK = re.compile(r"\b(pytest|npm (run )?test|vitest|jest|tsc\b|typecheck|eslint|ruff|mypy|"
                    r"npm run build|next build|cargo (test|build)|go test|playwright|curl -|"
                    r"lighthouse|shellcheck|bash -n|validate|gate)\b", re.I)

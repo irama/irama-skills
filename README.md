@@ -39,6 +39,31 @@ skipped. Restart Claude Code afterwards; skills are read at session start.
 
 ---
 
+
+## Path conventions (read before adding a skill)
+
+A skill must not assume where it is installed. These live in `~/.claude` on the
+author's machine, but the same folders install as a plugin, as a project
+`.claude/skills/` directory, on Windows, and — for skills that are just a
+SKILL.md — in OneDrive for Microsoft 365 Copilot CoWork.
+
+- **A skill's own bundled files** are addressed as `<skill-dir>/…`, meaning the
+  folder holding that SKILL.md, resolved from wherever the skill was loaded.
+  Never `~/.claude/skills/<name>/…`. Inside a bundled shell script, use
+  `"$(dirname "$0")"`.
+- **Claude Code's own data directory** is `${CLAUDE_CONFIG_DIR:-$HOME/.claude}`,
+  never a bare `~/.claude`. The fallback is the default location, so nothing
+  changes when the variable is unset.
+- **Machine-bound by design:** the shipping verbs (`/commit` `/merge` `/push`
+  `/prune` `/flush`), `/localhost`, `/driver`, `/ci` and `/verify-ui` depend on
+  this author's worktree layout, hooks and helper scripts. They are personal
+  tooling, not portable skills, and they keep their absolute references on
+  purpose. Everything else is expected to run anywhere.
+- **No filesystem at all?** A skill that ships a browser-side runtime (currently
+  `html-brief`) also carries a CDN build pinned to a git tag, so a chat tool or
+  CoWork can produce a single working file with nothing to copy. See
+  `skills/html-brief/INSTALL.md`.
+
 ## Read this before you install the hooks
 
 `install.sh` does **not** install hooks unless you pass `--hooks`, and even then

@@ -7,6 +7,10 @@ disable-model-invocation: true
 
 # /driver
 
+> **Paths.** `<skill-dir>` means the folder holding this SKILL.md — resolve it from
+> wherever the skill was loaded, never a hardcoded home path. This skill installs as a
+> plugin, as a project `.claude/skills/` folder, and on Windows, so its location varies.
+
 Full design rationale, the Codex plan-review findings, and what got cut for v1 live in
 [~/.claude/docs/driver-spec.md](../../docs/driver-spec.md) — read it once per session if this
 is your first time running `/driver` in a while; don't re-derive these decisions from scratch.
@@ -125,8 +129,8 @@ walk-away portion of the run begins.
 RUN_ID="$(date +%Y%m%dT%H%M%S)-<short-slug>"
 RUN_DIR=".scratch/driver-runs/$RUN_ID"
 mkdir -p "$RUN_DIR"
-python3 ~/.claude/skills/driver/driver_state.py init "$RUN_DIR" <ticket-id> [<ticket-id> ...]
-python3 ~/.claude/skills/driver/driver_state.py lock "$RUN_DIR" || exit 1   # refuses if another /driver run is active
+python3 <skill-dir>/driver_state.py init "$RUN_DIR" <ticket-id> [<ticket-id> ...]
+python3 <skill-dir>/driver_state.py lock "$RUN_DIR" || exit 1   # refuses if another /driver run is active
 ```
 
 **Claim every ticket in the tracker, now — before any work starts.** The claim is what makes
@@ -156,8 +160,8 @@ spec's accepted Codex finding that a dependent ticket must never miss a sibling'
 **If `$RUN_DIR` already exists with state in it:** this is a resume, not a fresh run.
 
 ```
-python3 ~/.claude/skills/driver/driver_state.py reconcile "$RUN_DIR" --repo "$(git rev-parse --show-toplevel)" --integration-branch "driver/$RUN_ID"
-python3 ~/.claude/skills/driver/driver_state.py summary "$RUN_DIR"
+python3 <skill-dir>/driver_state.py reconcile "$RUN_DIR" --repo "$(git rev-parse --show-toplevel)" --integration-branch "driver/$RUN_ID"
+python3 <skill-dir>/driver_state.py summary "$RUN_DIR"
 ```
 
 Reconcile before trusting anything — an `in-progress` or `merged` entry whose commit isn't
@@ -288,7 +292,7 @@ explicitly human-invoked step, same as every other verb in the fleet.
 ### 8. Release the lock and report
 
 ```
-python3 ~/.claude/skills/driver/driver_state.py unlock "$RUN_DIR"
+python3 <skill-dir>/driver_state.py unlock "$RUN_DIR"
 ```
 
 Produce one unified summary, per-ticket:

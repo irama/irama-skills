@@ -183,7 +183,7 @@ finish() {
 # STAGES
 # ──────────────────────────────────────────────────────────────────────────
 
-ENV_FILE="${TELEGRAM_ENV:-$HOME/.claude/.telegram.env}"
+ENV_FILE="${TELEGRAM_ENV:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.telegram.env}"
 TOTAL_STAGES=3
 
 banner "Telegram bot for Claude"

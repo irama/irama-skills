@@ -5,10 +5,14 @@ description: Generate images with GPT Image 2 (the default) or another hosted mo
 
 # gen-image — hosted image generation
 
+> **Paths.** `<skill-dir>` means the folder holding this SKILL.md — resolve it from
+> wherever the skill was loaded, never a hardcoded home path. This skill installs as a
+> plugin, as a project `.claude/skills/` folder, and on Windows, so its location varies.
+
 One script, submit → poll → download:
 
 ```
-python3 ~/.claude/skills/gen-image/generate.py \
+python3 <skill-dir>/generate.py \
   --prompt "<the prompt>" \
   --out ./path/to/image.png \
   --size 16:9

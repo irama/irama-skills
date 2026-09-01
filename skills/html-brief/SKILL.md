@@ -122,9 +122,14 @@ be built from `assets/brief-template.html` in this skill directory. All
 interactivity lives in the reusable drop-in runtime — **never regenerate that
 logic inline**:
 
-- `cp ~/.claude/skills/html-brief/assets/brief.css ~/.claude/skills/html-brief/assets/brief.js <output-dir>/`
-  (copy alongside so the brief folder is portable; overwrite freely — newer
-  skill assets are always backwards compatible with stored state).
+- `cp <skill-dir>/assets/brief.css <skill-dir>/assets/brief.js <output-dir>/`
+  where `<skill-dir>` is the directory holding this SKILL.md — never a
+  hardcoded home path, because this skill also installs as a plugin, as a
+  project `.claude/skills/` folder, on Windows, and in OneDrive for Copilot
+  CoWork. (Copy alongside so the brief folder is portable; overwrite freely —
+  newer skill assets are always backwards compatible with stored state.)
+  **No filesystem, or no way to copy the assets? Use the CDN build below
+  instead** — same runtime, one file, nothing to copy.
 - Author ONLY content: fill `{{TITLE}}`, `{{BRIEF_ID}}` (stable slug;
   localStorage key — keep identical across regenerations so saved answers
   survive), and **replace the two live SAMPLE sections** in the template's
@@ -140,6 +145,29 @@ logic inline**:
 
 Deliver the result per the global rule: full `file:///…` URL in a fenced code
 block.
+
+## Building one where you cannot copy files (the CDN build)
+
+**Use `assets/brief-standalone.html` when the agent has no filesystem to copy
+into** — a chat tool the brief is pasted or attached into, Microsoft 365 Copilot
+CoWork, or any host that reads this SKILL.md but cannot place sibling files next
+to the output. It is the same template with the two `<link>`/`<script>` tags
+pointed at the public copies of the runtime instead of at sibling files:
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.css">
+    <script src="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.js"></script>
+
+Everything else is identical — same markup contract, same `data-brief-id`, same
+four requirements. Answers still persist in the reader's own browser
+localStorage and the brief content never leaves their machine; only the two
+static assets are fetched.
+
+**Three things to know before choosing it.** The version is pinned to a tag on
+purpose — never point a delivered brief at `@main`, or a later runtime change
+rewrites every brief anyone has already generated. A CDN brief does not work
+offline, which the copied-assets build always does. And when you *can* copy the
+files, copy them: local assets stay correct forever with no network and no
+third party in the path.
 
 ## End-of-phase brief — required section order
 

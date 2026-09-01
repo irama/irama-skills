@@ -6,7 +6,7 @@ const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 await page.goto(url);
 // topbar injected
-const okTopbar = await page.locator('.topbar h1').textContent() === 'Brief runtime test';
+const okTopbar = (await page.locator('.topbar h1').textContent()).startsWith('Brief runtime test');
 const okProgress = (await page.locator('#progress').textContent()) === '0/1 questions resolved';
 // answer persist
 await page.fill('#ans-Q1', 'my test answer');

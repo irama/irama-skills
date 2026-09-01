@@ -5,10 +5,14 @@ description: Send a Telegram message to the user from any repo — a "finished, 
 
 # Telegram
 
+> **Paths.** `<skill-dir>` means the folder holding this SKILL.md — resolve it from
+> wherever the skill was loaded, never a hardcoded home path. This skill installs as a
+> plugin, as a project `.claude/skills/` folder, and on Windows, so its location varies.
+
 Send the user a Telegram message. One script, one `curl`, no dependencies.
 
 ```bash
-bash ~/.claude/skills/telegram/send.sh "Your message text"
+bash <skill-dir>/send.sh "Your message text"
 ```
 
 Prints `telegram: sent` on success. Markdown is tried first and falls back to
@@ -40,7 +44,8 @@ Nothing waiting; branch is committed.
 
 ## Configuration
 
-Credentials live in `~/.claude/.telegram.env` (mode 600, outside every repo):
+Credentials live in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.telegram.env` (mode 600, outside
+every repo). Override the whole path with `TELEGRAM_ENV` if you keep secrets elsewhere:
 
 ```
 TELEGRAM_BOT_TOKEN=...
@@ -55,7 +60,7 @@ Only the user can create a Telegram bot, so this is a wizard, not a step you
 run for them:
 
 ```bash
-bash ~/.claude/skills/telegram/setup.sh
+bash <skill-dir>/setup.sh
 ```
 
 Three stages: create the bot with BotFather and paste the token, message the
