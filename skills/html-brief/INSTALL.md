@@ -56,4 +56,11 @@ changes:
 
 A stale hash is a hard failure, not a warning — the runtime simply will not run,
 and the brief's built-in fallback message tells the reader how to load the assets
-locally instead.
+locally instead. So verify rather than trust the paste: after tagging, hash what
+the CDN actually serves and check it against the template.
+
+    curl -s https://cdn.jsdelivr.net/gh/irama/irama-skills@<tag>/skills/html-brief/assets/brief.js \
+      | openssl dgst -sha384 -binary | openssl base64 -A
+
+That value must appear verbatim in `brief-standalone.html`. A mistyped hash and a
+genuinely wrong file look identical to the browser.

@@ -122,10 +122,12 @@ be built from `assets/brief-template.html` in this skill directory. All
 interactivity lives in the reusable drop-in runtime — **never regenerate that
 logic inline**:
 
-- `cp <skill-dir>/assets/brief.css <skill-dir>/assets/brief.js <output-dir>/`
-  where `<skill-dir>` is the directory holding this SKILL.md — never a
-  hardcoded home path, because this skill also installs as a plugin, as a
-  project `.claude/skills/` folder, on Windows, and in OneDrive for Copilot
+- **Copy `brief.css` and `brief.js` from `<skill-dir>/assets/` into
+  `<output-dir>/`** — by whatever means the host has (`cp` on macOS/Linux,
+  `copy` in `cmd.exe`, `Copy-Item` in PowerShell, or a plain file copy). Do not
+  assume a Unix shell. `<skill-dir>` is the directory holding this SKILL.md —
+  never a hardcoded home path, because this skill also installs as a plugin, as
+  a project `.claude/skills/` folder, on Windows, and in OneDrive for Copilot
   CoWork. (Copy alongside so the brief folder is portable; overwrite freely —
   newer skill assets are always backwards compatible with stored state.)
   **No filesystem, or no way to copy the assets? Use the CDN build below
@@ -154,10 +156,10 @@ CoWork, or any host that reads this SKILL.md but cannot place sibling files next
 to the output. It is the same template with the two `<link>`/`<script>` tags
 pointed at the public copies of the runtime instead of at sibling files:
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.css"
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v2/skills/html-brief/assets/brief.css"
           integrity="sha384-dRvvSaiTeCurJzTY/GCH2246mFZ/fT2Kw528F9jGdKFyUiJ0BHgkyf2DpsIwIS2f" crossorigin="anonymous">
-    <script src="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v1/skills/html-brief/assets/brief.js"
-            integrity="sha384-D2jtrkZtZFzJ+BXeBfVetDsKeKoxH+o+QpwT+KXFirUrzzT4psziM02+JPIidIj7" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/gh/irama/irama-skills@html-brief-v2/skills/html-brief/assets/brief.js"
+            integrity="sha384-SYnN7i2uSYl06g0fpblZhGI0UEhWt9lDrBbXlJbhoNh8YubMlt10edVjbP/EkuhR" crossorigin="anonymous"></script>
 
 Everything else is identical — same markup contract, same `data-brief-id`, same
 four requirements. Answers still persist in the reader's own browser

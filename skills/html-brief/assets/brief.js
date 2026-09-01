@@ -42,6 +42,29 @@
     tb.querySelector('h1').textContent = document.title;
     document.body.insertBefore(tb, document.body.firstChild);
   }
+  /* ── writing to localStorage can THROW, not just fail: Safari treats a file://
+     page as an opaque origin, private mode and a full quota do the same. A bare
+     setItem there breaks every tick and every keystroke, so all writes go through
+     put() and the reader is told once, visibly, that nothing is being kept. ── */
+  var storeOK = true;
+  function put(k, v) {
+    if (!storeOK) return false;
+    try { localStorage.setItem(k, v); return true; }
+    catch (e) { storeOK = false; warnNoPersist(); return false; }
+  }
+  function warnNoPersist() {
+    if (document.getElementById('nopersist')) return;
+    var n = document.createElement('p');
+    n.id = 'nopersist';
+    n.setAttribute('role', 'status');
+    n.style.cssText = 'font:14px/1.55 system-ui,sans-serif;max-width:62ch;margin:1rem auto;' +
+      'padding:.75rem 1rem;border:1px solid #c9821f;border-radius:6px;background:#fdf3e3;color:#5a3c0a';
+    n.textContent = 'This browser is not storing anything for this brief, so your ticks and ' +
+      'answers will be lost when you reload or close the page. Use "Download responses" before ' +
+      'you leave — it does not need storage. Opening the file from a web address instead of a ' +
+      'file:// path also fixes it.';
+    document.body.insertBefore(n, document.body.firstChild);
+  }
   /* ── shared UI prefs: theme (system/light/dark) + width (fixed/full) ── */
   var ui = { theme: 'auto', width: 'fixed', rate: 1 };
   try { ui = Object.assign(ui, JSON.parse(localStorage.getItem('briefUI') || '{}')); } catch {}
@@ -63,7 +86,7 @@
       wbn.innerHTML = ui.width === 'full' ? ICON.goFixed : ICON.goFull;
       tip(wbn, ui.width === 'full' ? 'Narrow to fixed width' : 'Expand to full width');
     }
-    localStorage.setItem('briefUI', JSON.stringify(ui));
+    put('briefUI', JSON.stringify(ui));
   }
   var themeBtn = document.getElementById('themeBtn');
   if (themeBtn) themeBtn.addEventListener('click', function () {
@@ -86,7 +109,7 @@
       b.textContent = r + '×';
       b.setAttribute('aria-label', 'Playback speed ' + r + '× — click to change');
     }
-    localStorage.setItem('briefUI', JSON.stringify(ui));
+    put('briefUI', JSON.stringify(ui));
   }
   if (document.querySelector('audio, video')) {
     var rb = document.createElement('button');
@@ -120,7 +143,7 @@
   try { state = Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch {}
   if (!Array.isArray(state.drafts)) state.drafts = [];
   if (!Array.isArray(state.comments)) state.comments = [];
-  function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+  function save() { put(KEY, JSON.stringify(state)); }
   function toast(msg) {
     var t = document.getElementById('toast');
     t.textContent = msg; t.classList.add('show');
