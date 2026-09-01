@@ -153,7 +153,120 @@ def check_authors(rev_range) -> int:
     return 0
 
 
+# ── Portability rules ────────────────────────────────────────────────────────
+# A skill that only works in one folder on one machine is broken for everyone
+# else, and the failure is silent: the path simply is not there. All three of
+# these caught a real defect in this repo before they were written down.
+PORTABILITY = [
+    (re.compile(r"[~$](?:HOME)?/\.claude/skills/"),
+     "hardcoded skill path — address <skill-dir>, resolved from where the skill loaded"),
+]
+
+CODE_SPAN = re.compile(r"`[^`]*`")
+MD_LINK = re.compile(r"\[[^\]]*\]\((?!https?:|mailto:|#|<)([^)\s]+)\)")
+
+
+def check_portability(name, path, text, hits):
+    """Three checks a leak guard cannot express as one line pattern."""
+    parts = set(path.parts)
+
+    # 1. A skill must not name its own install location.
+    if "skills" in parts:
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for pattern, label in PORTABILITY:
+                for hit in pattern.findall(line):
+                    hits.append((name, lineno, label, hit))
+
+    # 2. A relative markdown link must point at something that exists. Ten dead
+    #    links shipped in this repo pointing at a docs/ directory it never had.
+    if path.suffix == ".md":
+        fenced = False
+        for lineno, line in enumerate(text.splitlines(), 1):
+            # Code shows what a link should LOOK like; it is not a link. Skip
+            # fenced and indented blocks. This trades a little coverage — a real
+            # link indented four spaces under a list item goes unchecked — for no
+            # false positives, because a guard that cries wolf gets switched off.
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+                continue
+            if fenced or line.startswith("    ") or line.startswith("\t"):
+                continue
+            # A link inside a code span is documentation OF link syntax, not a
+            # link. So is anything carrying a <placeholder>, or a site-root path
+            # that is served rather than stored.
+            for target in MD_LINK.findall(CODE_SPAN.sub("", line)):
+                rel = target.split("#", 1)[0]
+                if not rel or rel.startswith("/") or "<" in target or ">" in target:
+                    continue
+                if not (path.parent / rel).exists():
+                    hits.append((name, lineno, "dead relative link", target))
+
+
+def check_shell(files, hits):
+    """3. shellcheck every shell script. `bash -n` proves syntax, not correctness:
+    it passed a quoting bug that word-split any path containing a space."""
+    import shutil
+    if not shutil.which("shellcheck"):
+        return
+    # A .sh extension is not a promise: this repo has a .sh file that is Python
+    # and another that is zsh, neither of which shellcheck can parse. Trust the
+    # shebang, so an unparseable *bash* file is still reported.
+    scripts = []
+    for f in files:
+        if not f.endswith(".sh"):
+            continue
+        try:
+            first = Path(f).read_text(errors="ignore").split("\n", 1)[0]
+        except OSError:
+            continue
+        if re.search(r"\b(bash|sh|dash|ksh)\b", first):
+            scripts.append(f)
+    if not scripts:
+        return
+    out = subprocess.run(
+        ["shellcheck", "--severity=warning", "--exclude=SC1090", "--format=gcc", *scripts],
+        capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        bits = line.split(":", 4)
+        if len(bits) >= 5 and "warning" in bits[3] or len(bits) >= 5 and "error" in bits[3]:
+            hits.append((bits[0], bits[1], "shellcheck" + bits[3], bits[4].strip()))
+
+
+def selftest() -> int:
+    """Three rules, three known answers. Both false positives these rules shipped
+    with — a link inside a code span, and a format example in a code block — are
+    cases here, because that is how they came back."""
+    import tempfile
+    ok = True
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "skills").mkdir()
+        (root / "skills" / "real.md").write_text("see [it](real.md)\n")
+        md = root / "skills" / "SKILL.md"
+        md.write_text(
+            "python3 ~/.claude/skills/x/y.py\n"          # 1 hardcoded install path
+            "[live](real.md)\n"                          # 2 fine, target exists
+            "[dead](nope.md)\n"                          # 3 dead link
+            "`[shown](example.md)`\n"                    # 4 code span, not a link
+            "```\n[fenced](example.md)\n```\n"          # 5 fenced, not a link
+            "    [indented](example.md)\n"               # 6 indented, not a link
+            "[site](/served/path)\n"                     # 7 site-root, not a file
+            "[ph](<placeholder>.md)\n")                  # 8 placeholder
+        hits = []
+        check_portability("SKILL.md", md, md.read_text(), hits)
+        labels = sorted(h[2] for h in hits)
+        want = ["dead relative link",
+                "hardcoded skill path — address <skill-dir>, resolved from where the skill loaded"]
+        if labels != want:
+            print(f"selftest FAIL: expected {want}, got {labels}")
+            ok = False
+    print("selftest passed" if ok else "selftest FAILED")
+    return 0 if ok else 1
+
+
 def main() -> int:
+    if "--selftest" in sys.argv:
+        return selftest()
     if "--authors" in sys.argv:
         i = sys.argv.index("--authors")
         rng = sys.argv[i + 1] if len(sys.argv) > i + 1 else "@{push}..HEAD"
@@ -180,6 +293,9 @@ def main() -> int:
                     hard_hits.append((name, lineno, label, hit))
             for hit in SOFT.findall(line):
                 soft_hits.append((name, lineno, hit))
+        check_portability(name, path, text, hard_hits)
+
+    check_shell(files, hard_hits)
 
     if soft_hits:
         print(f"note: {len(soft_hits)} mention(s) of your own app domains (allowed):")
