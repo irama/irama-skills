@@ -86,6 +86,6 @@ and move on — say what breaks and when.
 - **Numbers or ranges, never adjectives.** "~4h", "$0–5/mo" — not "quick", "cheap".
 - **No false balance.** One road clearly better → say so, keep the rest brief.
 - **No hidden costs.** Complexity a future session must carry is a cost. Count it.
-- **Deliver inline** for up to three options. Use the `html-brief` skill for 4+, for
+- **Deliver inline** for up to three options. Use the `peakstate-brief` skill for 4+, for
   trade-offs needing diagrams, or when the decision needs sign-off — one file, questions
   inline (§ Detailed plans → visual HTML report).

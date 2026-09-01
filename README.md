@@ -63,10 +63,10 @@ SKILL.md — in OneDrive for Microsoft 365 Copilot CoWork.
   `~/.claude/docs/` — the author's private config notes, deliberately unpublished. They
   are cited as plain text, never as a link, so nothing here promises a page that is not
   there. The skills work without them.
-- **No filesystem at all?** A skill that ships a browser-side runtime (currently
-  `html-brief`) also carries a CDN build pinned to a git tag, so a chat tool or
-  CoWork can produce a single working file with nothing to copy. See
-  `skills/html-brief/INSTALL.md`.
+- **Moved out:** the interactive-brief skill now lives in
+  [peakstate-global/peakstate-skills](https://github.com/peakstate-global/peakstate-skills)
+  as `peakstate-brief`. This repo keeps the personal tooling; the business-facing,
+  genuinely portable skills are published there.
 
 ## Read this before you install the hooks
 
@@ -128,7 +128,7 @@ The chain is deliberately split so that only one verb ever touches production.
 | Skill | Does |
 |---|---|
 | `verify-ui` | Screenshots the affected screen at desktop and mobile before you claim a UI change done |
-| `html-brief` | Interactive HTML briefs you answer in the browser, with persisted answers and copy-back JSON |
+| `peakstate-brief` | Interactive HTML briefs you answer in the browser, with persisted answers and copy-back JSON |
 | `app-icons` | Full PWA icon set, favicon and OG image from one source mark, wired into Next.js App Router |
 | `legal-pages` | `/privacy` and `/terms` with Australian-context content (Privacy Act 1988, ACL) |
 | `nano-banana` | Image generation into the current project |
