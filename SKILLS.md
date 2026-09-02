@@ -19,6 +19,7 @@ portable half. Business-facing, install-anywhere skills live in
 | [localhost](skills/localhost/) | Manage local dev servers on rotating ports 3000-3002. Bare /localhost (or "start") cleans caches and (re)starts this repo's server, returning a… |
 | [merge](skills/merge/) | Merge shipped feature branch(es) down onto the default branch locally — no migrations, no push. "/merge" merges the current branch; "/merge all"… |
 | [netdiag](skills/netdiag/) | Diagnose a slow or unreliable internet connection by measurement instead of rebooting things — locates the fault at LAN, Wi-Fi, router, access… |
+| [demoman](skills/demoman/) | *Demonstration manual.* Build a self-contained offline HTML page of copy-and-paste demo prompts — tickable, reorderable, editable, saved to localStorage. For live demos and training sessions. |
 | [options](skills/options/) | Lay out a crossroad in plain English — an ELI5 of what is actually being decided, then the mutually exclusive roads with benefits, risks, cost… |
 | [prune](skills/prune/) | Remove merged worktree(s) and their branches, then resync the VSCode workspace file. "/prune" removes the current worktree/branch; "/prune all"… |
 | [push](skills/push/) | Deploy the local default branch to production — apply migrations, run the production build, push main, confirm deploy |

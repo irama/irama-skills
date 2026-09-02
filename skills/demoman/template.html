@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Demo prompts</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#181b22; --line:#272b35; --ink:#e7e9ee; --dim:#98a0b0;
+    --accent:#4f8cff; --ok:#2ea86a; --code:#11141a; --pre-ink:#cfd6e4;
+  }
+  /* system default: follow OS preference unless overridden by data-theme */
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme]){
+      --bg:#f5f6f8; --card:#ffffff; --line:#e1e4ea; --ink:#1b1f27; --dim:#6b7280;
+      --accent:#3b74e0; --ok:#1f8a52; --code:#f0f1f4; --pre-ink:#232733;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f5f6f8; --card:#ffffff; --line:#e1e4ea; --ink:#1b1f27; --dim:#6b7280;
+    --accent:#3b74e0; --ok:#1f8a52; --code:#f0f1f4; --pre-ink:#232733;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1115; --card:#181b22; --line:#272b35; --ink:#e7e9ee; --dim:#98a0b0;
+    --accent:#4f8cff; --ok:#2ea86a; --code:#11141a; --pre-ink:#cfd6e4;
+  }
+  *{box-sizing:border-box}
+  /* tooltips: instant, because the native title attribute waits about a second */
+  [data-tip]{position:relative}
+  [data-tip]:hover::after, [data-tip]:focus-visible::after{
+    content:attr(data-tip);position:absolute;z-index:30;top:calc(100% + 7px);right:0;
+    background:var(--ink);color:var(--bg);padding:6px 9px;border-radius:7px;
+    font:500 12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;
+    width:max-content;max-width:270px;white-space:normal;text-align:left;
+    box-shadow:0 6px 18px rgba(0,0,0,.35);pointer-events:none}
+  .card [data-tip]:hover::after, .section [data-tip]:hover::after{right:auto;left:0}
+
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;}
+  .wrap{max-width:1280px;margin:0 auto;padding:32px 24px 140px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  h1{font-size:28px;margin:0;flex:1;outline:none}
+  .btn{background:var(--card);border:1px solid var(--line);color:var(--dim);
+    border-radius:8px;padding:7px 11px;cursor:pointer;font-size:13px;white-space:nowrap}
+  .btn:hover{color:var(--ink);border-color:var(--accent)}
+  /* the JSON button lights up while the page holds edits the file doesn't have */
+  .btn.dirty{color:#fff;background:var(--accent);border-color:var(--accent)}
+  .btn.dirty::before{content:"";position:absolute;top:-3px;right:-3px;width:8px;height:8px;
+    border-radius:99px;background:var(--ok);box-shadow:0 0 0 2px var(--bg)}
+  #copyJson{position:relative}
+  .themeBtn{padding:7px 10px;font-size:15px;line-height:1}
+  .sub{color:var(--dim);font-size:13px;margin:0 0 24px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;margin-bottom:14px}
+  .card.done{opacity:.5;border-color:var(--ok)}
+  .card.dragover{border-color:var(--accent)}
+  .head{display:flex;align-items:center;gap:10px}
+  .grip{cursor:grab;color:var(--dim);font-size:16px;user-select:none;flex:none;
+    width:16px;text-align:center}
+  .tick{appearance:none;width:20px;height:20px;border:1.5px solid var(--line);
+    border-radius:6px;cursor:pointer;flex:none;position:relative;background:transparent}
+  .tick:checked{background:var(--ok);border-color:var(--ok)}
+  .tick:checked::after{content:"✓";position:absolute;inset:0;color:#fff;
+    font-size:13px;display:grid;place-items:center}
+  .title{font-weight:600;font-size:17px;flex:1;outline:none;margin:0}
+  .card.done .title{text-decoration:line-through;color:var(--ok)}
+  .app{font-size:12px;border-radius:99px;padding:3px 10px;outline:none;white-space:nowrap}
+  .del{color:var(--dim);cursor:pointer;font-size:16px;opacity:0;padding:0 4px}
+  .card:hover .del,.section:hover .del{opacity:.6}
+  .del:hover{opacity:1;color:#e2585d}
+
+  /* section heading rows — reorderable and editable like any other item */
+  .section{display:flex;align-items:center;gap:10px;margin:34px 0 14px}
+  .section.dragover{outline:1px solid var(--accent);outline-offset:6px;border-radius:8px}
+  .section h2{font-size:20px;margin:0;flex:1;outline:none;
+    border-bottom:1px solid var(--line);padding-bottom:8px}
+  .section.collapsed h2{text-decoration:line-through;color:var(--ok);border-bottom-color:var(--ok)}
+  .section .tick{margin-top:1px}
+
+  .body{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px;align-items:start}
+  @media (max-width:820px){.body{grid-template-columns:1fr}}
+  .card.done .body{display:none}
+
+  .instr{color:var(--dim);font-size:14px;outline:none;min-height:1em;padding-left:26px}
+  .instr>*:first-child{margin-top:0}
+  .instr p{margin:1.15em 0 .75em}
+  .instr .gap{height:1em}
+  .instr h1,.instr h2,.instr h3,.instr h4{color:var(--ink);margin:1.1em 0 .5em;line-height:1.3}
+  .instr h1{font-size:19px} .instr h2{font-size:17px}
+  .instr h3{font-size:15px} .instr h4{font-size:14px;color:var(--dim)}
+  .instr ol{list-style:none;counter-reset:s;padding:0;margin:.75em 0 1.1em}
+  .instr ol li{counter-increment:s;position:relative;padding-left:32px;margin:.45em 0}
+  .instr ol li::before{content:counter(s);position:absolute;left:0;top:1px;
+    width:22px;height:22px;border-radius:99px;background:var(--accent);color:#fff;
+    font-size:12px;font-weight:600;display:grid;place-items:center}
+  .instr ul{list-style:none;padding:0;margin:.75em 0 1.1em}
+  .instr ul li{position:relative;padding-left:32px;margin:.45em 0}
+  .instr ul li::before{content:"";position:absolute;left:6px;top:8px;width:9px;height:9px;
+    border-radius:99px;background:var(--accent)}
+  .instr table{border-collapse:collapse;width:100%;margin:.85em 0;font-size:13px}
+  .instr th,.instr td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+  .instr th{background:rgba(255,255,255,.04);color:var(--ink);font-weight:600}
+  .instr code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:13px}
+  .instr a{color:var(--accent)}
+  .instr hr{border:0;border-top:1px solid var(--line);margin:1em 0}
+  .instr blockquote{margin:.75em 0;padding-left:12px;border-left:2px solid var(--line)}
+  .mdedit{width:100%;min-height:160px;background:var(--code);color:var(--pre-ink);
+    border:1px solid var(--accent);border-radius:10px;padding:12px;resize:vertical;
+    font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+  .hint{font-size:11px;color:var(--dim);margin-top:4px}
+
+  .pw{position:relative}
+  .pw.copied pre{opacity:.55;border-color:var(--ok)}
+  .pw.copied .copy{color:var(--ok);border-color:var(--ok)}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;
+    margin:0;padding:14px 44px 14px 14px;white-space:pre-wrap;word-break:break-word;
+    font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--pre-ink);outline:none}
+  pre.clamped{max-height:15.5em;overflow:hidden}
+  /* only fade what is actually cut off */
+  .pw.overflows pre.clamped{cursor:pointer;
+    -webkit-mask-image:linear-gradient(180deg,#000 68%,transparent);
+    mask-image:linear-gradient(180deg,#000 68%,transparent)}
+  .copy{position:absolute;top:8px;right:8px;background:var(--card);
+    border:1px solid var(--line);color:var(--dim);border-radius:7px;
+    padding:4px 8px;font-size:12px;cursor:pointer}
+  .copy:hover{color:var(--ink);border-color:var(--accent)}
+  .toggle{display:none;margin:6px auto 0;background:transparent;border:1px solid var(--line);
+    color:var(--dim);border-radius:99px;padding:3px 12px;font-size:12px;cursor:pointer}
+  .toggle:hover{color:var(--ink);border-color:var(--accent)}
+  .pw.overflows .toggle{display:block}
+  [contenteditable]:focus{background:rgba(79,140,255,.08);border-radius:6px}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+    background:var(--ok);color:#fff;padding:9px 16px;border-radius:8px;
+    font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  dialog{background:var(--card,#181b22);color:inherit;border:1px solid var(--line);
+    border-radius:14px;padding:22px 24px;max-width:480px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+  dialog::backdrop{background:rgba(0,0,0,.55)}
+  dialog h3{margin:0 0 10px;font-size:17px}
+  dialog p{margin:0 0 12px;font-size:14px;color:var(--dim);line-height:1.55}
+  dialog code{background:var(--code);padding:2px 6px;border-radius:5px;font-size:12px;word-break:break-all}
+  dialog .keys{display:grid;gap:8px;margin:14px 0 4px}
+  dialog .keys>div{display:grid;grid-template-columns:88px 1fr auto;gap:8px;align-items:center}
+  dialog .keys span{font-size:12px;color:var(--dim)}
+  dialog .keys code{font-size:12px;padding:5px 8px}
+  dialog .keycopy{padding:4px 8px;font-size:12px}
+  dialog .row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+  dialog .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="pageTitle" contenteditable="plaintext-only"></h1>
+    <button class="btn addSectionBtn">+ Section</button>
+    <button class="btn addPromptBtn">+ Prompt</button>
+    <button class="btn" id="tickToggle">Tick all</button>
+    <button class="btn" id="copyJson" data-tip="Copy edits as JSON for the agent">⧉ JSON</button>
+    <button class="btn themeBtn" id="themeToggle" data-tip="Theme: system (click to change)">🖥️</button>
+  </header>
+  <p class="sub">Click a prompt to expand it · click instructions to edit as markdown · drag ⠿ to reorder · saved locally.</p>
+  <div id="list"></div>
+  <div style="display:flex;gap:10px;margin-top:18px">
+    <button class="btn addSectionBtn">+ Section</button>
+    <button class="btn addPromptBtn">+ Prompt</button>
+  </div>
+</div>
+<dialog id="rekeyModal">
+  <h3>Re-key this page?</h3>
+  <p>You renamed the page to <b id="rekeyTitle"></b>. Re-keying gives it its own
+     storage slot, so this copy stops sharing edits with the page it was copied from.
+     Its current edits are carried across; the old slot is left untouched.</p>
+  <div class="keys">
+    <div><span>Current key</span><code id="rekeyOld"></code><button class="btn keycopy" data-key="old" data-tip="Copy">⧉</button></div>
+    <div><span>New key</span><code id="rekeyNew"></code><button class="btn keycopy" data-key="new" data-tip="Copy">⧉</button></div>
+  </div>
+  <div class="row">
+    <button class="btn" value="no">Keep the same key</button>
+    <button class="btn primary" value="yes">Re-key it</button>
+  </div>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---- seed data: edit here for the canonical version ------------------------
+const FILE_PATH = "{{FILE_PATH}}";
+const SEED = {
+  "title": "Demo prompts",
+  "items": [
+    {
+      "type": "section",
+      "id": "sec-1",
+      "title": "First section"
+    },
+    {
+      "type": "prompt",
+      "id": "p-1",
+      "title": "First prompt",
+      "app": "Copilot",
+      "instructions": "1. Open the app.\n2. Paste the prompt below.\n3. Talk through what comes back.",
+      "prompt": "Replace this with the prompt you want to demo."
+    }
+  ]
+};
+// ---------------------------------------------------------------------------
+
+// This file's own storage slot. A copy of the page can re-key itself from the
+// title (see rekey below) so two copies never overwrite each other's edits.
+const DOC_KEY = "{{DOC_KEY}}";
+// the pointer is per-file-path, so a re-key survives a reload of THIS copy only
+const PTR = "demo-prompts:doc:" + location.pathname;
+let KEY = localStorage.getItem(PTR) || DOC_KEY;
+let state = load();
+
+// theme: system (default) → light → dark → system, remembered locally
+const THEME_KEY = "demo-prompts:theme";
+const THEME_ICON = { system: "🖥️", light: "☀️", dark: "🌙" };
+let theme = localStorage.getItem(THEME_KEY) || "system";
+function applyTheme(t){
+  if (t === "system") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", t);
+  const btn = document.getElementById("themeToggle");
+  btn.textContent = THEME_ICON[t];
+  btn.dataset.tip = `Theme: ${t} (click to change)`;
+}
+applyTheme(theme);
+document.getElementById("themeToggle").onclick = () => {
+  theme = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+  localStorage.setItem(THEME_KEY, theme);
+  applyTheme(theme);
+};
+
+function load(){
+  try{
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (s && Array.isArray(s.items)) return s;
+  }catch(e){}
+  return structuredClone(SEED);
+}
+const save = () => { localStorage.setItem(KEY, JSON.stringify(state)); markDirty(); };
+
+// diff() is a hoisted declaration, so this is safe to call from save()
+function markDirty(){
+  const n = Object.keys(diff()).length;
+  const b = document.getElementById("copyJson");
+  b.classList.toggle("dirty", n > 0);
+  b.dataset.tip = n
+    ? "This page has edits the file doesn't — click to copy, then paste into Claude Code, or into "
+      + "any chat tool (Copilot, ChatGPT) with this HTML file attached, to update the file"
+    : "No changes since the file";
+}
+const uid  = () => "i" + Math.random().toString(36).slice(2, 8);
+
+// ponytail: markdown subset — headings, tables, lists, hr, quote, inline.
+// Swap in marked.js only if fenced code blocks or nested lists are ever needed.
+function md(src){
+  const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+  const inline = s => esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const isSep = l => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(l) && l.includes("-");
+  const cells = l => l.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map(c => c.trim());
+
+  const L = src.split("\n"); let out = "", i = 0;
+  while (i < L.length){
+    const line = L[i];
+    if (!line.trim()){
+      let blanks = 0;
+      while (i < L.length && !L[i].trim()){ blanks++; i++; }
+      // one blank line just separates blocks; each extra one is deliberate space
+      if (out) out += '<div class="gap"></div>'.repeat(blanks - 1);
+      continue;
+    }
+
+    const h = line.match(/^(#{1,6})\s+(.*)/);
+    if (h){ const n = Math.min(h[1].length, 4); out += `<h${n}>${inline(h[2])}</h${n}>`; i++; continue; }
+
+    if (/^\s*(---+|\*\*\*+|___+)\s*$/.test(line)){ out += "<hr>"; i++; continue; }
+
+    if (line.includes("|") && isSep(L[i+1] || "")){
+      const head = cells(line), rows = [];
+      i += 2;
+      while (i < L.length && L[i].includes("|") && L[i].trim()){ rows.push(cells(L[i])); i++; }
+      out += "<table><thead><tr>" + head.map(c => `<th>${inline(c)}</th>`).join("") +
+             "</tr></thead><tbody>" +
+             rows.map(r => "<tr>" + r.map(c => `<td>${inline(c)}</td>`).join("") + "</tr>").join("") +
+             "</tbody></table>";
+      continue;
+    }
+
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)/), ul = line.match(/^\s*[-*+]\s+(.*)/);
+    if (ol || ul){
+      const tag = ol ? "ol" : "ul", re = ol ? /^\s*\d+[.)]\s+(.*)/ : /^\s*[-*+]\s+(.*)/;
+      let lis = "";
+      while (i < L.length){ const m = (L[i]||"").match(re); if (!m) break; lis += `<li>${inline(m[1])}</li>`; i++; }
+      out += `<${tag}>${lis}</${tag}>`;
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)){
+      let q = [];
+      while (i < L.length && /^\s*>\s?/.test(L[i])){ q.push(L[i].replace(/^\s*>\s?/, "")); i++; }
+      out += `<blockquote>${md(q.join("\n"))}</blockquote>`;
+      continue;
+    }
+
+    let para = [];
+    while (i < L.length && L[i].trim() && !/^(#{1,6}\s|\s*[-*+]\s|\s*\d+[.)]\s|\s*>)/.test(L[i])
+           && !(L[i].includes("|") && isSep(L[i+1] || ""))){ para.push(L[i]); i++; }
+    out += `<p>${para.map(inline).join("<br>")}</p>`;
+  }
+  return out;
+}
+
+// deterministic badge colour: same app name -> same hue, new name -> new hue
+function appStyle(name){
+  let h = 0;
+  for (const ch of (name || "")) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  h = (h * 137.508) % 360; // golden-angle spread so near-identical names look different
+  return `color:hsl(${h} 80% 72%);background:hsl(${h} 70% 55% / .16)`;
+}
+
+function toast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.t); toast.t = setTimeout(()=>t.classList.remove("show"), 1400);
+}
+
+const list = document.getElementById("list");
+
+function render(){
+  document.getElementById("pageTitle").textContent = state.title;
+  document.getElementById("tickToggle").textContent = anyTicked() ? "Untick all" : "Tick all";
+  list.innerHTML = "";
+  state.items.forEach((it, i) => {
+    const el = document.createElement("div");
+    el.dataset.i = i;
+    if (it.type === "section"){
+      el.className = "section" + (it.collapsed ? " collapsed" : "");
+      el.innerHTML = `<span class="grip" data-tip="Drag to reorder">⠿</span>
+        <input type="checkbox" class="tick sectionTick" data-tip="Tick to collapse this section" ${it.collapsed ? "checked" : ""}>
+        <h2 contenteditable="plaintext-only" data-f="title"></h2>
+        <span class="del" data-tip="Delete">×</span>`;
+      el.querySelector("h2").textContent = it.title;
+    } else {
+      el.className = "card" + (it.done ? " done" : "");
+      el.innerHTML = `
+        <div class="head">
+          <span class="grip" data-tip="Drag to reorder">⠿</span>
+          <input type="checkbox" class="tick" ${it.done ? "checked" : ""}>
+          <h3 class="title" contenteditable="plaintext-only" data-f="title"></h3>
+          <span class="app" contenteditable="plaintext-only" data-f="app" style="${appStyle(it.app)}"></span>
+          <span class="del" data-tip="Delete">×</span>
+        </div>
+        <div class="body">
+          <div class="instr" data-f="instructions">${md(it.instructions||"")}</div>
+          <div class="pw${it.copied ? " copied" : ""}">
+            <pre class="clamped" contenteditable="plaintext-only" data-f="prompt"></pre>
+            <button class="copy" data-tip="Copy prompt">${it.copied ? "✓" : "⧉"}</button>
+            <button class="toggle">Show more</button>
+          </div>
+        </div>`;
+      el.querySelector('[data-f="title"]').textContent = it.title;
+      el.querySelector('[data-f="app"]').textContent = it.app;
+      el.querySelector('[data-f="prompt"]').textContent = it.prompt;
+    }
+    list.appendChild(el);
+  });
+  requestAnimationFrame(() => list.querySelectorAll(".pw").forEach(pw => {
+    const pre = pw.querySelector("pre");
+    // measure against the clamp height, not the live height — an already-expanded
+    // pre has clientHeight === scrollHeight and would hide its own collapse button
+    const limit = parseFloat(getComputedStyle(pre).fontSize) * 15.5;
+    pw.classList.toggle("overflows", pre.scrollHeight > limit + 2);
+    pw.querySelector(".toggle").textContent =
+      pre.classList.contains("clamped") ? "Show more" : "Show less";
+  }));
+}
+
+const itemOf = node => state.items[+node.closest("[data-i]").dataset.i];
+
+// range of prompt indices that belong to the section at idx (up to the next section, or end)
+function sectionMembers(idx){
+  let end = idx + 1;
+  while (end < state.items.length && state.items[end].type !== "section") end++;
+  return [idx + 1, end];
+}
+
+const slug = t => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "page";
+async function hash8(str){
+  const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 8);
+}
+
+document.getElementById("pageTitle").addEventListener("blur", async e => {
+  const next = e.target.textContent.trim();
+  if (next === state.title) return;
+  state.title = next; save();
+
+  const modal = document.getElementById("rekeyModal");
+  const newKey = "demo-prompts:" + slug(next) + "-" + await hash8(next + Date.now());
+  document.getElementById("rekeyTitle").textContent = next;
+  document.getElementById("rekeyOld").textContent = KEY;
+  document.getElementById("rekeyNew").textContent = newKey;
+  modal.returnValue = "";
+  modal.showModal();
+  modal.addEventListener("close", () => {
+    if (modal.returnValue !== "yes") return;
+    KEY = newKey;                       // old slot is left alone for the old page
+    localStorage.setItem(PTR, KEY);
+    save();
+    toast("Re-keyed — this page now saves to its own slot");
+  }, { once: true });
+});
+
+document.getElementById("rekeyModal").addEventListener("click", e => {
+  const modal = document.getElementById("rekeyModal");
+  if (e.target.classList.contains("keycopy")){
+    const id = e.target.dataset.key === "old" ? "rekeyOld" : "rekeyNew";
+    navigator.clipboard.writeText(document.getElementById(id).textContent)
+      .then(() => toast("Key copied"));
+    return;   // copying a key must not answer the dialog
+  }
+  if (e.target.value) modal.close(e.target.value);
+});
+
+// plain fields save on blur; newlines in <pre> need innerText, not textContent
+list.addEventListener("blur", e => {
+  const f = e.target.dataset && e.target.dataset.f;
+  if (!f || f === "instructions") return;
+  const it = itemOf(e.target);
+  it[f] = f === "prompt" ? e.target.innerText : e.target.textContent.trim();
+  save();
+  if (f === "app") e.target.setAttribute("style", appStyle(it.app));
+}, true);
+
+// instructions: edit the raw markdown in a textarea, render on blur.
+// Round-tripping contenteditable HTML back to markdown loses blank lines.
+list.addEventListener("click", e => {
+  const box = e.target.closest(".instr");
+  if (!box || box.dataset.editing) return;
+  const it = itemOf(box);
+  const ta = document.createElement("textarea");
+  ta.className = "mdedit"; ta.value = it.instructions || "";
+  box.dataset.editing = "1"; box.innerHTML = ""; box.append(ta);
+  const hint = document.createElement("div");
+  hint.className = "hint"; hint.textContent = "Markdown: ## headings, 1. / - lists, | tables |, **bold**, `code`. Click away to render.";
+  box.append(hint);
+  ta.style.height = Math.max(160, ta.scrollHeight + 8) + "px";
+  ta.focus();
+  ta.addEventListener("blur", () => {
+    it.instructions = ta.value; save();
+    delete box.dataset.editing; box.innerHTML = md(it.instructions);
+  });
+});
+
+list.addEventListener("click", e => {
+  const node = e.target.closest("[data-i]"); if (!node) return;
+  const it = state.items[+node.dataset.i];
+  if (e.target.classList.contains("del")){
+    if (confirm(`Delete "${it.title}"?`)){ state.items.splice(+node.dataset.i, 1); save(); render(); }
+  }
+  else if (e.target.classList.contains("sectionTick")){
+    it.collapsed = e.target.checked;
+    const [start, end] = sectionMembers(+node.dataset.i);
+    for (let k = start; k < end; k++) if (state.items[k].type === "prompt") state.items[k].done = it.collapsed;
+    save(); render();
+  }
+  else if (e.target.classList.contains("tick")){ it.done = e.target.checked; save(); render(); }
+  else if (e.target.classList.contains("copy")){
+    navigator.clipboard.writeText(it.prompt).then(() => {
+      toast("Prompt copied");
+      it.copied = true; save(); render();
+    });
+  }
+  else if (e.target.classList.contains("toggle")){
+    const pre = e.target.closest(".pw").querySelector("pre");
+    pre.classList.toggle("clamped");
+    e.target.textContent = pre.classList.contains("clamped") ? "Show more" : "Show less";
+  }
+  else if (e.target.matches("pre.clamped")){
+    e.target.classList.remove("clamped");
+    e.target.closest(".pw").querySelector(".toggle").textContent = "Show less";
+  }
+});
+
+const anyTicked = () => state.items.some(it => it.type === "section" ? it.collapsed : it.done);
+document.getElementById("tickToggle").onclick = () => {
+  const turnOn = !anyTicked();
+  state.items.forEach(it => it.type === "section" ? it.collapsed = turnOn : it.done = turnOn);
+  save(); render();
+};
+function addSection(){
+  state.items.push({ type:"section", id:uid(), title:"New section" }); save(); render();
+}
+function addPrompt(){
+  state.items.push({ type:"prompt", id:uid(), title:"New prompt", app:"App",
+    instructions:"1. Step one\n2. Step two", prompt:"Prompt text here." });
+  save(); render();
+}
+document.querySelectorAll(".addSectionBtn").forEach(b => b.onclick = addSection);
+document.querySelectorAll(".addPromptBtn").forEach(b => b.onclick = addPrompt);
+
+// export only what differs from SEED — the rest already lives in this file
+function diff(){
+  const seedById = Object.fromEntries(SEED.items.map(it => [it.id, it]));
+  const liveIds  = state.items.map(it => it.id);
+  const out = {};
+
+  if (state.title !== SEED.title) out.title = state.title;
+
+  const changed = [], added = [];
+  for (const {done, collapsed, copied, ...it} of state.items){
+    const base = seedById[it.id];
+    if (!base){ added.push(it); continue; }
+    const d = {};
+    for (const k of Object.keys(it)) if (k !== "id" && k !== "type" && it[k] !== base[k]) d[k] = it[k];
+    if (Object.keys(d).length) changed.push({ id: it.id, type: it.type, ...d });
+  }
+  const deleted = SEED.items.filter(it => !liveIds.includes(it.id)).map(it => it.id);
+  const seedOrder = SEED.items.map(it => it.id).filter(id => liveIds.includes(id));
+  const liveOrder = liveIds.filter(id => seedById[id]);
+
+  if (changed.length) out.changed = changed;
+  if (added.length)   out.added   = added;
+  if (deleted.length) out.deleted = deleted;
+  if (String(seedOrder) !== String(liveOrder) || added.length) out.order = liveIds;
+  return out;
+}
+
+document.getElementById("copyJson").onclick = () => {
+  const edits = diff();
+  const clean = !Object.keys(edits).length;
+  const payload = {
+    instructions:
+      `Apply these edits to the SEED constant in the demo-prompts HTML file — ${FILE_PATH} in the ` +
+      `repo, or the file attached to this message if you were given one. Only the changed parts are here — ` +
+      `everything else is already correct in the file, so leave it alone. ` +
+      `"title" = new page title. "changed" = items matched by id; overwrite only the fields present. ` +
+      `"added" = new items to insert. "deleted" = ids to remove. "order" = the full id list in final ` +
+      `order. Change only the SEED data, never the tool's HTML/CSS/JS. If "docKey" differs ` +
+      `from the DOC_KEY constant in the file, update DOC_KEY to it as well.`,
+    file: FILE_PATH,
+    docKey: KEY,
+    exportedAt: new Date().toISOString(),
+    edits
+  };
+  navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
+    .then(() => toast(clean ? "No changes since the file" : "Edits copied"));
+};
+
+// drag to reorder — the grip arms the row, HTML5 DnD does the rest
+list.addEventListener("mousedown", e => {
+  if (e.target.classList.contains("grip")) e.target.closest("[data-i]").draggable = true;
+});
+list.addEventListener("dragstart", e => { list.dragFrom = +e.target.dataset.i; });
+list.addEventListener("dragover", e => {
+  e.preventDefault();
+  const c = e.target.closest("[data-i]"); if (!c) return;
+  list.querySelectorAll("[data-i]").forEach(x => x.classList.toggle("dragover", x === c));
+});
+list.addEventListener("drop", e => {
+  e.preventDefault();
+  const t = e.target.closest("[data-i]"); if (!t) return render();
+  const to = +t.dataset.i, from = list.dragFrom;
+  if (from === to || from == null) return render();
+  state.items.splice(to, 0, state.items.splice(from, 1)[0]);
+  save(); render();
+});
+list.addEventListener("dragend", () => render());
+
+render();
+markDirty();
+</script>
+</body>
+</html>
