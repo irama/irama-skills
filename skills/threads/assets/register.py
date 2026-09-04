@@ -6,6 +6,7 @@ the shared store they claim work in and sign off from, so two threads stop
 offering — and doing — the same job.
 
     register.py claim <key> [--note ...]       take a work item
+    register.py claim --verb push              same, keyed to this repo
     register.py sign-off <key> --status <s>    close it, with a status
     register.py list [--json]                  every live thread and what it holds
     register.py show <thread>                  one thread in detail
@@ -248,6 +249,14 @@ def resolve(sess, name):
 def cmd_claim(key, note):
     sess, status, open_claims, _ = picture()
     sid = this_session()
+    if not sid:
+        # No identity means no process to watch, so this claim could never
+        # auto-release when the thread ends -- it would hold the key forever.
+        # No claim is strictly better than an unreleasable one.
+        print("not claiming: this thread is not registered, so the claim could "
+              "never be released. The SessionStart hook did not run — start a "
+              "fresh session, or see skills/threads/SKILL.md.")
+        return 0
     holder = open_claims.get(key)
     if holder and holder.get("session") != sid and status.get(holder.get("session")) != "dead":
         print(f"HELD by {holder.get('thread')} since {holder['ts']} "
@@ -451,14 +460,21 @@ def main():
         return rest[rest.index(name) + 1] if name in rest and len(rest) > rest.index(name) + 1 else default
 
     positional = [a for a in rest if not a.startswith("--")
-                  and (not rest or rest[rest.index(a) - 1] not in ("--note", "--status"))]
+                  and (not rest or rest[rest.index(a) - 1] not in ("--note", "--status", "--verb"))]
+
+    def key():
+        """`--verb push` is `<this repo>:push`. A skill must never build that
+        key by hand: the repo name comes from the common git dir, so a hand-built
+        one is wrong in every worktree."""
+        verb = opt("--verb")
+        return f"{repo_of()}:{verb}" if verb else positional[0]
 
     if cmd == "claim":
-        return cmd_claim(positional[0], opt("--note"))
+        return cmd_claim(key(), opt("--note"))
     if cmd == "sign-off":
-        return cmd_signoff(positional[0], opt("--status", ""), opt("--note"))
+        return cmd_signoff(key(), opt("--status", ""), opt("--note"))
     if cmd == "check":
-        return cmd_check(positional[0])
+        return cmd_check(key())
     if cmd == "list":
         return cmd_list("--json" in rest)
     if cmd == "show":

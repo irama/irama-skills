@@ -42,6 +42,7 @@ VERB = re.compile(
     r"(push|merge)(?=\s|$)")
 DEFAULTS = {"main", "master"}
 OVERRIDE = "ALLOW_HELD_SHIPPING_VERB=1"
+AUTO_NOTE = "shipping verb, claimed automatically"
 
 
 def segments(cmd):
@@ -134,8 +135,7 @@ def pre(cmd, cwd_default):
         return
     held = io.StringIO()
     with redirect_stdout(held):
-        blocked = register.cmd_check(key) or register.cmd_claim(
-            key, "shipping verb, claimed automatically")
+        blocked = register.cmd_check(key) or register.cmd_claim(key, AUTO_NOTE)
     if blocked:
         # cmd_claim is checked as well as cmd_check because the two are not one
         # atomic step: another thread can win the key in between, and its claim
@@ -157,6 +157,10 @@ def post(cmd, cwd_default, response, session_id):
     if not mine or mine.get("session") != session_id:
         return          # not ours to close: a chained `switch && push` can reach
                         # here on a key this thread never claimed
+    if mine.get("note") != AUTO_NOTE:
+        return          # /push claimed this by name and is still mid-run — its
+                        # deploy is not over when the `git push` returns, so the
+                        # skill signs off, not the hook
     ok = not response.get("interrupted") and response.get("exit_code", 0) in (0, None)
     with redirect_stdout(io.StringIO()):
         register.cmd_signoff(key, "done" if ok else "incomplete",

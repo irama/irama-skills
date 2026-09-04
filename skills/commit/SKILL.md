@@ -18,6 +18,33 @@ Commit the current repo's changes and, when on a feature branch, push **that bra
 
 State repo, remote, branch, and mode back in one sentence before proceeding, so a wrong-repo/wrong-mode mistake is caught early. If asked to commit work in a *different* repo than the cwd, stop and tell the user — do not `cd` and commit on their behalf.
 
+## Claim the verb before the first gate, sign it off at the end
+
+Other threads cannot see this run, and the repo's index is shared ground when two threads share a checkout. Claim it by name so
+`/threads` shows what this thread is doing, and so another thread's shipping verb
+is refused while it is in flight:
+
+```bash
+reg=<skill-dir>/../threads/assets/register.py
+[ -f "$reg" ] && python3 "$reg" claim --verb commit --note "<what you are committing>"
+```
+
+Held → say who holds it and stop; do not work around it. The `threads` skill is a
+sibling of this one in the same skills root; if it is not installed the guard makes
+both lines a no-op and this skill behaves exactly as it did before.
+
+The last thing this skill does, after the report, is release it:
+
+```bash
+[ -f "$reg" ] && python3 "$reg" sign-off --verb commit --status done
+```
+
+**Stopped part-way? Sign off anyway, with what actually happened** — `--status blocked` if something outside this thread stopped it, `--status incomplete` if it simply did not finish. Both are honest; a claim left open is not. `blocked` keeps the key held, so nobody else ships a half-committed repo.
+
+The `PreToolUse` gate claims `<repo>:commit` on the bare git command too, but only
+for the seconds that command runs. This claim covers the whole verb, which is the
+window that matters.
+
 ## Steps
 
 1. `git status` and `git diff` (staged + unstaged) in parallel to see what changed.

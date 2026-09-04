@@ -45,6 +45,9 @@ These come from the underlying skills and `/flush` does not soften any of them:
 - **UI diffs need `/verify-ui`** before the commit lands, and a browser/e2e run if the project has that tier. Typecheck and unit tests do not catch render-time crashes.
 - **Never force-push, never rewrite shared history.** If `/push` would need either, stop and ask.
 - **A sensitive tracked file in the diff (a committed `.env`, a key) halts the flush.** Flag it; do not commit it.
+- **`/flush` claims nothing itself.** Each verb claims and releases its own key in the
+  cross-thread work register. Do not claim `<repo>:flush` — there is no such key, and
+  a claim the verbs do not know about is one they will not release.
 - **One repo.** `/flush` acts on the repo containing the cwd. If the user meant a different repo, stop and say so rather than `cd`-ing on their behalf.
 
 ## Report

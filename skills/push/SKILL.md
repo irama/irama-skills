@@ -13,6 +13,38 @@ Deploy `main` to production. `/push` is the **only** actor that touches the remo
 - `git remote get-url origin`; confirm the per-repo push identity is configured (`~/.claude/docs/git-auth-per-repo-routing.md`).
 - `git status` should show the merged, committed state `/merge` left. Uncommitted stray changes → stop and ask.
 
+## Claim the verb before the first gate, sign it off at the end
+
+Other threads cannot see this run, and the migration and build gates below take minutes before the push happens. Claim it by name so
+`/threads` shows what this thread is doing, and so another thread's shipping verb
+is refused while it is in flight:
+
+```bash
+reg=<skill-dir>/../threads/assets/register.py
+[ -f "$reg" ] && python3 "$reg" claim --verb push --note "<what you are deploying>"
+```
+
+Held → say who holds it and stop; do not work around it. The `threads` skill is a
+sibling of this one in the same skills root; if it is not installed the guard makes
+both lines a no-op and this skill behaves exactly as it did before.
+
+The last thing this skill does, after the report, is release it:
+
+```bash
+[ -f "$reg" ] && python3 "$reg" sign-off --verb push --status done
+```
+
+**Stopped part-way? Sign off anyway, with what actually happened** — `--status blocked` if something outside this thread stopped it, `--status incomplete` if it simply did not finish. Both are honest; a claim left open is not. `blocked` keeps the key held, so nobody else ships a half-deployed repo.
+
+The `PreToolUse` gate claims `<repo>:push` on the bare git command too, but only
+for the seconds that command runs. This claim covers the whole verb, which is the
+window that matters.
+
+Step 4 below records what a thread that could not see another thread cost: eight
+commits landed on local `main` during this skill's own gates, and the push
+carried them to prod. The claim is what makes that window visible while it is
+open, rather than only detectable afterwards.
+
 ## Steps
 
 1. **Confirm a code review actually ran at `/merge`.** Codex reviews the diff during `/merge`, not here. Codex clean → proceed. **`adversarial-reviewer` clean → also proceed** — a completed fallback review satisfies the gate and is not a reason to stop and ask (~/.claude/CLAUDE.md § Codex unavailable; revised 2026-08-03, and there is no exempt class for auth/payments/deletion/migrations). Report which reviewer ran and that the cross-model axis was missing; that disclosure IS the requirement, not permission-seeking. Stop only if **no** review ran at all, or one left a P0/P1/P2 finding unresolved — don't silently push past a gate that never ran.
