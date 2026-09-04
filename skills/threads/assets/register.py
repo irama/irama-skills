@@ -152,9 +152,29 @@ def claims(records):
     return out
 
 
+def transcript_of(sess):
+    """This thread's transcript file, by recorded path or by session id.
+
+    A worktree session records a project directory named for the worktree, but
+    the transcript is written under the MAIN repo's directory, so the recorded
+    path does not exist. The filename is always the session id, so the id finds
+    the file when the path cannot. Measured 2026-09-04: three of five live
+    threads, all of them in worktrees, reported an unknown quiet time for
+    exactly this reason."""
+    path = sess.get("transcript")
+    if path and os.path.isfile(path):
+        return path
+    sid = sess.get("session")
+    if not sid:
+        return None
+    for hit in (Path.home() / ".claude" / "projects").glob(f"*/{sid}.jsonl"):
+        return str(hit)
+    return None
+
+
 def quiet_minutes(sess):
     """How long since this thread last wrote anything, from its transcript."""
-    path = sess.get("transcript")
+    path = transcript_of(sess)
     if not path:
         return None
     try:
@@ -473,7 +493,12 @@ def selftest():
         before = len(read())
         picture()
         check("no double release", len(read()), before)
-        # 7. last record wins — the invariant cmd_claim's read-back depends on
+        # 7. a transcript found by session id when the recorded path is gone
+        check("resolves a missing path to None when no file exists anywhere",
+              transcript_of({"session": "no-such-session", "transcript": "/nope"}), None)
+        check("prefers the recorded path when it is there",
+              transcript_of({"session": "aaa", "transcript": str(transcript)}), str(transcript))
+        # 8. last record wins — the invariant cmd_claim's read-back depends on
         append({"kind": "claim", "session": "ccc", "thread": "three",
                 "repo": "r", "key": "r:push", "state": "in-progress"})
         check("last claim wins", claims(read())["r:push"]["session"], "ccc")
