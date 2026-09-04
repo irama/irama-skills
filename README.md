@@ -83,8 +83,17 @@ assumptions about how you work:
 | `auto-commit-worktree.sh` | Auto-commits work on a feature branch at session end | Commits without asking. Never touches the default branch |
 | `migration-lint.sh` | Lints DB migration files on write | Assumes a `data/supabase/migrations/` layout |
 | `require-git-hooks-before-push.sh` | Blocks a push from a worktree with no git hooks installed | Assumes every repo has a pre-commit gate |
+| `thread-register-identity.py` | Records this thread in the cross-thread work register at session start | `SessionStart`. Writes to `~/.claude/state/work-register.jsonl` |
+| `thread-register-signoff.py` | Refuses to end a turn while this thread still holds open work | `Stop`. Makes you say what happened to a claim before you stop |
+| `thread-register-gate.py` | Refuses `git push`/`git merge` on a repo another live thread has claimed | `PreToolUse(Bash)` + `PostToolUse(Bash)`. Override: `ALLOW_HELD_SHIPPING_VERB=1` |
 
 **A hook runs on every matching tool call.** Read the one you are enabling.
+
+The three `thread-register-*` hooks are the only ones `settings.example.json`
+wires, because the register does nothing without them. They use three events:
+`SessionStart` gives a thread its identity, `Stop` makes it sign off the work it
+holds, and `PreToolUse`/`PostToolUse` on `Bash` gate the two shipping verbs. See
+[the `/threads` skill](skills/threads/) for what the register is for.
 
 ## Read this before you copy the settings
 
@@ -122,6 +131,7 @@ The chain is deliberately split so that only one verb ever touches production.
 | `driver` | Runs tickets one per fresh context window |
 | `options` | Lays out a genuine crossroad — costed roads with benefits, risks, reversibility, and a "do nothing" |
 | `claude-retro` | Analyses your own session history for repeated requests, correction loops and unused tooling |
+| `threads` | Every session running on this machine, what work each holds, and which have stalled — plus clear and kill |
 
 ### Building
 
