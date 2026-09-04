@@ -380,7 +380,7 @@ def check_new_skills(files, hits) -> None:
             continue
         seen.add(skill)
         hits.append((name, 0, "skill not approved for a public repo",
-                     f"{skill} — internal tooling stays in claude-config; if it really is "
+                     f"{skill} — internal tooling stays in your private config repo; if it really is "
                      f"public, add '{skill}' to skills/PUBLIC and say so when you ask"))
 
 
