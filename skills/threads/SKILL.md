@@ -75,6 +75,21 @@ it as the first option.** An interactive session may hold uncommitted work that
 exists nowhere else, and ending it cannot be undone. Run the bare form first, show
 the user what it says, and wait. `clear` is what they usually want.
 
+## The keys threads claim
+
+A key is `<repo>:<verb>`, where the repo comes from the common git dir so every
+worktree of one repo shares it. Four verbs claim one today:
+
+| Key | Claimed by | Gated? |
+|---|---|---|
+| `<repo>:push` | `/push`, and any `git push` landing on the default branch | Yes — refused if another live thread holds it |
+| `<repo>:merge` | `/merge`, and any `git merge` | Yes |
+| `<repo>:commit` | `/commit` | No — reporting only |
+| `<repo>:driver` | a `/driver` run, for the whole run | No — reporting only, but it is the longest hold in the fleet |
+
+A claim from the same thread replaces its own note, so a long run re-claims to
+report progress. Any other key is free-form: claim what you are working on.
+
 ## Two status vocabularies, and why they are separate
 
 A **work status** is what happened to the job. A thread writes it at sign-off.

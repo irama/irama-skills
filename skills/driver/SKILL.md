@@ -131,7 +131,25 @@ RUN_DIR=".scratch/driver-runs/$RUN_ID"
 mkdir -p "$RUN_DIR"
 python3 <skill-dir>/driver_state.py init "$RUN_DIR" <ticket-id> [<ticket-id> ...]
 python3 <skill-dir>/driver_state.py lock "$RUN_DIR" || exit 1   # refuses if another /driver run is active
+
+reg=<skill-dir>/../threads/assets/register.py
+[ -f "$reg" ] && python3 "$reg" claim --verb driver --note "<run label> — N tickets"
 ```
+
+**The lock and the claim answer different questions.** `driver_state.py lock` is
+per-`RUN_DIR`: it stops this run being started twice. The register claim is
+per-repo: it tells every OTHER thread on this machine that a driver run holds this
+repo, and for how long. A driver run occupies a repo for hours while switching HEAD
+in a shared checkout, which is the longest and least visible hold in the whole
+fleet — and until now it registered nothing.
+
+Held by another live thread → say who holds it and stop. Do not start a second run
+in one repo.
+
+**Re-claim to report progress.** A claim from the same session replaces its own
+note, so after each ticket resolves, re-run the claim with the count:
+`--note "<run label> — 7/12, on <ticket>"`. That is what makes `/threads` show a
+long run's position without anyone asking this thread.
 
 **Claim every ticket in the tracker, now — before any work starts.** The claim is what makes
 step 2's check work for the next thread; a run that only labels at the end (step 7) leaves the
@@ -305,7 +323,14 @@ explicitly human-invoked step, same as every other verb in the fleet.
 
 ```
 python3 <skill-dir>/driver_state.py unlock "$RUN_DIR"
+[ -f "$reg" ] && python3 "$reg" sign-off --verb driver --status done \
+  --note "<n> shipped, <n> blocked, <n> skipped"
 ```
+
+Sign off with what actually happened. A run that stopped on a budget or a blocked
+ticket is `--status incomplete`; a run waiting on a decision only the user can make
+is `--status waiting-on-user`, which keeps the repo held so nobody else starts a
+second run over the top of a half-finished one.
 
 Produce one unified summary, per-ticket:
 
