@@ -128,10 +128,17 @@ def deny(reason):
     }}))
 
 
-def pre(cmd, cwd_default):
+def pre(cmd, cwd_default, session_id):
     import register
     key, _ = gated_key(cmd, cwd_default)
     if not key:
+        return
+    _, _, open_claims, _ = register.picture()
+    mine = open_claims.get(key)
+    if mine and mine.get("session") == session_id:
+        # Already ours. Never re-claim: cmd_claim would replace the note, and a
+        # skill's note is the only thing that tells post() to keep its hands off
+        # a claim covering the whole verb rather than just this command.
         return
     held = io.StringIO()
     with redirect_stdout(held):
@@ -234,7 +241,7 @@ def main():
         if payload.get("hook_event_name") == "PostToolUse":
             post(cmd, cwd, payload.get("tool_response") or {}, session_id)
         else:
-            pre(cmd, cwd)
+            pre(cmd, cwd, session_id)
     except Exception:
         return                      # fail open: never wedge the shell on a register fault
 
