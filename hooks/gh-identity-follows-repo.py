@@ -29,20 +29,49 @@ WRITE_VERBS = (
 GH_WRITE = re.compile(r"\bgh\s+(issue|pr)\s+(" + WRITE_VERBS + r")\b")
 
 
-def repo_account(cwd):
-    """The account named by the repo's credential helper, or None."""
+def _git(cwd, *args):
     try:
-        helper = subprocess.run(
-            ["git", "-C", cwd, "config", "--local", "credential.helper"],
+        return subprocess.run(
+            ["git", "-C", cwd, *args],
             capture_output=True, text=True, timeout=5,
         ).stdout.strip()
     except Exception:
-        return None
+        return ""
+
+
+def gh_accounts():
+    """Every account logged into gh."""
+    try:
+        out = subprocess.run(
+            ["gh", "auth", "status"], capture_output=True, text=True, timeout=10,
+        ).stdout
+    except Exception:
+        return set()
+    return set(re.findall(r"account ([A-Za-z0-9_-]+)", out))
+
+
+def repo_account(cwd):
+    """The account this repo should act as, or None.
+
+    First choice is the credential helper, because that is the identity the repo
+    already pushes as and is set deliberately. Failing that, fall back to the
+    remote's owner when it happens to be one of the logged-in accounts -- an
+    owner acting on their own repo is never the mismatch this hook exists to
+    prevent, and it covers repos that predate the helper convention.
+    """
+    helper = _git(cwd, "config", "--local", "credential.helper")
     # e.g. !'/path/to/gh-credential-for-user.sh' peakstate-global
-    if "gh-credential-for-user" not in helper:
+    if "gh-credential-for-user" in helper:
+        account = helper.split()[-1].strip("'\"")
+        if account:
+            return account
+
+    remote = _git(cwd, "remote", "get-url", "origin")
+    m = re.search(r"github\.com[:/]([^/]+)/", remote)
+    if not m:
         return None
-    account = helper.split()[-1].strip("'\"")
-    return account or None
+    owner = m.group(1)
+    return owner if owner in gh_accounts() else None
 
 
 def main():
