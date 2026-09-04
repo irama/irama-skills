@@ -1,5 +1,5 @@
 {
-  "$comment": "Starting point only. Deliberately conservative: permissions default to prompting, and no hooks are wired. Read README.md before widening either. Merge into your own ~/.claude/settings.json — do not blindly overwrite it.",
+  "$comment": "Starting point only. Deliberately conservative: permissions default to prompting, and the only hooks wired are the two the cross-thread work register needs to function at all. Read README.md before widening either. Merge into your own ~/.claude/settings.json \u2014 do not blindly overwrite it.",
   "permissions": {
     "defaultMode": "default",
     "allow": [
@@ -27,6 +27,31 @@
       "Read(.next/**)",
       "Read(coverage/**)",
       "Read(*.lock)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME\"/.claude/hooks/thread-register-identity.py; [ -f \"$f\" ] || exit 0; exec python3 \"$f\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME\"/.claude/hooks/thread-register-signoff.py; [ -f \"$f\" ] || exit 0; exec python3 \"$f\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
