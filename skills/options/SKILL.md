@@ -35,9 +35,15 @@ has never seen the codebase should be able to pick after reading only this.
     **In plain terms:** The books already told the tax office what was owed for that
     quarter. Now we are copying that quarter into the app. The question is whether the app
     should treat it as a real bill to pay again, or just as a record of what happened.
-    - **A) History only** — write down what happened, do not touch tax.
-    - **B) Full replay** — treat it as live, and check the app reaches the same figure.
-    - **C) Do nothing** — leave it in the spreadsheet.
+    - **1) History only** — write down what happened, do not touch tax.
+    - **2) Full replay** — treat it as live, and check the app reaches the same figure.
+    - **3) Do nothing** — leave it in the spreadsheet.
+
+**The ELI5 labels ARE the costed roads' labels.** Same set, same order, same characters. Never
+letter them here and number them below: the user then has to work out that `B` and `2` are one
+road, and the reply comes back as "B, 2, and C3" (2026-09-04, measured). If the response also
+carries a *Next steps for us* digit list, letter BOTH the ELI5 and the roads instead, per
+CLAUDE.md § Ordered list numbering.
 
 Rules: no term the user has not used first; expand or drop every acronym; say the
 consequence, not the mechanism. If it needs a clause starting "which means", the sentence
