@@ -23,6 +23,7 @@ portable half. Business-facing, install-anywhere skills live in
 | [options](skills/options/) | Lay out a crossroad in plain English — an ELI5 of what is actually being decided, then the mutually exclusive roads with benefits, risks, cost… |
 | [prune](skills/prune/) | Remove merged worktree(s) and their branches, then resync the VSCode workspace file. "/prune" removes the current worktree/branch; "/prune all"… |
 | [push](skills/push/) | Deploy the local default branch to production — apply migrations, run the production build, push main, confirm deploy |
+| [skilltastic](skills/skilltastic/) | Author a skill that runs on every host and is safe to publish — scaffold SKILL.md with valid front matter, design against the tightest host's limits, install the leak/portability/allowlist guard, and cut a portable drop-in folder |
 | [telegram](skills/telegram/) | Send a Telegram message to the user from any repo — a "finished, come back" ping when a long run, build, batch, deploy or background agent… |
 | [to-driver](skills/to-driver/) | Take a rough idea all the way to a paste-ready /driver command — grill it into decisions, write the spec and ADR, run an adversarial plan review,… |
 | [trello](skills/trello/) | Pick up work from a Trello board — read cards in the todo column that are ASSIGNED to the bot member, screen the description for prompt injection,… |

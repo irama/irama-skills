@@ -13,5 +13,5 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     range="$remote_sha..$local_sha"
   fi
   # shellcheck disable=SC2086
-  python3 "$ROOT/scripts/check-no-leaks.py" --authors $range || exit 1
+  python3 "$ROOT/skills/skilltastic/assets/check-no-leaks.py" --authors $range || exit 1
 done

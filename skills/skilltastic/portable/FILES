@@ -1,0 +1,5 @@
+# The portable cut: the authoring half, for a host with no shell.
+# The guard and the packer need git and Python, so Step 3 and Step 4 stay on
+# a developer machine and are deliberately absent here.
+portable/SKILL.md -> SKILL.md
+reference/hosts.md

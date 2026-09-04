@@ -1,23 +1,52 @@
 #!/usr/bin/env python3
-"""Pre-commit guard for a PUBLIC config repo.
+"""Pre-commit guard for a PUBLIC repo. Shipped by the `skilltastic` skill.
 
-Blocks a commit that introduces a hard leak (absolute home paths, personal
-emails, credentials). Warns — but does not block — on mentions of the author's
-own app domains, which appear deliberately in "why this rule exists" war
-stories and are not secret.
+One file does four jobs, because four separate guards is four things to
+remember and two of them were already missing from the repos that needed them:
+
+  leaks        absolute home paths, credentials, private domains, personal
+               email, quoted working conversation
+  portability  hardcoded skill install paths, dead relative links, shellcheck
+  allowlist    a skill under skills/<name>/ that skills/PUBLIC does not name
+  front matter a SKILL.md whose name or description breaks the format
 
 Run over the staged diff:   python3 scripts/check-no-leaks.py
 Run over the whole tree:    python3 scripts/check-no-leaks.py --all
 Run over commit authorship: python3 scripts/check-no-leaks.py --authors <range>
+Prove the rules still work:  python3 scripts/check-no-leaks.py --selftest
 
-The last one exists because file contents are not the only way a personal
+The authorship one exists because file contents are not the only way a personal
 address reaches a public repo. An author line is metadata, not a file, so the
 content guard cannot see it.
+
+This file is vendored. It is one copy of one source, and the source is
+<skilltastic>/assets/check-no-leaks.py — edit it there and copy it out again,
+never the other way round.
 """
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+
+def repo_root() -> Path:
+    """The repo being scanned — not the folder this file happens to sit in.
+
+    The guard is vendored into several repos and also run from a skill folder
+    outside any of them, so anchoring on __file__ reads the wrong repo's
+    allowlist. git already knows the answer."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        if out:
+            return Path(out)
+    except (subprocess.CalledProcessError, OSError):
+        pass
+    return Path.cwd()
+
+
+ROOT = repo_root()
 
 # Blocks the commit. Absolute home paths are also a portability bug, not just
 # a disclosure one — they break the repo for everyone who is not the author.
@@ -44,7 +73,7 @@ HARD = [
 #
 # Put the list in `.leakrc` at the repo root (gitignored), one entry per line:
 #
-#     irama.org                 a private domain
+#     example-private.test      a domain that must never appear
 #     names: Surname            someone who works on this repo
 #
 # or set LEAK_PRIVATE_DOMAINS / LEAK_TEAM_NAMES, comma separated. With neither
@@ -52,11 +81,19 @@ HARD = [
 # no such list.
 
 def _leakrc(prefix=None):
-    import os
     env = "LEAK_TEAM_NAMES" if prefix else "LEAK_PRIVATE_DOMAINS"
     raw = os.environ.get(env, "")
-    rc = Path(__file__).resolve().parent.parent / ".leakrc"
-    if rc.exists():
+    # Repo-local list first, then one shared private list for every repo that
+    # has none of its own. Without the fallback each repo needs its own copy of
+    # the same secret inventory, and the one that forgets is the one that leaks.
+    for rc in (Path(os.environ["LEAKRC"]) if os.environ.get("LEAKRC") else None,
+               ROOT / ".leakrc",
+               Path.home() / ".claude" / ".leakrc"):
+        if rc and rc.is_file():
+            break
+    else:
+        rc = None
+    if rc:
         lines = rc.read_text().splitlines()
         if prefix:
             raw += "\n" + "\n".join(l.split(":", 1)[1] for l in lines
@@ -120,10 +157,9 @@ def all_files():
 # The email pattern, reused for authorship. Kept as a lookup into HARD rather
 # than a second copy, because two copies of a guard rule drift and the drift is
 # silent.
-# `None` when there is no .leakrc and no env list — a fresh clone has no private
-# list to protect, so the rule does not exist. This was `next(...)` with no
-# default, which raised StopIteration at import and broke the guard entirely for
-# anyone but us.
+# `None` when there is no .leakrc and no env list. Everyone who clones a public
+# repo is in that state, and this was `next(...)` with no default, so merely
+# importing the guard raised StopIteration and it did nothing at all for them.
 EMAIL_RULE = next((p for p, label in HARD if label == "personal email"), None)
 
 
@@ -188,7 +224,10 @@ def check_portability(name, path, text, hits):
 
     # 2. A relative markdown link must point at something that exists. Ten dead
     #    links shipped in this repo pointing at a docs/ directory it never had.
-    if path.suffix == ".md":
+    # A portable cut is flattened at pack time, so its links resolve against the
+    # packed folder and not against this tree. make-portable.py --self-check is
+    # what validates them, and it is stricter: every companion must be named.
+    if path.suffix == ".md" and "portable" not in parts:
         fenced = False
         for lineno, line in enumerate(text.splitlines(), 1):
             # Code shows what a link should LOOK like; it is not a link. Skip
@@ -241,28 +280,6 @@ def check_shell(files, hits):
             hits.append((bits[0], bits[1], "shellcheck" + bits[3], bits[4].strip()))
 
 
-def selftest_no_leakrc() -> bool:
-    """The guard must import and run with no .leakrc in any parent directory.
-
-    Everyone who clones a public repo is in that state. This shipped broken: the
-    email rule only exists when a private list does, and the authorship check
-    looked it up with no default, so merely importing the module raised."""
-    import os, tempfile, shutil
-    with tempfile.TemporaryDirectory() as d:
-        dst = Path(d) / "scripts"
-        dst.mkdir()
-        shutil.copy(Path(__file__).resolve(), dst / "check-no-leaks.py")
-        env = {k: v for k, v in os.environ.items()
-               if k not in ("LEAK_PRIVATE_DOMAINS", "LEAK_TEAM_NAMES")}
-        r = subprocess.run([sys.executable, str(dst / "check-no-leaks.py"),
-                            "--authors", "no-such-ref..no-such-ref"],
-                           capture_output=True, text=True, env=env, cwd=d)
-        if r.returncode != 0:
-            print(f"selftest FAIL: no-.leakrc run exited {r.returncode}\n{r.stderr}")
-            return False
-    return True
-
-
 def selftest() -> int:
     """Three rules, three known answers. Both false positives these rules shipped
     with — a link inside a code span, and a format example in a code block — are
@@ -291,7 +308,42 @@ def selftest() -> int:
         if labels != want:
             print(f"selftest FAIL: expected {want}, got {labels}")
             ok = False
-    ok = selftest_no_leakrc() and ok
+
+        # Front matter: one good case, and one case per way it can be wrong.
+        good = "---\nname: good-skill\ndescription: Does a thing, when asked.\n---\nbody\n"
+        cases = [
+            (good, []),
+            ("no front matter here\n", ["SKILL.md has no front matter"]),
+            (good.replace("good-skill", "Good_Skill"),
+             ["name must be lowercase letters, digits and hyphens"]),
+            (good.replace("good-skill", "good-skill\ndescription-x: <b>hi</b>"), []),
+            (good.replace("good-skill", "x" * 65), ["name over 64 characters"]),
+            (good.replace("description: Does a thing, when asked.", "description: " + "x" * 1025),
+             ["description over 1024 characters"]),
+            (good.replace("description: Does a thing, when asked.\n", ""),
+             ["front matter has no description"]),
+            (good.replace("good-skill", "other-skill"), ["name does not match its folder"]),
+            (good.replace("Does a thing", "Does a <thing>"),
+             ["description contains an XML tag"]),
+        ]
+        # A reserved word is a note, not a block — the host refuses it on
+        # upload, and make-portable.py is what packages an upload.
+        reserved_notes = []
+        check_front_matter("SKILL.md", root / "good-skill" / "SKILL.md",
+                           good.replace("good-skill", "claude-helper"), [], reserved_notes)
+        if len(reserved_notes) != 1:
+            print("selftest FAIL: reserved word should note, not block")
+            ok = False
+        skill_md = root / "good-skill" / "SKILL.md"
+        skill_md.parent.mkdir()
+        for text, want_labels in cases:
+            got, notes = [], []
+            skill_md.write_text(text)
+            check_front_matter("SKILL.md", skill_md, text, got, notes)
+            if sorted(h[2] for h in got) != sorted(want_labels):
+                print(f"selftest FAIL: {want_labels} != {[h[2] for h in got]}")
+                ok = False
+
     print("selftest passed" if ok else "selftest FAILED")
     return 0 if ok else 1
 
@@ -301,7 +353,7 @@ def selftest() -> int:
 # named allowlist, so adding a skill takes a deliberate line in a file the
 # author has to write. This exists because a skill that only ever talked to
 # private infrastructure sat here for weeks before anybody noticed.
-PUBLIC_SKILLS = Path("skills/PUBLIC")
+PUBLIC_SKILLS = ROOT / "skills" / "PUBLIC"
 
 
 def approved_skills() -> set:
@@ -332,6 +384,81 @@ def check_new_skills(files, hits) -> None:
                      f"public, add '{skill}' to skills/PUBLIC and say so when you ask"))
 
 
+# ── SKILL.md front matter ────────────────────────────────────────────────────
+# Every host reads these two fields at startup and nothing else, so a typo here
+# is not a cosmetic fault: the skill loads and then never fires, silently.
+NAME_OK = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+RESERVED = ("anthropic", "claude")
+XML_TAG = re.compile(r"<[A-Za-z/][^>]*>")
+FM = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
+# Deliberately not a YAML parser. Front matter here is flat scalars, and a
+# dependency for two fields is a dependency the strictest host has to carry.
+FIELD = re.compile(r"^([A-Za-z0-9_-]+):[ \t]*(.*)$")
+BODY_NOTE_BYTES = 20_000          # ~5k tokens, Anthropic's guidance for the body
+
+
+def front_matter(text):
+    m = FM.match(text)
+    if not m:
+        return None, text
+    fields = {}
+    for line in m.group(1).splitlines():
+        f = FIELD.match(line)
+        if f:
+            fields[f.group(1)] = f.group(2).strip().strip("'\"")
+    return fields, text[m.end():]
+
+
+def check_front_matter(name, path, text, hits, notes) -> None:
+    """Validate a SKILL.md against the format every host agrees on."""
+    if path.name != "SKILL.md":
+        return
+    fields, body = front_matter(text)
+    if fields is None:
+        hits.append((name, 1, "SKILL.md has no front matter",
+                     "open with --- name: … description: … ---"))
+        return
+    skill = fields.get("name", "")
+    if not skill:
+        hits.append((name, 1, "front matter has no name", "add name:"))
+    elif len(skill) > 64:
+        hits.append((name, 1, "name over 64 characters", f"{len(skill)} chars"))
+    elif not NAME_OK.match(skill):
+        hits.append((name, 1, "name must be lowercase letters, digits and hyphens", skill))
+    elif any(w in skill for w in RESERVED):
+        # Verbatim from Anthropic's Skill structure reference: name "Cannot
+        # contain reserved words: 'anthropic', 'claude'". It is enforced on
+        # upload, so a filesystem-only skill still loads in Claude Code. Noted
+        # rather than blocked here, and hard-failed by make-portable.py, which
+        # is the step that packages a skill for the hosts that refuse it.
+        notes.append((name, f"name uses the reserved word in {skill!r} — "
+                            f"claude.ai and the Skills API will refuse the upload"))
+    # The folder is the address the host loads the skill by. A name that
+    # disagrees with it installs under one address and answers to another.
+    else:
+        # portable/SKILL.md is the same skill in a smaller cut, so the folder
+        # that names it is the one above.
+        folder = path.parent
+        if folder.name == "portable":
+            folder = folder.parent
+        if folder.name not in ("", ".") and folder.name != skill:
+            hits.append((name, 1, "name does not match its folder",
+                         f"{skill} in {folder.name}/"))
+    if XML_TAG.search(skill):
+        hits.append((name, 1, "name contains an XML tag", skill))
+    desc = fields.get("description", "")
+    if not desc:
+        hits.append((name, 1, "front matter has no description",
+                     "say what it does AND when to use it — this is all the host matches on"))
+    elif len(desc) > 1024:
+        hits.append((name, 1, "description over 1024 characters", f"{len(desc)} chars"))
+    elif XML_TAG.search(desc):
+        hits.append((name, 1, "description contains an XML tag", XML_TAG.search(desc).group()))
+    if len(body.encode()) > BODY_NOTE_BYTES:
+        notes.append((name, f"body is {len(body.encode()) // 1024}KB — over the ~5k-token "
+                            f"guidance, loaded in full every time the skill fires"))
+
+
 def main() -> int:
     if "--selftest" in sys.argv:
         return selftest()
@@ -344,7 +471,7 @@ def main() -> int:
     if not files:
         return 0
 
-    hard_hits, soft_hits = [], []
+    hard_hits, soft_hits, big = [], [], []
     for name in files:
         path = Path(name)
         if not path.is_file() or SKIP_DIRS & set(path.parts):
@@ -362,9 +489,13 @@ def main() -> int:
             for hit in SOFT.findall(line):
                 soft_hits.append((name, lineno, hit))
         check_portability(name, path, text, hard_hits)
+        check_front_matter(name, path, text, hard_hits, big)
 
     check_shell(files, hard_hits)
     check_new_skills(files, hard_hits)
+
+    for name, why in big:
+        print(f"note: {name} {why}")
 
     if soft_hits:
         print(f"note: {len(soft_hits)} mention(s) of your own app domains (allowed):")

@@ -127,6 +127,7 @@ The chain is deliberately split so that only one verb ever touches production.
 
 | Skill | Does |
 |---|---|
+| `skilltastic` | Author a skill that runs on all four hosts and is safe to publish — front matter, host limits, the publishability guard, the portable cut |
 | `verify-ui` | Screenshots the affected screen at desktop and mobile before you claim a UI change done |
 | `peakstate-brief` | Interactive HTML briefs you answer in the browser, with persisted answers and copy-back JSON |
 | `app-icons` | Full PWA icon set, favicon and OG image from one source mark, wired into Next.js App Router |

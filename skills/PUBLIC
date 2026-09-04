@@ -1,0 +1,27 @@
+# Skills this repo may publish. One name per line.
+# Adding a line is a decision: everything in that folder becomes public on push.
+# A skill that only talks to private infrastructure belongs in the private
+# config repo instead — it exposes the shape of that infrastructure and does
+# nothing in anyone else's hands.
+app-icons
+app-walkthrough
+ci
+claude-retro
+commit
+demoman
+driver
+flush
+gen-image
+legal-pages
+localhost
+merge
+netdiag
+options
+prune
+push
+skilltastic
+sourced
+telegram
+to-driver
+trello
+verify-ui
