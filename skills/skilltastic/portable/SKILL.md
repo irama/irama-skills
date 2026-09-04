@@ -34,7 +34,7 @@ description: What it does, in one clause. Then when to use it — the triggers, 
 |---|---|---|
 | `name` | ≤64 chars, lowercase letters, digits and hyphens | The address. Anything else fails to load on at least one host. |
 | `name` | never contains `anthropic` or `claude` | Reserved. |
-| `name` | equals the folder name | Otherwise it installs at one address and answers to another. |
+| `name` | equals the folder name, under `skills/` | There the folder name is the install address, so a mismatch installs at one address and answers to another. A skill kept elsewhere in a source tree is installed by a symlink or a copy that renames it, and the check does not apply. |
 | `description` | ≤1024 chars, says what **and** when | The only text matched against a request. |
 
 ## 3. The body

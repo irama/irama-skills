@@ -280,6 +280,32 @@ def check_shell(files, hits):
             hits.append((bits[0], bits[1], "shellcheck" + bits[3], bits[4].strip()))
 
 
+def selftest_no_leakrc() -> bool:
+    """The guard must import and run with no .leakrc anywhere it looks.
+
+    Everyone who clones a public repo is in that state. This shipped broken: the
+    email rule only exists when a private list does, and the authorship check
+    looked it up with no default, so merely importing the module raised. The
+    shared home-directory fallback made the empty case easier to stop testing by
+    accident, which is why HOME is moved as well."""
+    import os, tempfile, shutil
+    with tempfile.TemporaryDirectory() as d:
+        dst = Path(d) / "scripts"
+        dst.mkdir()
+        shutil.copy(Path(__file__).resolve(), dst / "check-no-leaks.py")
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("LEAK_PRIVATE_DOMAINS", "LEAK_TEAM_NAMES")}
+        env["HOME"] = d                       # no shared list to fall back on
+        env["LEAKRC"] = str(Path(d) / "nope") # and no override either
+        r = subprocess.run([sys.executable, str(dst / "check-no-leaks.py"),
+                            "--authors", "no-such-ref..no-such-ref"],
+                           capture_output=True, text=True, env=env, cwd=d)
+        if r.returncode != 0:
+            print(f"selftest FAIL: no-.leakrc run exited {r.returncode}\n{r.stderr}")
+            return False
+    return True
+
+
 def selftest() -> int:
     """Three rules, three known answers. Both false positives these rules shipped
     with — a link inside a code span, and a format example in a code block — are
@@ -329,12 +355,12 @@ def selftest() -> int:
         # A reserved word is a note, not a block — the host refuses it on
         # upload, and make-portable.py is what packages an upload.
         reserved_notes = []
-        check_front_matter("SKILL.md", root / "good-skill" / "SKILL.md",
+        check_front_matter("SKILL.md", root / "skills" / "good-skill" / "SKILL.md",
                            good.replace("good-skill", "claude-helper"), [], reserved_notes)
         if len(reserved_notes) != 1:
             print("selftest FAIL: reserved word should note, not block")
             ok = False
-        skill_md = root / "good-skill" / "SKILL.md"
+        skill_md = root / "skills" / "good-skill" / "SKILL.md"
         skill_md.parent.mkdir()
         for text, want_labels in cases:
             got, notes = [], []
@@ -344,6 +370,7 @@ def selftest() -> int:
                 print(f"selftest FAIL: {want_labels} != {[h[2] for h in got]}")
                 ok = False
 
+    ok = selftest_no_leakrc() and ok
     print("selftest passed" if ok else "selftest FAILED")
     return 0 if ok else 1
 
@@ -441,7 +468,10 @@ def check_front_matter(name, path, text, hits, notes) -> None:
         folder = path.parent
         if folder.name == "portable":
             folder = folder.parent
-        if folder.name not in ("", ".") and folder.name != skill:
+        # Only under skills/, because there the folder name IS the install
+        # address. A skill kept elsewhere in a source tree is installed by a
+        # symlink or a copy that renames it, and the source folder never travels.
+        if folder.parent.name == "skills" and folder.name != skill:
             hits.append((name, 1, "name does not match its folder",
                          f"{skill} in {folder.name}/"))
     if XML_TAG.search(skill):
