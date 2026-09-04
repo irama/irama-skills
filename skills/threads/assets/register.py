@@ -256,13 +256,24 @@ def ensure_registered(session_id, cwd, transcript):
 def this_session():
     """The session id of the thread running this command.
 
-    A hook is handed it; a command run from a thread is not, so it comes from
-    the environment the hook wrote, and falls back to the newest session that
-    matches this working directory."""
+    Three ways, most exact first. A hook is HANDED the id, so it wins. Otherwise
+    walk up the process tree to the agent process and match it against the pid
+    each session recorded — that is exact, because a command run by a thread is
+    a descendant of that thread's process. Only then fall back to the working
+    directory, which is a guess and a bad one: a thread routinely ships a repo
+    that is not the one it started in, and the cwd match then finds nothing.
+    Measured 2026-09-04: every by-name claim from /push refused for exactly
+    that reason, because the session was started in one repo and shipping
+    another."""
     sid = os.environ.get("CLAUDE_SESSION_ID")
     if sid:
         return sid
     sess, _, _, _ = picture()
+    pid = claude_pid()
+    if pid:
+        for s in sess.values():
+            if s.get("pid") == pid:
+                return s["session"]
     here = str(Path.cwd())
     best = None
     for s in sess.values():
