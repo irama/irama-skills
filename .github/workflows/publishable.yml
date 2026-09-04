@@ -7,6 +7,9 @@ name: Publishable
 on:
   push:
   pull_request:
+  # Re-run the guard without a commit — after rotating the LEAKRC secret,
+  # or to prove which half is running.
+  workflow_dispatch:
 
 jobs:
   guard:
