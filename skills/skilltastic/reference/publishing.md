@@ -23,15 +23,35 @@ it over the authorship of the commits about to leave, because an author line is
 metadata rather than a file and the content check cannot see it. Both hooks are
 four lines; copy them from a repo that already has them.
 
-In CI, one step:
+A hook is a local convenience and `--no-verify` walks past both, so CI is the
+control. Copy `.github/workflows/publishable.yml` from a repo that has it: it
+runs `--selftest`, then `--all`, then `--authors` over the range the push
+carries.
+
+**CI has no `.leakrc`, because `.leakrc` is gitignored.** Without one the rules
+built from private literals — the domains, the personal email, the team names,
+the host allowlist — do not run at all, and CI covers only the generic half. The
+workflow writes the file from a repository secret named `LEAKRC` when one exists
+and says which half it ran:
 
 ```yaml
-- name: Publishable
-  run: python3 scripts/check-no-leaks.py --all
+- name: Load the private literal list, if this repo has one
+  env:
+    LEAKRC: ${{ secrets.LEAKRC }}
+  run: |
+    if [ -n "$LEAKRC" ]; then printf '%s\n' "$LEAKRC" > .leakrc; fi
 ```
 
-A hook is a local convenience and can be skipped with `--no-verify`. CI is the
-one that actually holds, so wire both.
+Pass the secret through `env:` rather than interpolating it into the script
+body, or a literal in the list can close the quoting and run as shell. A pull
+request from a fork gets no secrets, which is the right answer twice over: it
+runs the generic half, and it never sees the private list.
+
+**Setting that secret is a decision, not a step.** It uploads the inventory this
+guard exists to keep off GitHub to GitHub, encrypted and readable by anyone with
+admin on the repo. Weigh that against a CI gate that only catches half of what
+the hook does. Either answer is defensible; the workflow works both ways and
+prints which one it took.
 
 ## The three lists
 
