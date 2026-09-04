@@ -62,7 +62,10 @@ def _leakrc(prefix=None):
             raw += "\n" + "\n".join(l.split(":", 1)[1] for l in lines
                                      if l.strip().startswith(prefix))
         else:
-            raw += "\n" + "\n".join(l for l in lines if not l.strip().startswith(prefix or "names:"))
+            # Any `group: value` line belongs to another reader of this file
+            # (check-publishable.py reads commands:, repos:, libraries:, infra:).
+            # A domain never contains a colon, so this is the whole test.
+            raw += "\n" + "\n".join(l for l in lines if ":" not in l.split("#")[0])
     return sorted({v.strip() for line in raw.replace(",", "\n").splitlines()
                    for v in [line.split("#")[0]] if v.strip()})
 
@@ -117,7 +120,11 @@ def all_files():
 # The email pattern, reused for authorship. Kept as a lookup into HARD rather
 # than a second copy, because two copies of a guard rule drift and the drift is
 # silent.
-EMAIL_RULE = next(p for p, label in HARD if label == "personal email")
+# `None` when there is no .leakrc and no env list — a fresh clone has no private
+# list to protect, so the rule does not exist. This was `next(...)` with no
+# default, which raised StopIteration at import and broke the guard entirely for
+# anyone but us.
+EMAIL_RULE = next((p for p, label in HARD if label == "personal email"), None)
 
 
 def check_authors(rev_range) -> int:
@@ -126,6 +133,8 @@ def check_authors(rev_range) -> int:
     Git hands a pre-push hook the range it is about to send. Everything in that
     range gets its author and committer lines read; a noreply address passes,
     a real one does not."""
+    if EMAIL_RULE is None:
+        return 0                      # no private list configured, nothing to match
     try:
         out = subprocess.run(
             ["git", "log", "--format=%H%x1f%an <%ae>%x1f%cn <%ce>", rev_range],
@@ -232,6 +241,28 @@ def check_shell(files, hits):
             hits.append((bits[0], bits[1], "shellcheck" + bits[3], bits[4].strip()))
 
 
+def selftest_no_leakrc() -> bool:
+    """The guard must import and run with no .leakrc in any parent directory.
+
+    Everyone who clones a public repo is in that state. This shipped broken: the
+    email rule only exists when a private list does, and the authorship check
+    looked it up with no default, so merely importing the module raised."""
+    import os, tempfile, shutil
+    with tempfile.TemporaryDirectory() as d:
+        dst = Path(d) / "scripts"
+        dst.mkdir()
+        shutil.copy(Path(__file__).resolve(), dst / "check-no-leaks.py")
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("LEAK_PRIVATE_DOMAINS", "LEAK_TEAM_NAMES")}
+        r = subprocess.run([sys.executable, str(dst / "check-no-leaks.py"),
+                            "--authors", "no-such-ref..no-such-ref"],
+                           capture_output=True, text=True, env=env, cwd=d)
+        if r.returncode != 0:
+            print(f"selftest FAIL: no-.leakrc run exited {r.returncode}\n{r.stderr}")
+            return False
+    return True
+
+
 def selftest() -> int:
     """Three rules, three known answers. Both false positives these rules shipped
     with — a link inside a code span, and a format example in a code block — are
@@ -260,8 +291,45 @@ def selftest() -> int:
         if labels != want:
             print(f"selftest FAIL: expected {want}, got {labels}")
             ok = False
+    ok = selftest_no_leakrc() and ok
     print("selftest passed" if ok else "selftest FAILED")
     return 0 if ok else 1
+
+
+# A skill in this repo is published to the world the moment it is pushed. The
+# rule that keeps internal tooling out is not "remember to check" — it is a
+# named allowlist, so adding a skill takes a deliberate line in a file the
+# author has to write. This exists because a skill that only ever talked to
+# private infrastructure sat here for weeks before anybody noticed.
+PUBLIC_SKILLS = Path("skills/PUBLIC")
+
+
+def approved_skills() -> set:
+    if not PUBLIC_SKILLS.is_file():
+        return set()
+    out = set()
+    for line in PUBLIC_SKILLS.read_text(errors="ignore").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            out.add(line)
+    return out
+
+
+def check_new_skills(files, hits) -> None:
+    """Refuse a skill this repo has not been told it may publish."""
+    approved = approved_skills()
+    seen = set()
+    for name in files:
+        parts = Path(name).parts
+        if len(parts) < 2 or parts[0] != "skills":
+            continue
+        skill = parts[1]
+        if skill in approved or skill in seen or skill == PUBLIC_SKILLS.name:
+            continue
+        seen.add(skill)
+        hits.append((name, 0, "skill not approved for a public repo",
+                     f"{skill} — internal tooling stays in claude-config; if it really is "
+                     f"public, add '{skill}' to skills/PUBLIC and say so when you ask"))
 
 
 def main() -> int:
@@ -296,6 +364,7 @@ def main() -> int:
         check_portability(name, path, text, hard_hits)
 
     check_shell(files, hard_hits)
+    check_new_skills(files, hard_hits)
 
     if soft_hits:
         print(f"note: {len(soft_hits)} mention(s) of your own app domains (allowed):")
