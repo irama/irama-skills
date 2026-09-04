@@ -229,8 +229,7 @@ def ensure_registered(session_id, cwd, transcript):
     tool calls, and a claim from it would have no pid behind it. Rather than
     refuse those threads for their whole life, the first gated command adopts
     them."""
-    sess, _, _, _ = picture()
-    if session_id and session_id not in sess:
+    if session_id and session_id not in sessions(read()):
         register_session(session_id, thread_name(cwd, session_id), transcript, cwd)
 
 
@@ -284,6 +283,17 @@ def cmd_claim(key, note):
     me = sess.get(sid, {})
     append({"kind": "claim", "session": sid, "thread": me.get("thread"),
             "repo": key.split(":")[0], "key": key, "state": "in-progress", "note": note})
+
+    # The check above and this append are two steps, so two threads can both pass
+    # the check and both write. There is no lock to take -- the whole design is
+    # append-only -- but the register's rule is that the LAST record for a key is
+    # its state, so reading back settles the race deterministically. Losing here
+    # means another thread claimed in the same instant; it holds the key.
+    winner = claims(read()).get(key, {})
+    if winner.get("session") != sid:
+        print(f"lost {key} to {winner.get('thread')} — both claimed at once; "
+              f"they hold it")
+        return 1
     print(f"claimed {key}")
     return 0
 
@@ -463,6 +473,10 @@ def selftest():
         before = len(read())
         picture()
         check("no double release", len(read()), before)
+        # 7. last record wins — the invariant cmd_claim's read-back depends on
+        append({"kind": "claim", "session": "ccc", "thread": "three",
+                "repo": "r", "key": "r:push", "state": "in-progress"})
+        check("last claim wins", claims(read())["r:push"]["session"], "ccc")
 
     print("selftest passed" if ok else "selftest FAILED")
     return 0 if ok else 1
