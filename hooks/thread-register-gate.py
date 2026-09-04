@@ -229,6 +229,8 @@ def main():
         session_id = payload.get("session_id") or ""
         os.environ["CLAUDE_SESSION_ID"] = session_id
         cwd = payload.get("cwd") or os.getcwd()
+        import register
+        register.ensure_registered(session_id, cwd, payload.get("transcript_path") or "")
         if payload.get("hook_event_name") == "PostToolUse":
             post(cmd, cwd, payload.get("tool_response") or {}, session_id)
         else:

@@ -24,10 +24,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "threads" / "assets"))
 
 
-def thread_name(cwd, session_id):
-    return f"{Path(cwd).name}-{(session_id or '?')[:6]}"
-
-
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -39,7 +35,7 @@ def main():
         session_id = payload.get("session_id") or ""
         register.register_session(
             session_id,
-            thread_name(cwd, session_id),
+            register.thread_name(cwd, session_id),
             payload.get("transcript_path") or "",
             cwd,
         )

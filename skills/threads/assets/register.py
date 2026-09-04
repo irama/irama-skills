@@ -211,9 +211,27 @@ def picture():
 
 # ── identity ─────────────────────────────────────────────────────────────────
 
-def register_session(session_id, thread_name, transcript, cwd):
-    append({"kind": "session", "session": session_id, "thread": thread_name,
+def thread_name(cwd, session_id):
+    """The working directory plus six characters of the session id: short enough
+    to type at `show`, unique enough to tell two threads in one repo apart."""
+    return f"{Path(cwd).name}-{(session_id or '?')[:6]}"
+
+
+def register_session(session_id, name, transcript, cwd):
+    append({"kind": "session", "session": session_id, "thread": name,
             "pid": claude_pid(), "cwd": str(cwd), "transcript": str(transcript or "")})
+
+
+def ensure_registered(session_id, cwd, transcript):
+    """Register this thread if it has no identity record yet.
+
+    A session that started before the SessionStart hook was wired still runs
+    tool calls, and a claim from it would have no pid behind it. Rather than
+    refuse those threads for their whole life, the first gated command adopts
+    them."""
+    sess, _, _, _ = picture()
+    if session_id and session_id not in sess:
+        register_session(session_id, thread_name(cwd, session_id), transcript, cwd)
 
 
 def this_session():
@@ -249,13 +267,14 @@ def resolve(sess, name):
 def cmd_claim(key, note):
     sess, status, open_claims, _ = picture()
     sid = this_session()
-    if not sid:
-        # No identity means no process to watch, so this claim could never
-        # auto-release when the thread ends -- it would hold the key forever.
-        # No claim is strictly better than an unreleasable one.
-        print("not claiming: this thread is not registered, so the claim could "
-              "never be released. The SessionStart hook did not run — start a "
-              "fresh session, or see skills/threads/SKILL.md.")
+    if sid not in sess:
+        # An id is not an identity. A hook is handed a session id and can claim
+        # with it, but without a session RECORD there is no pid to watch, so the
+        # claim can never auto-release and never appears in `list`. That is a key
+        # held forever by a thread nobody can see. No claim is better.
+        print("not claiming: this thread has no identity record, so the claim "
+              "could never be released and would not be listed. The SessionStart "
+              "hook did not run — start a fresh session.")
         return 0
     holder = open_claims.get(key)
     if holder and holder.get("session") != sid and status.get(holder.get("session")) != "dead":
@@ -264,7 +283,7 @@ def cmd_claim(key, note):
         return 1
     me = sess.get(sid, {})
     append({"kind": "claim", "session": sid, "thread": me.get("thread"),
-            "repo": repo_of(), "key": key, "state": "in-progress", "note": note})
+            "repo": key.split(":")[0], "key": key, "state": "in-progress", "note": note})
     print(f"claimed {key}")
     return 0
 
