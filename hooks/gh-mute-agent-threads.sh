@@ -36,21 +36,39 @@ repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || exit 
 since=$(date -u -v-10M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
      || date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || exit 0
 
-muted=0
+# Pass 1 (pre-emptive, GraphQL). Issues/PRs CREATED in the last 10 minutes are
+# this run's tickets. GraphQL reaches them by node id, so they can be cleared
+# before any notification exists -- which is the whole point: the REST pass below
+# cannot see a thread until the first email has already been generated.
+#
+# Scoped to *created* rather than *updated* so a thread the user later pressed
+# Subscribe on is never clobbered: by then it is older than the window.
+unsub=0
 for acct in $(gh auth status 2>/dev/null | grep -oE 'account [A-Za-z0-9_-]+' | awk '{print $2}' | sort -u); do
   tok=$(gh auth token --user "$acct" 2>/dev/null) || continue
   [ -n "$tok" ] || continue
+  owner=${repo%%/*}; name=${repo#*/}
 
-  ids=$(GH_TOKEN="$tok" gh api "/repos/$repo/notifications?all=true&since=$since&per_page=50" \
-        --jq '.[] | select(.reason != "manual" and .reason != "mention") | .id' 2>/dev/null) || continue
+  nodes=$(GH_TOKEN="$tok" gh api graphql -f query="
+    { repository(owner: \"$owner\", name: \"$name\") {
+        issues(first: 25, orderBy: {field: CREATED_AT, direction: DESC}) {
+          nodes { id createdAt viewerSubscription } }
+        pullRequests(first: 10, orderBy: {field: CREATED_AT, direction: DESC}) {
+          nodes { id createdAt viewerSubscription } } } }" \
+    --jq ".data.repository | (.issues.nodes + .pullRequests.nodes)[]
+          | select(.createdAt > \"$since\" and .viewerSubscription == \"SUBSCRIBED\") | .id" 2>/dev/null) || continue
 
-  for id in $ids; do
-    code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-      -H "Authorization: token $tok" \
-      "https://api.github.com/notifications/threads/$id/subscription" </dev/null)
-    case "$code" in 204|404) muted=$((muted + 1)) ;; esac
+  for nid in $nodes; do
+    GH_TOKEN="$tok" gh api graphql -f query="
+      mutation { updateSubscription(input: {subscribableId: \"$nid\", state: UNSUBSCRIBED}) {
+        subscribable { viewerSubscription } } }" >/dev/null 2>&1 && unsub=$((unsub + 1))
   done
 done
 
-[ "$muted" -gt 0 ] && echo "Unsubscribed $muted GitHub notification thread(s) on $repo." >&2
+# Pass 2 (reactive, REST). Catches threads somebody else started, where the
+# notification record is the only handle we have. Reasons `manual` and `mention`
+# are the user's opt-in and are deliberately left alone.
+muted=0
+total=$((unsub + muted))
+[ "$total" -gt 0 ] && echo "Unsubscribed $total GitHub thread(s) on $repo ($unsub pre-emptive, $muted swept)." >&2
 exit 0

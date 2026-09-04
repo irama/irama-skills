@@ -22,8 +22,30 @@ import sys
 
 STATE = os.path.expanduser("~/.claude/state/session-branches")
 
-COMMIT = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?commit\b")
+# Must sit at a command position, not merely appear somewhere in the string --
+# otherwise the hook fires on its own test payloads and on any text quoting it.
+COMMIT = re.compile(
+    r"(?:^|[;&|]|&&|\|\||\n)\s*(?:[A-Z_]+=\S+\s+)*git\s+(?:-C\s+\S+\s+)?commit\b")
 DEFAULTS = {"main", "master"}
+
+
+def target_dir(cmd, default):
+    """Where the git command will actually run.
+
+    The hook is handed the session's cwd, but a command commonly changes it
+    first (`cd /path && ...`) or targets another tree (`git -C /path`). Reading
+    the session cwd instead blocks correct work in other repos -- which is
+    exactly what this hook did the first time it fired.
+    """
+    m = re.search(r"\bgit\s+-C\s+(\S+)", cmd)
+    if m:
+        return os.path.expanduser(m.group(1).strip("'\""))
+    m = re.search(r"(?:^|;|&&|\|\|)\s*cd\s+(\S+)", cmd)
+    if m:
+        d = os.path.expanduser(m.group(1).strip("'\""))
+        if os.path.isdir(d):
+            return d
+    return default
 
 
 def git(cwd, *args):
@@ -52,7 +74,7 @@ def main():
     if not COMMIT.search(cmd) or "ALLOW_FOREIGN_BRANCH_COMMIT=1" in cmd:
         return
 
-    cwd = payload.get("cwd") or os.getcwd()
+    cwd = target_dir(cmd, payload.get("cwd") or os.getcwd())
     branch = git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
     if not branch or branch == "HEAD":       # detached: not a shared-branch risk
         return
