@@ -41,6 +41,30 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME\"/.claude/hooks/thread-register-gate.py; [ -f \"$f\" ] || exit 0; exec python3 \"$f\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME\"/.claude/hooks/thread-register-gate.py; [ -f \"$f\" ] || exit 0; exec python3 \"$f\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",
