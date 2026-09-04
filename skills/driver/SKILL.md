@@ -137,10 +137,22 @@ python3 <skill-dir>/driver_state.py lock "$RUN_DIR" || exit 1   # refuses if ano
 step 2's check work for the next thread; a run that only labels at the end (step 7) leaves the
 whole build window looking unclaimed.
 
+**Post as the repo's own identity.** `gh` ignores the repo-local credential helper and uses
+whichever account is globally active, so a bot-pushed repo gets its tickets created by the bot
+and commented on by the human. GitHub then sees two accounts on one thread and emails the other
+one for every later comment. Resolve the account once, up front, and use it on every `gh` write
+in this run:
+
 ```
-gh issue edit <N> -R <owner>/<repo> --add-label in-progress --remove-label ready-for-agent
-gh issue comment <N> -R <owner>/<repo> --body "Claimed by /driver run \`$RUN_ID\` on $(hostname -s). Unclaim if this run dies."
+GH_ACCT=$(git config --local credential.helper | awk '{print $NF}' | tr -d "'\"")
+GH_AS=""; [ -n "$GH_ACCT" ] && GH_AS="GH_TOKEN=$(gh auth token --user "$GH_ACCT")"
+
+env $GH_AS gh issue edit <N> -R <owner>/<repo> --add-label in-progress --remove-label ready-for-agent
+env $GH_AS gh issue comment <N> -R <owner>/<repo> --body "Claimed by /driver run \`$RUN_ID\` on $(hostname -s). Unclaim if this run dies."
 ```
+
+`env` with an empty `$GH_AS` is a no-op, so a repo with no credential helper behaves exactly as
+before. Apply the same `env $GH_AS` prefix to every `gh issue`/`gh pr` write later in the run.
 
 Create the `in-progress` label once per repo if it doesn't exist:
 `gh label create in-progress -R <owner>/<repo> -c FBCA04 -d "A /driver run holds this ticket"`.
