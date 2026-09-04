@@ -51,12 +51,12 @@ def main():
         "reason": (
             "This thread still holds open work in the register: %s. Say what "
             "happened to each one before ending the turn:\n"
-            "  python3 ~/.claude/skills/threads/assets/register.py sign-off <key> "
-            "--status <status> --note '<one line>'\n"
+            "  CLAUDE_SESSION_ID=%s python3 ~/.claude/skills/threads/assets/"
+            "register.py sign-off <key> --status <status> --note '<one line>'\n"
             "Statuses: %s. `blocked` and `waiting-on-user` keep the claim held, "
             "which is correct when the work is real but stopped — nobody else may "
             "take it. `incomplete` and `abandoned` hand it back. Then re-send."
-            % (keys, statuses)
+            % (keys, session_id, statuses)
         ),
     }))
 

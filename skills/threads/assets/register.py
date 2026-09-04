@@ -55,12 +55,19 @@ def now():
 
 
 def repo_of(cwd=None):
-    """The repo name a key is scoped to, or the directory name outside a repo."""
+    """The repo name a key is scoped to, or the directory name outside a repo.
+
+    From the *common* git dir, not the working tree, so every linked worktree of
+    one repo answers with the same name. Worktrees are the normal way work is
+    isolated here, and a key that changed per worktree would exempt exactly the
+    threads most likely to collide."""
     try:
-        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd,
-                             capture_output=True, text=True, check=True).stdout.strip()
-        if top:
-            return Path(top).name
+        common = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=cwd,
+                                capture_output=True, text=True, check=True).stdout.strip()
+        if common:
+            d = Path(cwd or Path.cwd()) / common if not Path(common).is_absolute() else Path(common)
+            d = d.resolve()
+            return (d.parent if d.name == ".git" else d).name
     except (subprocess.CalledProcessError, OSError):
         pass
     return Path(cwd or Path.cwd()).name

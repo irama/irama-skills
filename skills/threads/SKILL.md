@@ -114,3 +114,8 @@ ends, and `thread-register-gate.py` (`PreToolUse`/`PostToolUse` on Bash) refuses
 `git push` or `git merge` on a repo another live thread has claimed.
 
 If `/threads` lists nothing, those hooks are not wired. See `settings.example.json`.
+
+Both scripts carry their own checks, and neither needs a test framework:
+`python3 <skill-dir>/assets/register.py --selftest` covers claim lifecycle and
+dead-thread release, `python3 hooks/thread-register-gate.py --selftest` covers the
+key-derivation table that decides what gets refused.
