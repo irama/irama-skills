@@ -8,6 +8,8 @@ offering — and doing — the same job.
     register.py claim <key> [--note ...]       take a work item
     register.py claim --verb push              same, keyed to this repo
     register.py sign-off <key> --status <s>    close it, with a status
+    register.py decline "<option>"             record that the user said no to it
+    register.py declines [--json]              what has been declined, to not re-offer
     register.py list [--json]                  every live thread and what it holds
     register.py show <thread>                  one thread in detail
     register.py check <key>                    exit 1 if another live thread holds it
@@ -345,6 +347,52 @@ def cmd_signoff(key, status_name, note):
     return 0
 
 
+def cmd_decline(what, note):
+    """Record an option the user turned down.
+
+    Not a claim: nobody ever held it, so it never enters the claims machinery and
+    never appears in `list`. It is here rather than in a thread's own memory
+    because the thing being prevented is cross-thread — one session offers a
+    piece of work, the user says no, and a different session offers it again the
+    next day with no way of knowing.
+    """
+    if not what:
+        print("nothing to decline: pass the option in a few words")
+        return 2
+    sess, _, _, _ = picture()
+    sid = this_session()
+    append({"kind": "decline", "session": sid, "thread": sess.get(sid, {}).get("thread"),
+            "repo": repo_of(), "what": what, "note": note})
+    print(f"declined: {what}")
+    return 0
+
+
+def cmd_declines(_all_unused, as_json):
+    """Every option the user has turned down, newest reason winning.
+
+    Not scoped to a repo. A decline is about a piece of WORK, and the correction to
+    its reason is often typed from a different directory than the original — a repo
+    filter made the option invisible in the very repo it was about. The repo it was
+    recorded in is printed, which is all the scoping this needs.
+    """
+    latest = {}
+    for r in read():
+        if r.get("kind") == "decline":
+            latest[r.get("what")] = r          # last record wins, as with claims
+    rows = list(latest.values())
+    if as_json:
+        print(json.dumps(rows, indent=1))
+        return 0
+    if not rows:
+        print("nothing declined")
+        return 0
+    for r in rows:
+        note = f" — {r['note']}" if r.get("note") else ""
+        print(f"  {r['ts'][:10]} [{r.get('repo')}] {r.get('what')}{note}")
+    print("\nDo not re-offer these. The user may still ask for one directly.")
+    return 0
+
+
 def cmd_check(key):
     """Exit 1 if a live thread that is not this one holds this key."""
     _, status, open_claims, _ = picture()
@@ -461,7 +509,7 @@ def cmd_self():
 
 
 def selftest():
-    """Six known answers over a register in a temporary home."""
+    """Known answers over a register in a temporary home."""
     import tempfile
     global STATE, REGISTER
     ok = True
@@ -514,6 +562,16 @@ def selftest():
                 "repo": "r", "key": "r:push", "state": "in-progress"})
         check("last claim wins", claims(read())["r:push"]["session"], "ccc")
 
+        # 9. a decline is not a claim: it never enters the claims machinery, so
+        #    it can never hold a key or block another thread
+        append({"kind": "decline", "session": "aaa", "thread": "one",
+                "repo": "r", "what": "chronic-warn escalation"})
+        check("decline is not a claim", "r:push" in claims(read()), True)
+        check("decline holds no key", len([k for k in claims(read()) if "chronic" in k]), 0)
+        check("decline is readable back",
+              [r["what"] for r in read() if r.get("kind") == "decline"],
+              ["chronic-warn escalation"])
+
     print("selftest passed" if ok else "selftest FAILED")
     return 0 if ok else 1
 
@@ -542,6 +600,10 @@ def main():
         return cmd_claim(key(), opt("--note"))
     if cmd == "sign-off":
         return cmd_signoff(key(), opt("--status", ""), opt("--note"))
+    if cmd == "decline":
+        return cmd_decline(" ".join(positional), opt("--note"))
+    if cmd == "declines":
+        return cmd_declines("--all" in rest, "--json" in rest)
     if cmd == "check":
         return cmd_check(key())
     if cmd == "list":

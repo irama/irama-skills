@@ -1,6 +1,6 @@
 ---
 name: threads
-description: See every Claude Code session running on this machine, what work each one holds, and which have gone quiet — then release a stalled thread's claims, or end it. Reads the cross-thread work register that sessions claim shipping verbs and work items in. Use when the user says "threads", "what else is running", "who has the push", "what is thread X doing", "clear that thread", "kill that thread", when a shipping verb was refused because another thread holds it, or when they invoke /threads.
+description: See every Claude Code session running on this machine, what work each one holds, and which have gone quiet — then release a stalled thread's claims, or end it. Also records the options the user has turned down, so no thread offers them again. Reads and writes the cross-thread work register, also called THE CONDUCTOR. Use when the user says "threads", "the conductor", "what else is running", "who has the push", "what is thread X doing", "clear that thread", "kill that thread", "log that decline", "what have I said no to", when a shipping verb was refused because another thread holds it, or when they invoke /threads.
 argument-hint: "nothing, or a thread name, or: clear <name> / kill <name>"
 ---
 
@@ -9,6 +9,12 @@ argument-hint: "nothing, or a thread name, or: clear <name> / kill <name>"
 Twenty sessions run at once and none of them can see the others. The register at
 `~/.claude/state/work-register.jsonl` is the shared store they claim work in. This
 skill reports it and, when asked, releases or ends a thread.
+
+**"The conductor" means this register.** It is the user's name for it — the thing
+that keeps twenty independent players from all coming in at once. When they say
+"is that logged with the conductor", "ask the conductor", or "what does the
+conductor know", they are talking about the register and this skill, not about a
+separate system. Answer from `list`, `show` or `declines`.
 
 Every verb below is already implemented in `assets/register.py`. Run that script;
 do not reimplement any of it, and do not read the register file by hand.
@@ -74,6 +80,31 @@ Sends the thread's process a terminate signal, after releasing its claims.
 it as the first option.** An interactive session may hold uncommitted work that
 exists nowhere else, and ending it cannot be undone. Run the bare form first, show
 the user what it says, and wait. `clear` is what they usually want.
+
+## `/threads decline "<option>"` — record a no
+
+```bash
+python3 <skill-dir>/assets/register.py decline "chronic-warn escalation in the hub"
+python3 <skill-dir>/assets/register.py declines
+```
+
+When the user turns down a numbered option, record it. A decline is **not** a
+claim: nobody ever held the work, so it never enters the claims machinery, never
+appears in `list`, and can never block a thread.
+
+It lives here rather than in one thread's own memory because the failure is
+cross-thread. One session offers a piece of work, the user says no, and a
+different session offers the same thing the next day having no way to know. The
+register is the only store every session can see.
+
+`declines` is deliberately **not** scoped to a repo, and the last record for an
+option wins. Re-declining the same wording is how a reason gets corrected, and
+that correction is usually typed from a different directory than the original.
+
+**Read `declines` before writing an options block**, alongside the existing rule
+about not re-raising work that is already moving. A declined option is not
+forbidden — the user may still ask for it directly, and saying no once is not
+saying no forever. What it forbids is *offering* it again unprompted.
 
 ## The keys threads claim
 
