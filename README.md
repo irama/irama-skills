@@ -131,6 +131,7 @@ The chain is deliberately split so that only one verb ever touches production.
 | `driver` | Runs tickets one per fresh context window |
 | `options` | Lays out a genuine crossroad — costed roads with benefits, risks, reversibility, and a "do nothing" |
 | `claude-retro` | Analyses your own session history for repeated requests, correction loops and unused tooling |
+| `threads` | Every session running on this machine, what work each holds, and which have stalled — plus clear and kill |
 
 ### Building
 
