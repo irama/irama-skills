@@ -36,6 +36,31 @@ repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || exit 
 since=$(date -u -v-10M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
      || date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || exit 0
 
+# Pass 0 (exact). The command usually names its issue -- `gh issue comment 198`.
+# Commenting RE-SUBSCRIBES the acting account even on a thread already cleared,
+# which is how a swept thread started emailing again. Clearing the named number
+# is precise: no collateral on anything the user subscribed to deliberately.
+num=$(printf '%s' "$cmd" | sed -nE 's/.*gh +(issue|pr) +[a-z]+ +([0-9]+).*/\2/p' | head -1)
+tgt=$(printf '%s' "$cmd" | sed -nE 's/.*-R +([^ ]+\/[^ ]+).*/\1/p' | head -1)
+[ -z "$tgt" ] && tgt="$repo"
+exact=0
+if [ -n "$num" ] && [ -n "$tgt" ]; then
+  o=${tgt%%/*}; nme=${tgt#*/}
+  for acct in $(gh auth status 2>/dev/null | grep -oE 'account [A-Za-z0-9_-]+' | awk '{print $2}' | sort -u); do
+    tok=$(gh auth token --user "$acct" 2>/dev/null) || continue
+    nid=$(GH_TOKEN="$tok" gh api graphql -f query="
+      { repository(owner: \"$o\", name: \"$nme\") {
+          issueOrPullRequest(number: $num) {
+            ... on Issue { id viewerSubscription }
+            ... on PullRequest { id viewerSubscription } } } }" \
+      --jq '.data.repository.issueOrPullRequest | select(.viewerSubscription == "SUBSCRIBED") | .id' 2>/dev/null) || continue
+    [ -n "$nid" ] || continue
+    GH_TOKEN="$tok" gh api graphql -f query="
+      mutation { updateSubscription(input: {subscribableId: \"$nid\", state: UNSUBSCRIBED}) {
+        subscribable { viewerSubscription } } }" >/dev/null 2>&1 && exact=$((exact + 1))
+  done
+fi
+
 # Pass 1 (pre-emptive, GraphQL). Issues/PRs CREATED in the last 10 minutes are
 # this run's tickets. GraphQL reaches them by node id, so they can be cleared
 # before any notification exists -- which is the whole point: the REST pass below
@@ -69,6 +94,6 @@ done
 # notification record is the only handle we have. Reasons `manual` and `mention`
 # are the user's opt-in and are deliberately left alone.
 muted=0
-total=$((unsub + muted))
-[ "$total" -gt 0 ] && echo "Unsubscribed $total GitHub thread(s) on $repo ($unsub pre-emptive, $muted swept)." >&2
+total=$((exact + unsub + muted))
+[ "$total" -gt 0 ] && echo "Unsubscribed $total GitHub thread(s) on $repo ($exact named, $unsub new, $muted swept)." >&2
 exit 0
