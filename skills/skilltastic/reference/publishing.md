@@ -33,7 +33,7 @@ In CI, one step:
 A hook is a local convenience and can be skipped with `--no-verify`. CI is the
 one that actually holds, so wire both.
 
-## The two lists
+## The three lists
 
 **`.leakrc` — the private literals. Gitignore it.** A guard that spells out the
 domains it blocks and the names whose speech it refuses publishes both to
@@ -44,6 +44,7 @@ committed by the guard itself.
 example-private-domain.test        a domain that must never appear
 names: Surname                     someone who works on this repo
 commands: internal-verb            a group read by another tool
+hosts: vendor.tld                  a host the tree is allowed to link to
 ```
 
 A bare line is a domain. A `group: value` line belongs to a different reader, so
@@ -55,6 +56,26 @@ case that leaked.
 Set `LEAK_PRIVATE_DOMAINS` and `LEAK_TEAM_NAMES` instead if a file is awkward.
 With neither set the three private rules simply do not run, which is correct for
 anyone who cloned the repo and has no such list.
+
+**`hosts:` — the URL allowlist, and the only rule here that works by
+inversion.** Every other rule names what must not appear. This one names what
+may: a `https://` link to any host the repo has not declared is refused.
+
+It exists because the other direction failed. A public template repo shipped a
+self-hosted box's hostname and a live workflow id past a strip-the-internals
+pass, a hand-written pattern sweep and a full run of this guard — none of them
+were looking for that host, because none of them had a list of what the repo was
+entitled to link to. A second model found it on review, which is not a control.
+
+Declaring a host covers its subdomains, so one line covers a vendor. Reserved
+names never need declaring (`localhost`, the loopback addresses, and RFC 2606's
+`example.com` / `.invalid` / `.test` / `.example`), and a URL with no dot in it
+is treated as a regex fragment rather than a host. Like every rule here it only
+runs once the repo has declared a list, so a fresh clone gets no rule rather than
+forty false positives.
+
+The cost is one line when you add a citation or a vendor. That is the point: a
+new host in a public repo is worth exactly one look.
 
 **`skills/PUBLIC` — one skill name per line, committed.** A file staged under
 `skills/<name>/` is refused unless the name is listed. Adding a line is a

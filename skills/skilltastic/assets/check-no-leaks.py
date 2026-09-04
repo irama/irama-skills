@@ -120,6 +120,49 @@ if _domains:
     HARD.append((re.compile(r"org\.(?:" + _mail + r")\.[A-Za-z0-9._-]+"),
                  "personal launchd label"))
 
+# ── the host allowlist ───────────────────────────────────────────────────────
+# The rule that would have caught the one this guard missed. A public template
+# repo shipped `https://n8n.<vps-id>.<provider>/workflow/<id>` — a self-hosted
+# box and a live workflow id — through a strip-the-internals pass, a hand-written
+# pattern sweep and a full run of this file. None of them were looking for it,
+# because none of them had a list of what the repo was ENTITLED to link to.
+#
+# So invert it: every host the tree links to must be declared. Put them in
+# `.leakrc` as `hosts: example.com`, one per line. Like every other rule here it
+# only runs when the repo has declared a list — a fresh clone with no .leakrc
+# gets no rule rather than 40 false positives.
+#
+# Adding a host is a deliberate line in a file, the same discipline skills/PUBLIC
+# applies to skills. A new host in a public repo is worth one look, and a
+# citation you meant to add costs one line to acknowledge.
+HOST_RE = re.compile(r"https?://([A-Za-z0-9._-]+)")
+# RFC 2606 / RFC 6761 reserved names and the loopback addresses can never be a
+# real host, so they never need declaring.
+_RESERVED = re.compile(r"^(?:localhost|127\.0\.0\.1|\[?::1\]?|0\.0\.0\.0)$|"
+                       r"(?:^|\.)(?:example|invalid|test|localhost)(?:\.[a-z]+)?$")
+_hosts = set(_leakrc("hosts:"))
+
+
+def check_hosts(name, text, hits):
+    """Refuse a URL to a host this repo has not declared."""
+    if not _hosts:
+        return
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for h in HOST_RE.findall(line):
+            h = h.lower().rstrip(".")
+            # No dot is not a host: it is a sed expression, a regex fragment or a
+            # single-word placeholder (`https://github\.com/`, `https://x`). A
+            # bare intranet name would slip through with them, which is the price.
+            if "." not in h or _RESERVED.search(h) or h in _hosts:
+                continue
+            # a declared host covers its subdomains, so one line covers a vendor
+            if any(h.endswith("." + d) for d in _hosts):
+                continue
+            hits.append((name, lineno, "undeclared host",
+                         h + " — if this link belongs here, add 'hosts: " + h +
+                         "' to .leakrc; if it names private infrastructure, remove it"))
+
+
 _names = _leakrc("names:")
 if _names:
     # Working conversation is not documentation. A repo records the decision and
@@ -370,6 +413,35 @@ def selftest() -> int:
                 print(f"selftest FAIL: {want_labels} != {[h[2] for h in got]}")
                 ok = False
 
+    # the host allowlist: a declared host and its subdomains pass, a reserved
+    # name never needs declaring, and the shape that got through last time —
+    # a self-hosted box on a provider domain — does not.
+    global _hosts
+    _saved, _hosts = _hosts, {"declared.tld", "vendor.tld"}
+    try:
+        hh = []
+        check_hosts("f.md", "\n".join([
+            "https://declared.tld/x",            # declared
+            "https://api.vendor.tld/x",          # subdomain of a declared host
+            "https://vendor.tld/y",              # declared
+            "http://localhost:3000",             # reserved
+            "https://example.com/z",             # reserved
+            "https://x and https://masthead",    # dotless: a regex fragment, not a host
+            "https://n8n.srv944543.vps-provider.tld/workflow/abc",   # the real leak
+        ]), hh)
+        got = sorted(h[3].split(" ")[0] for h in hh)
+        if got != ["n8n.srv944543.vps-provider.tld"]:
+            print(f"selftest FAIL: host allowlist flagged {got}")
+            ok = False
+        hh = []
+        _hosts = set()
+        check_hosts("f.md", "https://n8n.srv944543.vps-provider.tld/x", hh)
+        if hh:
+            print("selftest FAIL: host rule ran with no declared list")
+            ok = False
+    finally:
+        _hosts = _saved
+
     ok = selftest_no_leakrc() and ok
     print("selftest passed" if ok else "selftest FAILED")
     return 0 if ok else 1
@@ -519,6 +591,7 @@ def main() -> int:
             for hit in SOFT.findall(line):
                 soft_hits.append((name, lineno, hit))
         check_portability(name, path, text, hard_hits)
+        check_hosts(name, text, hard_hits)
         check_front_matter(name, path, text, hard_hits, big)
 
     check_shell(files, hard_hits)
