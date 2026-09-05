@@ -1,7 +1,13 @@
 ---
 name: claude-retro
 description: Analyze the user's own Claude Code session history to find how they actually work — repeated requests, correction loops, skill/hook candidates, and built-but-unused tooling. Use when the user says "claude retro", "analyze how I work", "audit my usage", "what do I repeat", or invokes /claude-retro. Optional arg = number of days to look back (default 30).
+disable-model-invocation: true
 ---
+
+> **User-triggered only.** A run fans out up to ~20 background agents over hundreds of MB of
+> transcripts, and step 7 writes persistent memory. Both are the user's call, so this skill is
+> never auto-invoked on a stray "audit my usage" — it answers to `/claude-retro` and to an
+> explicit ask.
 
 > **Config dir.** Every command below reads Claude Code's own data directory via
 > `CC="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"` — set it once at the start of the run. The
@@ -52,6 +58,10 @@ The corpus is too big and too pattern-dense to eyeball. `split` the scratch file
 > Read the whole chunk (JSONL: p=project, m=user prompt). Report quantitatively:
 > (1) Repeated request patterns — name, count, 2-3 verbatim short quotes.
 > (2) Corrections — turns correcting prior assistant work ("no", "still broken", "again", "not what I asked", "you didn't"); count, categorize (UI detail, scope, missed instruction, wrong file, regression), quote examples.
+> (2b) For each correction category, name the ROOT CAUSE, not the symptom: the one upstream
+> thing — a question asked earlier, a file read first, a different verification — that would
+> have prevented the whole chain. Where a correction took several rounds, say what caused each
+> failed attempt, and distinguish reasonable-given-what-was-known from skipped-a-step.
 > (3) Manual workflows repeated 3+ times that should be a skill/hook (multi-step things spelled out each time).
 > Return a compact structured data report, not prose.
 
@@ -74,6 +84,31 @@ Merge the subagents' findings (dedupe overlapping patterns, sum counts across ch
 4. **Never used** — built tooling with 0 invocations in the window.
 
 Keep it evidence-led and quantitative — counts and quotes, not impressions. End the turn as a plan; offer to build the proposed skills as next steps, don't build unprompted.
+
+**Mark every finding proved or suggested.** Proved = the same pattern recurs across more than
+one chunk, or the count is large enough that a coder's judgement call can't flip it. Suggested =
+one striking quote, a pattern in a single chunk, or a plausible reading of a small count. State
+which each finding is. A suggested finding is a watch-item for the next run, never a firm rule,
+and never the basis for proposing a skill on its own. If a section genuinely has nothing, say so
+plainly rather than filling it.
+
+### 7. Persist the durable findings to memory
+
+The report evaporates otherwise — the whole point is that the next session starts knowing this.
+After the user has seen the report, write the **proved** findings that would change how future
+work gets handled into Claude Code's per-project memory at
+`~/.claude/projects/<project-slug>/memory/` (the slug is derived from the project's working
+directory; `MEMORY.md` in that folder is the index loaded every session).
+
+- **Read `MEMORY.md` first.** A finding whose topic already has a file gets a dated addendum in
+  that file, matching its existing structure — never a near-duplicate file.
+- One fact per new file, `type: feedback` for how-to-work guidance, `type: project` for the state
+  of an ongoing effort. Cross-link with `[[name]]`.
+- **Every new file gets its one-line pointer in `MEMORY.md`.** A memory nothing indexes is a
+  memory that never loads.
+- Suggested findings do not go to memory. Name them in the report as watch-items so they don't
+  silently disappear, and let the next run's counts settle them.
+- A finding purely about this window's content, with no bearing on method, is not durable. Drop it.
 
 ## Optional: the collaboration-move census (`/claude-retro census`)
 
