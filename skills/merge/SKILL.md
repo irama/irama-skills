@@ -72,6 +72,13 @@ window that matters.
    **Re-run after fixing findings — but only when severity warrants, and scope the re-run to the FIX, not the branch.**
    - **Severity gate:** re-run Codex only if the pass found a **P1 / security / data-loss** issue (the fix to a serious bug is new, unreviewed code, frequently wrong in a new way — 2026-07-17: five consecutive passes, five real defects, each in the previous fix). A pass whose findings are **all P2/minor** (focus handling, copy, layout nits): fix them, verify with the repo's own gates (typecheck/tests/lint), and stop — no Codex re-run. Codex reliably finds *something* every pass; without this gate the loop never converges (2026-07-18: rounds 3–4 of a 5-round loop surfaced only escalating focus-management nits).
    - **Scoping:** re-run as `codex exec review --commit <fix-sha>` (or `--base <sha-of-last-reviewed-state>`), so Codex reads only the delta.
+   - **A third round of fixes on the same function stops and re-opens the approach.** The cap
+     above bounds the loop; this says what to do when it keeps producing real findings. One
+     content-tidying helper went five rounds, every round finding a genuine defect in the
+     previous round's fix, and round five was structural — let callers declare their format
+     rather than guessing it — which could have been round two. Repeated defects in one small
+     function are evidence about the design, not about care. Say the approach is the suspect
+     and put the structural alternative on the table before writing another patch.
    - **Cap the loop at two re-runs**; anything still open after that gets recorded as KNOWN ITEMS in the report (and on a money/security path, that's the signal to remove the half-built thing, not to guess again). Record the final reviewed `main` SHA in the report so `/push` can skip its own gate when the SHA is unchanged.
    - **Out-of-scope findings** (code another thread merged, outside this branch's diff): report them as KNOWN ITEMS for `/push`, don't fix them in this thread and don't let them drive re-runs.
 
