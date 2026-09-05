@@ -5,6 +5,8 @@ description: Run the whole shipping pipeline end-to-end — /commit, /merge, /pu
 
 Flush the current work all the way out: **`/commit` → `/merge` → `/push` → `/prune`**, running only the verbs that are relevant to the repo's actual state. It is exactly the four-verb flow from `~/.claude/docs/multithread-workflow.md`, invoked in one word instead of four turns.
 
+**`/flush all` means ALL — every branch and worktree in this repo, including other threads' merged-but-unpushed work.** Working across several repos, it means every repo touched. Passing `all` is the user authorising exactly that, so `/push`'s "extra commits in the range" guard does not apply: name whose commits they are in the report and ship them. Stopping to ask makes the user repeat an instruction they already gave in full.
+
 **Invoking `/flush` IS the explicit request for every verb in it — including `/push`.** That is the whole point of the verb, so it does not re-ask for permission to merge or deploy. This is the one place where the standing "never merge or push without being asked" rule is already satisfied up-front: the user asked, by name, for the pipeline. Nothing else — not "go", not "ship it", not a green gate — expands into a `/flush`.
 
 ## Read the state first, then pick the verbs

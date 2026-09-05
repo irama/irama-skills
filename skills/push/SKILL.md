@@ -70,7 +70,9 @@ open, rather than only detectable afterwards.
    ```
 
    - **Tree changed → STOP.** `main` moved under you. Re-run step 3 against the new tree before pushing; the old build result is void.
-   - **Extra commits → STOP and ask.** Commits you didn't merge belong to another thread that ran `/merge` (local, deliberate) but not `/push`. `/merge` not pushing is the *point* — a thread may be mid-sequence with a knowingly-undeployable intermediate state. Never ship another thread's unpushed work on its behalf; surface it and let the user decide.
+   - **Extra commits → STOP and ask — UNLESS the user asked for `all`.** Commits you didn't merge belong to another thread that ran `/merge` (local, deliberate) but not `/push`. `/merge` not pushing is the *point* — a thread may be mid-sequence with a knowingly-undeployable intermediate state. Never ship another thread's unpushed work on its behalf **uninvited**; surface it and let the user decide.
+
+     **`/flush all` and `/merge all` ARE that decision.** `all` means every branch and worktree in this repo (or, working across repos, every repo touched) — so other threads' merged-but-unpushed commits in the range are exactly what was asked for, not a surprise. Do not stop on them; **list whose they are in the report** and push. Stopping here on an `all` invocation is a defect: it makes the user repeat an instruction they already gave in full. Only stop if something in the range is *individually* disqualifying — a failing gate, an unapplied migration, a sensitive file.
    - Anything that fails here is cheap to fix *before* the push and expensive after — pushing `main` is the one irreversible step in the four-verb flow.
 
 5. `git push` to the default branch.
