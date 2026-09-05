@@ -115,7 +115,36 @@ failure the reviewer found, in the ticket where it will bite), acceptance criter
 dependencies. A ticket agent starts with no context — the trap has to be *in* the ticket, not in a
 document it might read.
 
-### 7. Hand back the command
+### 7. Land the prerequisites on the default branch — before the command, not after
+
+**A fresh thread starts from the default branch. Anything this work depends on that is still
+sitting on a feature branch does not exist for it.** Merge the prerequisites down first, then hand
+back the command.
+
+This is the step that is easy to skip because everything looks fine from here: the branch is
+green, the tickets are written, the command is ready. The thread that picks it up is the one that
+finds out.
+
+- **Merge every prerequisite branch onto the default branch** — gated as usual, never pushed unless
+  that was asked for. A ticket whose first act is "apply the migration the previous phase wrote" is
+  a ticket that fails on a checkout where that migration was never merged.
+- **A shared development database is a prerequisite too, and it is the one that bites.** Migrations
+  living only on a branch are not in it, and a rebuild-from-empty by any other thread silently drops
+  them — the replay can only apply what the default branch carries. Apply the merged migrations to
+  the shared database, and verify by looking for the *objects or the function body hash*, not for a
+  row in the migrations ledger: a hand-run replay applies files without recording rows, so that
+  table answers "recorded", not "applied".
+- **Where a prerequisite genuinely cannot merge yet** — it is blocked, it is failing, the owner has
+  not ruled — say so in the handback in one line, name the branch, and put "merge X first" as the
+  first ticket of the run. Never leave the next thread to discover it.
+
+Measured 2026-09-05: two agents built two migrations on two branches. The second rebuilt the shared
+database from empty, which could not include the first's migration because it had never been merged.
+The next full gate showed thirteen failures across four files, all of them pinning a function body
+the database no longer carried. Nothing was wrong with the code, and finding that out cost three
+full suite runs.
+
+### 8. Hand back the command
 
 Lead with a **short label naming the work**, then the references, on one line, ready to paste:
 
@@ -125,10 +154,12 @@ Lead with a **short label naming the work**, then the references, on one line, r
   Bare `#N` only resolves from inside the tracker repo.
 - Say which directory to run it from — `/driver` works in the repo where the code changes land.
 - Add one line on the suggested grouping if the set splits sensibly.
+- **State what was merged in step 7**, so the next thread knows what its checkout already carries.
 
 Then stop. **Never run `/driver` yourself.**
 
 ## Report
 
 Close with: which gates ran and which were skipped (and why), **which reviewer actually ran**, the
-findings that changed the plan, the ticket set, and the command.
+findings that changed the plan, **what was merged down so the next thread can start**, the ticket
+set, and the command.
