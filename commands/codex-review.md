@@ -27,7 +27,9 @@ Run (foreground, generous timeout — a review can take a minute or two):
     # or, with custom instructions on the default scope:
     codex exec review "<focus instructions>" 2>&1
 
-Model/effort come from `~/.codex/config.toml` (gpt-5.6-sol / high) — do not override.
+Model/effort come from `~/.codex/config.toml` — the account's own default model
+(deliberately unset since 2026-08-24, when named models were rejected on a
+ChatGPT account) at `high` effort. Do not override.
 
 Return Codex's stdout verbatim. On non-zero exit or an `ERROR`/auth/model
 rejection in the output, surface the full output + exit code and state the review
