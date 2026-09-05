@@ -10,7 +10,6 @@ portable half. Business-facing, install-anywhere skills live in
 | [app-icons](skills/app-icons/) | Generate a complete PWA icon set, favicon.ico, and OpenGraph/Twitter image from a single source mark (SVG or raster), then wire them into a… |
 | [app-walkthrough](skills/app-walkthrough/) | Generate narrated training/walkthrough videos of any web app — Playwright screenshots + OpenAI TTS + Whisper force-aligned captions + Remotion… |
 | [ci](skills/ci/) | Check GitHub Actions CI status and extract failure details |
-| [claude-retro](skills/claude-retro/) | Analyze the user's own Claude Code session history to find how they actually work — repeated requests, correction loops, skill/hook candidates,… |
 | [commit](skills/commit/) | Stage, gate, and commit the current changes; push the feature branch if on one |
 | [driver](skills/driver/) | Drive a piece of roadmap work to done — find or create its tickets, confirm scope, then execute them as a sequential relay of fresh-context Agents… |
 | [flush](skills/flush/) | Run the whole shipping pipeline end-to-end — /commit, /merge, /push, /prune — skipping the steps that don't apply |
