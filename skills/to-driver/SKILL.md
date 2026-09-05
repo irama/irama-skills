@@ -2,7 +2,7 @@
 name: to-driver
 description: Take a rough idea all the way to a paste-ready /driver command — grill it into decisions, write the spec and ADR, run an adversarial plan review, cut the tickets, hand back the invocation. Use when the user says "to driver", "/to-driver", "get this ready for driver", or wants an idea turned into buildable tickets end to end.
 argument-hint: "the idea, feature or plan to take to tickets — e.g. `/to-driver a /council page with three arguing personas`"
-disable-model-invocation: true
+disable-model-invocation: false
 ---
 
 # /to-driver
