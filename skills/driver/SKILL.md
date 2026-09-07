@@ -1,7 +1,7 @@
 ---
 name: driver
 description: Drive a piece of roadmap work to done — find or create its tickets, confirm scope, then execute them as a sequential relay of fresh-context Agents (not one long accumulating thread). Use when the user says "drive this", "/driver", or wants to queue multi-ticket work and walk away, replacing the /goal-overnight pattern for ticket-shaped work.
-argument-hint: "an optional short label saying what the work IS, then the tickets — e.g. `/driver Migrate the marketing site to pnpm #52 #53 #54`. Also accepts a single ticket/issue reference, a plan-file path, or a plain-text idea. Bare #N only when driver runs from the SAME repo the tickets live in; use full GitHub URLs otherwise"
+argument-hint: "a `.scratch/driver-runs/<id>` path to resume a stopped run, or an optional short label saying what the work IS, then the tickets — e.g. `/driver Migrate the marketing site to pnpm #52 #53 #54`. Also accepts a single ticket/issue reference, a plan-file path, or a plain-text idea. Bare #N only when driver runs from the SAME repo the tickets live in; use full GitHub URLs otherwise"
 disable-model-invocation: true
 ---
 
@@ -11,9 +11,13 @@ disable-model-invocation: true
 > wherever the skill was loaded, never a hardcoded home path. This skill installs as a
 > plugin, as a project `.claude/skills/` folder, and on Windows, so its location varies.
 
-Full design rationale, the Codex plan-review findings, and what got cut for v1 live in
-`~/.claude/docs/driver-spec.md` — read it once per session if this
-is your first time running `/driver` in a while; don't re-derive these decisions from scratch.
+**The three decisions a run needs are right here, so the spec does not have to be read.**
+Execution is sequential, never parallel. Every ticket worktree branches from the integration
+branch's tip, not the default branch. This skill owns the test pass (step 5) and the review pass
+(step 6), so workers run neither. Full rationale, the Codex plan-review findings and what got cut
+for v1 live in `docs/driver-spec.md` under the Claude config directory. It is 22KB, which is
+roughly eleven ordinary file reads carried for the whole run, so open it only when deviating from
+one of those three decisions.
 
 **What this is not:** a replacement for `/goal` on small, non-ticket-shaped work, or for
 `/mattpocock-skills:implement` on a single ticket you are building by hand. `/driver` is the
@@ -125,6 +129,10 @@ walk-away portion of the run begins.
 
 ### 3. Set up the run
 
+If the invocation names an existing `.scratch/driver-runs/<id>` path, that path IS `$RUN_DIR`:
+skip the `init`/branch block and go straight to the resume block at the end of this step.
+Otherwise:
+
 ```
 RUN_ID="$(date +%Y%m%dT%H%M%S)-<short-slug>"
 RUN_DIR=".scratch/driver-runs/$RUN_ID"
@@ -198,7 +206,7 @@ Reconcile before trusting anything — an `in-progress` or `merged` entry whose 
 actually an ancestor of the integration branch gets demoted back to `pending` and re-run. Skip
 `init` (it no-ops if already initialised) and resume from whatever `summary` shows as pending.
 
-### 4. No hard budgets — flag, don't stop
+### 4. No hard budgets, except one context checkpoint
 
 No pre-run caps on ticket count, elapsed time, or retries. The ticket set is already fixed and
 user-approved (step 2), there's no auto-retry logic to cap, and `/driver` is inherently
@@ -206,6 +214,22 @@ self-terminating — it stops once every ticket resolves, unlike `/goal`'s open-
 loop (which also has no cap). Review-call count is already bounded by `/merge`'s existing
 2-re-run cap (step 5). Just track elapsed time per ticket; if any single ticket runs unusually
 long, note it in the end-of-run summary as a flag — never a mid-run stop.
+
+**Context is the one exception, and it is a handover, not a stop.** `hooks/session-budget-warn.py`
+warns at 150 calls / 150k context, then again at 250 / 400k. On the **second** warning: finish the
+ticket in flight, run step 7's write-back for everything resolved so far, release the lock (step 8),
+and report the run as `incomplete` with the resume invocation, verbatim:
+
+```
+/driver .scratch/driver-runs/$RUN_ID
+```
+
+Expand `$RUN_ID` to the real path in the reported line, so it is copy-and-paste ready.
+
+A resumed run reconciles from `state.json` and starts in a clean window, so nothing is lost and the
+orchestrator never degrades past 400k. Measured across 86 driver-run sessions (2026-09-08): no
+category of tool output is compressible enough to avoid this. The cost is 22,499 small results
+averaging under 200 tokens, so ending the window IS the lever.
 
 ### 5. Execute tickets sequentially, in blocking-edge order
 
@@ -234,6 +258,12 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
    - End by writing a `/mattpocock-skills:handoff`-style doc to
      `$RUN_DIR/handoffs/<ticket-id>.md` — redacted, referencing artifacts by path, never
      pasted content — then exit.
+   - If anything contradicts the ticket or this brief, stop and return what you saw **verbatim**
+     rather than working around it. A blocker compressed into "blocked on config" costs the
+     orchestrator a whole round trip to reopen.
+   - Return at most 8 lines: ticket id, done or blocked, the handoff path, the files touched, and
+     any contradiction verbatim. Everything else lives in the handoff doc, which the orchestrator
+     reads by path only if it needs it.
 
    The auto-commit Stop-hook does **not** gate anything: it commits `--no-verify`. Step 5 is
    the gate, which is why it is never skipped. Three full-suite runs per ticket is the single
@@ -290,8 +320,18 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
     reviewed. If `git worktree remove` reports `Directory not empty`, the dev server outlived
     the kill — retry the kill, then remove.
 
-Repeat until every ticket is `merged`, `blocked`, or `skipped`, or a budget (step 4) stops the
-run.
+**Batch the plumbing into one shell call per phase.** git, `gh`, `driver_state.py` and worktree
+commands were 5,552 calls returning 705k tokens across 86 measured runs, about 16% of orchestrator
+context for lines nobody reads. Claim plus branch (step 3), and merge plus status plus teardown
+(items 5 and 10), each go in one `&&`-joined block that prints a single line on success.
+
+**The orchestrator never reads product source.** Orientation reads (`cat`, `sed`, `head`) were the
+single largest line item in that census at 24% of context over 3,741 calls. The worker already
+holds the file; a question about the codebase goes to `Explore` or `cavecrew-investigator` with a
+return budget. This thread holds ticket state, not code.
+
+Repeat until every ticket is `merged`, `blocked`, or `skipped`, or the context checkpoint (step 4)
+stops the run.
 
 ### 6. Land the integration branch
 
