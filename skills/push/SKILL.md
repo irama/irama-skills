@@ -60,6 +60,17 @@ open, rather than only detectable afterwards.
 
    **Record the tree you built:** `built_tree=$(git rev-parse HEAD^{tree})`. Step 4 verifies you ship exactly this.
 
+   **A dev server holds the build directory, so stopping one is part of this step — and so is
+   putting it back.** `next build` and `next dev` write the same `.next`, so the build needs the
+   dev server down. Note which repos you stopped, and restart each one after step 6 confirms the
+   deploy. Leaving them down ends the run with the user clicking through to a refused connection
+   on a port that was serving a minute earlier, and nothing in the report says why (2026-09-11).
+
+       bash "$HOME/.claude/scripts/localhost-dev.sh" kill-repo <repo>   # before the build
+       bash "$HOME/.claude/scripts/localhost-dev.sh" <repo>             # after step 6
+
+   Restart only what you stopped. A server another thread is using is not yours to bounce.
+
 4. **Re-verify the push range IMMEDIATELY before pushing — the gates above take minutes, and other threads merge onto `main` during them.** (2026-08-02: verified `origin/main..main` at the start of `/push`, then spent ~5 min on install + build + the visual-regression pre-push hook. Another thread merged 8 commits onto local `main` in that window; `git push` carried its deliberately-unpushed, pre-cutover pnpm migration to prod. The build gate had certified a different tree, and the deploy failed. Prod survived only because Vercel keeps the last good deployment.)
 
    Immediately before `git push`, with no gate re-runs in between:
@@ -90,6 +101,6 @@ open, rather than only detectable afterwards.
 
 ## Report
 
-End with: migrations applied (or "none pending"), build result, push SHA range, deploy status/URL, and the background-job sync result (`modified: true/false`, or "no Inngest endpoint"). (The Codex review verdict is reported at `/merge`.)
+End with: migrations applied (or "none pending"), build result, push SHA range, deploy status/URL, any dev server stopped for the build and whether it is back up, and the background-job sync result (`modified: true/false`, or "no Inngest endpoint"). (The Codex review verdict is reported at `/merge`.)
 
 State explicitly that **the tree you built is the tree you pushed** (step 4's check), and list the commits shipped. If the range contained anything beyond this thread's own work, say whose it was and that the user approved shipping it.
