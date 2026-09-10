@@ -80,6 +80,14 @@ window that matters.
      function are evidence about the design, not about care. Say the approach is the suspect
      and put the structural alternative on the table before writing another patch.
    - **Cap the loop at two re-runs**; anything still open after that gets recorded as KNOWN ITEMS in the report (and on a money/security path, that's the signal to remove the half-built thing, not to guess again). Record the final reviewed `main` SHA in the report so `/push` can skip its own gate when the SHA is unchanged.
+   - **Record the review where a machine can read it, not only in the report.** A verdict that lives in a chat message is gone the moment the thread ends, so nothing downstream can tell reviewed work from unreviewed. Append one line per completed review, naming the reviewer that actually ran:
+
+         printf '{"repo":"%s","sha":"%s","reviewer":"%s","result":"%s","ran_at":"%s"}\n' \
+           "$(basename "$(git rev-parse --show-toplevel)")" "$(git rev-parse HEAD)" \
+           "codex" "pass" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+           >> "$HOME/.claude/cache/review-results.jsonl"
+
+     Name `adversarial-reviewer` as the reviewer when Codex could not run, so the degraded gate stays visible afterwards. Never write a row for a review that did not finish: a missing row reads as not reviewed, which is correct, while a wrong row claims a gate that never ran.
    - **Out-of-scope findings** (code another thread merged, outside this branch's diff): report them as KNOWN ITEMS for `/push`, don't fix them in this thread and don't let them drive re-runs.
 
    **If Codex cannot run** (usage limit — it's on a ChatGPT subscription and this happens for days at a time — auth failure, offline, or a Codex error), fall back to the **`adversarial-reviewer`** subagent (Opus). Report **which reviewer actually ran** — never imply the Codex gate passed when it did not run — and treat a clean fallback as *no additional signal* (it shares the session model's blind spots, so the cross-model axis is missing). Merge is local + reversible, so record the degraded gate and carry it forward: `/push` re-checks and surfaces it before the irreversible prod step.
