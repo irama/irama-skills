@@ -20,6 +20,23 @@ PORTS="3000 3001 3002 3003 3004 3005 3006 3007"
 
 listening() { lsof -ti tcp:"$1" 2>/dev/null; }
 
+# Ports to SCAN, which is deliberately wider than the ports we ALLOCATE from. A
+# repo can pin itself outside the pool (`next dev -p <port>` in its own
+# package.json) so a busy fleet rotation stops landing on it. Before this,
+# `status` and `kill` looked straight past such a server and reported nothing
+# running, so `kill` silently left it up (2026-09-11). Allocation still reads
+# $PORTS alone, so a pinned port never enters the rotation for another repo.
+scan_ports() {
+  local pinned="" f pp
+  for f in "$PORTDIR"/*.port; do
+    [ -e "$f" ] || continue
+    pp=$(cat "$f" 2>/dev/null)
+    [ -n "$pp" ] || continue
+    case " $PORTS $pinned " in *" $pp "*) ;; *) pinned="$pinned $pp" ;; esac
+  done
+  printf '%s' "$PORTS$pinned"
+}
+
 # Every DISTINCT cwd among the processes listening on a port. More than one is
 # normal and is the thing that misled us (2026-08-05): a stale server and the
 # live one both held 3000, and reading only the first pid reported the wrong
@@ -49,16 +66,17 @@ repo_for_port() {
 }
 
 cmd_status() {
-  local any=0 p pids
+  local any=0 p pids scan
+  scan=$(scan_ports)
   printf "%-6s %-8s %s\n" "PORT" "PID" "REPO (tracked)"
-  for p in $PORTS; do
+  for p in $scan; do
     pids=$(listening "$p")
     if [ -n "$pids" ]; then
       any=1
       printf "%-6s %-8s %s\n" "$p" "$(echo "$pids" | tr '\n' ',' | sed 's/,$//')" "$(repo_for_port "$p")"
     fi
   done
-  [ "$any" = 0 ] && echo "(no dev servers running on $PORTS)"
+  [ "$any" = 0 ] && echo "(no dev servers running on $scan)"
   return 0
 }
 
@@ -74,7 +92,7 @@ cmd_kill_repo() {
   # Resolve to an absolute real path so the prefix match below is meaningful even
   # when called with a relative path or through a symlink.
   target=$(cd "$target" 2>/dev/null && pwd -P) || { echo "no such dir: $1" >&2; return 1; }
-  for p in $PORTS; do
+  for p in $(scan_ports); do
     pids=$(listening "$p")
     [ -n "$pids" ] || continue
     for pid in $pids; do
@@ -96,13 +114,14 @@ cmd_kill_repo() {
 }
 
 cmd_kill() {
-  local killed=0 p pids
-  for p in $PORTS; do
+  local killed=0 p pids scan
+  scan=$(scan_ports)
+  for p in $scan; do
     pids=$(listening "$p")
     if [ -n "$pids" ]; then kill -9 $pids 2>/dev/null && killed=1; echo "killed port $p (pids: $(echo "$pids" | tr '\n' ' '))"; fi
   done
   rm -f "$PORTDIR"/*.port 2>/dev/null || true
-  [ "$killed" = 0 ] && echo "(nothing was running on $PORTS)"
+  [ "$killed" = 0 ] && echo "(nothing was running on $scan)"
   return 0
 }
 
