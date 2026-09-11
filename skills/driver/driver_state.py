@@ -28,6 +28,7 @@ Exit codes: 0 ok, 1 error (e.g. lock held), 2 bad usage.
 """
 
 import argparse
+import fcntl
 import json
 import os
 import shutil
@@ -75,18 +76,26 @@ def append_journal(run_dir, entry):
 
 
 def load_state(run_dir):
+    """The journal is the recovery source of truth, the snapshot is a cache.
+
+    A crash between the journal append and the snapshot rename leaves a READABLE
+    but older state.json, so trusting it only when it is missing or torn loses
+    the last transition. Start from the snapshot (it carries tickets that init
+    recorded but never journaled), then apply every journal entry at least as
+    new as the snapshot's own entry for that ticket."""
     path = _state_path(run_dir)
-    if not os.path.exists(path):
-        # never written (or the rename never happened) -- the journal is the
-        # only source of truth left.
-        return replay_journal(run_dir)
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        # state.json is torn/missing — replay the journal, which is append-only
-        # and can't be torn the same way (each line is written+flushed whole).
-        return replay_journal(run_dir)
+    state = {}
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                state = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            state = {}
+    for tid, entry in replay_journal(run_dir).items():
+        current = state.get(tid)
+        if current is None or (entry.get("ts") or 0) >= (current.get("ts") or 0):
+            state[tid] = entry
+    return state
 
 
 def replay_journal(run_dir):
@@ -115,6 +124,240 @@ def replay_journal(run_dir):
     return state
 
 
+def _owner_pid():
+    """The long-lived agent process above this short-lived CLI call.
+
+    This process exits as soon as the command returns, so its own pid is
+    useless as a liveness signal. Same walk register.py does."""
+    pid = os.getpid()
+    for _ in range(12):
+        try:
+            out = subprocess.run(["ps", "-o", "ppid=,command=", "-p", str(pid)],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+        except (subprocess.CalledProcessError, OSError):
+            return None
+        if not out:
+            return None
+        parent, _, command = out.partition(" ")
+        if "claude" in command and "native-binary" in command:
+            return pid
+        try:
+            pid = int(parent)
+        except ValueError:
+            return None
+        if pid <= 1:
+            return None
+    return None
+
+
+def _pid_start(pid):
+    """Start time of a pid, so a recycled pid is not mistaken for the owner."""
+    if not pid:
+        return None
+    try:
+        out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)],
+                             capture_output=True, text=True, check=True).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    return out or None
+
+
+def _owner_record():
+    pid = _owner_pid()
+    return {"pid": pid, "pid_start": _pid_start(pid), "started": time.time()}
+
+
+def _owner_is_live(owner):
+    """Age never reclaims a lock. Only a dead owner does."""
+    pid = owner.get("pid")
+    if not pid:
+        return False
+    start = _pid_start(pid)
+    if start is None:
+        return False
+    recorded = owner.get("pid_start")
+    # An owner written before pid_start existed can only be checked by liveness.
+    return recorded is None or start == recorded
+
+
+def _git_common_dir(repo):
+    res = subprocess.run(["git", "-C", repo, "rev-parse", "--path-format=absolute",
+                          "--git-common-dir"], capture_output=True, text=True)
+    if res.returncode != 0:
+        return None
+    return res.stdout.strip()
+
+
+def _flock(repo, name, wait_seconds):
+    """A kernel lock held by THIS process for the whole critical section.
+
+    ponytail: flock, not a lock directory with an owner token. The kernel drops
+    it when the process dies, so there is no stale entry to reclaim and no
+    acquire/release pair whose acquiring process has already exited. macOS has
+    no flock(1), hence Python. Upgrade path if a lock is ever needed across
+    machines: a real lease service, not a longer timeout."""
+    common = _git_common_dir(repo)
+    if not common:
+        print(f"not a git repo: {repo}", file=sys.stderr)
+        return None
+    d = os.path.join(common, "driver-locks")
+    os.makedirs(d, exist_ok=True)
+    handle = open(os.path.join(d, f"{name}.lock"), "a+")
+    deadline = time.time() + max(0.0, wait_seconds)
+    while True:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            handle.seek(0)
+            handle.truncate()
+            handle.write(json.dumps(_owner_record()) + "\n")
+            handle.flush()
+            return handle
+        except OSError:
+            if time.time() >= deadline:
+                handle.close()
+                return None
+            time.sleep(1.0)
+
+
+def cmd_with_lock(args):
+    """Run a command holding the repo lock <name>. Exit code is the command's."""
+    if not args.command:
+        print("nothing to run after --", file=sys.stderr)
+        return 2
+    command = args.command[1:] if args.command[0] == "--" else args.command
+    handle = _flock(args.repo, args.name, args.wait)
+    if handle is None:
+        print(f"lock {args.name!r} is held by another process", file=sys.stderr)
+        return 1
+    try:
+        return subprocess.run(command).returncode
+    finally:
+        handle.close()
+
+
+def _git(repo, *args):
+    return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
+
+
+def _is_clean(worktree):
+    res = _git(worktree, "status", "--porcelain")
+    return res.returncode == 0 and not res.stdout.strip()
+
+
+def _rev(repo, ref):
+    res = _git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
+    return res.stdout.strip() if res.returncode == 0 else None
+
+
+def _checked_out_elsewhere(repo, branch, work):
+    """Every worktree holding <branch>, other than the one we are landing from."""
+    res = _git(repo, "worktree", "list", "--porcelain")
+    out, path = [], None
+    for line in res.stdout.splitlines():
+        if line.startswith("worktree "):
+            path = line.split(" ", 1)[1]
+        elif line.startswith("branch ") and path:
+            if line.split(" ", 1)[1] == f"refs/heads/{branch}":
+                if os.path.realpath(path) != os.path.realpath(work):
+                    out.append(path)
+    return out
+
+
+LAND_OK, LAND_CONFLICT, LAND_GATE_RED, LAND_MOVED, LAND_BLOCKED = 0, 3, 4, 5, 6
+
+
+def cmd_land(args):
+    """Gate a candidate, then advance the target only if it has not moved.
+
+    The target branch is NEVER the thing being tested. A merge commit cannot be
+    aborted once it exists, so merging into the target first and testing second
+    leaves rejected code on the branch, where a later green run carries it in.
+    Here the merge happens on a detached HEAD, the gate runs there, and the
+    target ref moves by compare-and-swap from the exact commit that was gated."""
+    work, target, source = args.work, args.target, args.source
+    handle = None
+    if not getattr(args, "no_lock", False):
+        handle = _flock(work, "land", getattr(args, "wait", 0.0) or 0.0)
+        if handle is None:
+            print("another landing holds this repo — retry, or use --wait", file=sys.stderr)
+            return LAND_BLOCKED
+    try:
+        return _land_locked(args, work, target, source)
+    finally:
+        if handle is not None:
+            handle.close()
+
+
+def _land_locked(args, work, target, source):
+    if not _is_clean(work):
+        print(f"worktree is dirty: {work}", file=sys.stderr)
+        return LAND_BLOCKED
+    busy = _checked_out_elsewhere(work, target, work)
+    if busy:
+        print(f"{target} is checked out in {busy[0]} — land from there, or free it",
+              file=sys.stderr)
+        return LAND_BLOCKED
+    original = _git(work, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    g = _rev(work, target)
+    if not g:
+        print(f"no such ref: {target}", file=sys.stderr)
+        return LAND_BLOCKED
+    if not _rev(work, source):
+        print(f"no such ref: {source}", file=sys.stderr)
+        return LAND_BLOCKED
+
+    def restore():
+        if original and original != "HEAD":
+            _git(work, "switch", "--quiet", original)
+
+    if _git(work, "switch", "--quiet", "--detach", g).returncode != 0:
+        print(f"could not detach at {g[:8]}", file=sys.stderr)
+        return LAND_BLOCKED
+    merged = _git(work, "merge", "--no-ff", "-m", args.message or
+                  f"merge {source} into {target}", source)
+    if merged.returncode != 0:
+        _git(work, "merge", "--abort")
+        restore()
+        print(merged.stdout + merged.stderr, file=sys.stderr)
+        return LAND_CONFLICT
+    t = _rev(work, "HEAD")
+    _journal(args, {"phase": "candidate", "target": target, "source": source,
+                    "base": g, "candidate": t})
+
+    if args.gate:
+        gate = subprocess.run(args.gate, shell=True, cwd=work)
+        if gate.returncode != 0:
+            restore()
+            print(f"gate failed ({gate.returncode}) — {target} unchanged at {g[:8]}",
+                  file=sys.stderr)
+            return LAND_GATE_RED
+        if _rev(work, "HEAD") != t or not _is_clean(work):
+            restore()
+            print("the gate changed the tree it tested — nothing landed", file=sys.stderr)
+            return LAND_GATE_RED
+    _journal(args, {"phase": "gated", "target": target, "base": g, "candidate": t})
+
+    cas = _git(work, "update-ref", f"refs/heads/{target}", t, g)
+    if cas.returncode != 0:
+        restore()
+        print(f"{target} moved since the gate — nothing landed. Re-run to gate again.",
+              file=sys.stderr)
+        return LAND_MOVED
+    _git(work, "switch", "--quiet", target)
+    _journal(args, {"phase": "landed", "target": target, "base": g, "candidate": t})
+    print(t)
+    return LAND_OK
+
+
+def _journal(args, entry):
+    run_dir = getattr(args, "run_dir", None)
+    if not run_dir or not os.path.isdir(run_dir):
+        return
+    entry = dict(entry)
+    entry.setdefault("ticket_id", getattr(args, "ticket_id", None))
+    append_journal(run_dir, entry)
+
+
 def cmd_init(args):
     os.makedirs(args.run_dir, exist_ok=True)
     os.makedirs(os.path.join(args.run_dir, "handoffs"), exist_ok=True)
@@ -123,8 +366,11 @@ def cmd_init(args):
         return 0
     state = {tid: {"status": "pending", "commit": None, "reviewer": None, "ts": time.time()}
              for tid in args.ticket_ids}
-    atomic_write_json(_state_path(args.run_dir), state)
     open(_journal_path(args.run_dir), "a").close()
+    for tid in args.ticket_ids:
+        append_journal(args.run_dir, {"ticket_id": tid, "status": "pending",
+                                      "commit": None, "reviewer": None})
+    atomic_write_json(_state_path(args.run_dir), state)
     print(f"initialised {len(args.ticket_ids)} ticket(s) in {args.run_dir}")
     return 0
 
@@ -135,32 +381,65 @@ def cmd_lock(args):
     try:
         os.mkdir(lock_dir)
     except FileExistsError:
-        # held — check staleness before refusing
-        stale = False
-        if os.path.exists(owner_path):
-            try:
-                with open(owner_path) as f:
-                    owner = json.load(f)
-                age_hours = (time.time() - owner.get("started", 0)) / 3600
-                stale = age_hours > args.stale_hours
-            except (json.JSONDecodeError, OSError):
-                stale = True  # unreadable owner file — treat as stale, don't wedge forever
-        else:
-            stale = True
-        if not stale:
-            print(f"lock held: {owner_path} — another /driver run is active", file=sys.stderr)
+        owner = {}
+        try:
+            with open(owner_path) as f:
+                owner = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            owner = {}
+        if not owner:
+            # mkdir landed but owner.json did not: either a crash, or an owner
+            # still writing it. Give the writer a moment before calling it dead.
+            time.sleep(1.5)
+            if os.path.exists(owner_path):
+                print(f"lock held: {owner_path} — another /driver run is active",
+                      file=sys.stderr)
+                return 1
+        elif _owner_is_live(owner):
+            print(f"lock held by pid {owner.get('pid')}: {owner_path} — "
+                  "another /driver run is active", file=sys.stderr)
             return 1
-        # reclaim a stale lock
-        shutil.rmtree(lock_dir, ignore_errors=True)
-        os.mkdir(lock_dir)
+        # The owner is gone. Claim the reclaim by renaming the stale directory:
+        # two contenders both see it dead, only one rename succeeds.
+        stale = f"{lock_dir}.stale-{os.getpid()}-{int(time.time())}"
+        try:
+            os.rename(lock_dir, stale)
+        except OSError:
+            print("lost the race to reclaim a dead lock — another run has it",
+                  file=sys.stderr)
+            return 1
+        shutil.rmtree(stale, ignore_errors=True)
+        try:
+            os.mkdir(lock_dir)
+        except FileExistsError:
+            print("lost the race to reclaim a dead lock — another run has it",
+                  file=sys.stderr)
+            return 1
     with open(owner_path, "w") as f:
-        json.dump({"pid": os.getpid(), "started": time.time()}, f)
+        json.dump(_owner_record(), f)
     print(f"lock acquired: {lock_dir}")
     return 0
 
 
 def cmd_unlock(args):
-    shutil.rmtree(_lock_dir(args.run_dir), ignore_errors=True)
+    """Release only a lock this thread owns — never whoever replaced it."""
+    lock_dir = _lock_dir(args.run_dir)
+    owner_path = os.path.join(lock_dir, "owner.json")
+    if not os.path.exists(lock_dir):
+        print("lock already released")
+        return 0
+    owner = {}
+    try:
+        with open(owner_path) as f:
+            owner = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        owner = {}
+    mine = _owner_pid()
+    if owner.get("pid") and mine and owner["pid"] != mine and _owner_is_live(owner):
+        print(f"not releasing: the lock belongs to pid {owner['pid']}, not {mine}",
+              file=sys.stderr)
+        return 1
+    shutil.rmtree(lock_dir, ignore_errors=True)
     print("lock released")
     return 0
 
@@ -198,10 +477,6 @@ def cmd_summary(args):
     return 0
 
 
-def _git(repo, *args):
-    return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
-
-
 def cmd_reconcile(args):
     """A ticket marked in-progress/merged with a commit that isn't actually an
     ancestor of the integration branch tip did NOT really land — a crash could
@@ -218,17 +493,26 @@ def cmd_reconcile(args):
             entry["status"] = "pending"
             changed = True
             print(f"{tid}: in-progress with no confirmed merge -> pending (re-run)")
+            append_journal(args.run_dir, {"ticket_id": tid, "status": "pending",
+                                          "commit": None, "reviewer": None,
+                                          "note": "reconcile: no confirmed merge"})
             continue
         if not commit:
             entry["status"] = "pending"
             changed = True
             print(f"{tid}: merged but no recorded commit -> pending (re-run)")
+            append_journal(args.run_dir, {"ticket_id": tid, "status": "pending",
+                                          "commit": None, "reviewer": None,
+                                          "note": "reconcile: merged without a commit"})
             continue
         res = _git(args.repo, "merge-base", "--is-ancestor", commit, args.integration_branch)
         if res.returncode != 0:
             entry["status"] = "pending"
             changed = True
             print(f"{tid}: commit {commit[:8]} not on {args.integration_branch} -> pending (re-run)")
+            append_journal(args.run_dir, {"ticket_id": tid, "status": "pending",
+                                          "commit": None, "reviewer": None,
+                                          "note": f"reconcile: {commit[:8]} not on {args.integration_branch}"})
     if changed:
         atomic_write_json(_state_path(args.run_dir), state)
     else:
@@ -273,6 +557,27 @@ def build_parser():
     s.add_argument("run_dir")
     s.set_defaults(func=cmd_summary)
 
+    s = sub.add_parser("with-lock", help="run a command holding a repo-wide lock")
+    s.add_argument("name")
+    s.add_argument("--repo", default=".")
+    s.add_argument("--wait", type=float, default=0.0,
+                   help="seconds to wait for the lock (default: fail immediately)")
+    s.set_defaults(func=cmd_with_lock, command=[])
+
+    s = sub.add_parser("land", help="gate a candidate merge, then advance the target by CAS")
+    s.add_argument("--work", required=True, help="worktree to build the candidate in")
+    s.add_argument("--target", required=True, help="branch to advance (never tested directly)")
+    s.add_argument("--source", required=True, help="branch to merge in")
+    s.add_argument("--gate", help="shell command to run on the candidate")
+    s.add_argument("--message")
+    s.add_argument("--run-dir")
+    s.add_argument("--ticket-id")
+    s.add_argument("--wait", type=float, default=0.0,
+                   help="seconds to wait for the landing lock")
+    s.add_argument("--no-lock", action="store_true",
+                   help="skip the landing lock (tests only)")
+    s.set_defaults(func=cmd_land)
+
     s = sub.add_parser("reconcile")
     s.add_argument("run_dir")
     s.add_argument("--repo", required=True)
@@ -280,6 +585,154 @@ def build_parser():
     s.set_defaults(func=cmd_reconcile)
 
     return p
+
+
+def _fixture_repo(path):
+    """A tiny git repo: main with one file, plus a `feature` branch on top."""
+    subprocess.run(["git", "init", "-q", "-b", "main", path], check=True)
+    for k, v in (("user.email", "t@t"), ("user.name", "t"), ("commit.gpgsign", "false")):
+        subprocess.run(["git", "-C", path, "config", k, v], check=True)
+    with open(os.path.join(path, "a.txt"), "w") as f:
+        f.write("base\n")
+    subprocess.run(["git", "-C", path, "add", "."], check=True)
+    subprocess.run(["git", "-C", path, "commit", "-q", "-m", "init"], check=True)
+    subprocess.run(["git", "-C", path, "switch", "-q", "-c", "feature"], check=True)
+    with open(os.path.join(path, "b.txt"), "w") as f:
+        f.write("feature\n")
+    subprocess.run(["git", "-C", path, "add", "."], check=True)
+    subprocess.run(["git", "-C", path, "commit", "-q", "-m", "feature"], check=True)
+    subprocess.run(["git", "-C", path, "switch", "-q", "main"], check=True)
+
+
+def _land(repo, gate=None, source="feature", target="main", run_dir=None):
+    return cmd_land(argparse.Namespace(work=repo, target=target, source=source,
+                                       gate=gate, message=None, run_dir=run_dir,
+                                       ticket_id="t1"))
+
+
+def selftest_land():
+    import tempfile as tf
+
+    # (d) a red gate leaves the target exactly where it was.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        before = _rev(repo, "main")
+        assert _land(repo, gate="exit 1") == LAND_GATE_RED
+        assert _rev(repo, "main") == before
+        assert _rev(repo, "feature") is not None, "the ticket branch survives for inspection"
+        assert _is_clean(repo)
+    print("ok: (d) a ticket that fails its gate never reaches the target branch")
+
+    # (e) a conflicting merge aborts and leaves no half-merged worktree.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        for branch, text in (("main", "mine\n"), ("feature", "theirs\n")):
+            subprocess.run(["git", "-C", repo, "switch", "-q", branch], check=True)
+            with open(os.path.join(repo, "c.txt"), "w") as f:
+                f.write(text)
+            subprocess.run(["git", "-C", repo, "add", "."], check=True)
+            subprocess.run(["git", "-C", repo, "commit", "-q", "-m", f"c on {branch}"], check=True)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "main"], check=True)
+        before = _rev(repo, "main")
+        assert _land(repo) == LAND_CONFLICT
+        assert _rev(repo, "main") == before
+        assert _is_clean(repo), "no unresolved merge left behind"
+    print("ok: (e) a conflicting ticket aborts cleanly and the target is untouched")
+
+    # (f) the target moving during the gate is caught by compare-and-swap.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "-c", "sneak"], check=True)
+        with open(os.path.join(repo, "d.txt"), "w") as f:
+            f.write("sneak\n")
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "sneak"], check=True)
+        sneak = _rev(repo, "sneak")
+        subprocess.run(["git", "-C", repo, "switch", "-q", "main"], check=True)
+        rc = _land(repo, gate=f"git update-ref refs/heads/main {sneak}")
+        assert rc == LAND_MOVED, rc
+        assert _rev(repo, "main") == sneak, "the other writer's commit stands, ours does not"
+    print("ok: (f) a target that moved during the gate refuses the landing")
+
+    # (g) a gate that writes to the tree it tested lands nothing.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        before = _rev(repo, "main")
+        assert _land(repo, gate="echo dirty >> a.txt") == LAND_GATE_RED
+        assert _rev(repo, "main") == before
+    print("ok: (g) a gate that modifies the tree it tested lands nothing")
+
+    # (h) the happy path: the target ends at the exact commit that was gated.
+    with tf.TemporaryDirectory() as repo, tf.TemporaryDirectory() as run_dir:
+        _fixture_repo(repo)
+        os.makedirs(os.path.join(run_dir, "handoffs"))
+        open(_journal_path(run_dir), "a").close()
+        assert _land(repo, gate="test -f b.txt", run_dir=run_dir) == LAND_OK
+        head = _rev(repo, "main")
+        assert _rev(repo, "HEAD") == head
+        assert subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor",
+                               "feature", "main"]).returncode == 0
+        phases = [json.loads(line)["phase"] for line in open(_journal_path(run_dir))]
+        assert phases == ["candidate", "gated", "landed"], phases
+    print("ok: (h) a green ticket lands the exact commit the gate ran on")
+
+    # (l) a dirty worktree stops the landing instead of writing over it.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        before = _rev(repo, "main")
+        with open(os.path.join(repo, "a.txt"), "a") as f:
+            f.write("uncommitted\n")
+        assert _land(repo) == LAND_BLOCKED
+        assert _rev(repo, "main") == before
+        assert open(os.path.join(repo, "a.txt")).read().endswith("uncommitted\n")
+    print("ok: (l) a dirty worktree stops the landing and keeps its uncommitted work")
+
+    # (i) the repo lock is a mutex: no two holders overlap.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        trace = os.path.join(repo, "trace.log")
+        here = os.path.abspath(__file__)
+        body = (f"import time;f=open({trace!r},'a');f.write('in\\n');f.flush();"
+                "time.sleep(0.05);f.write('out\\n');f.close()")
+        procs = [subprocess.Popen([sys.executable, here, "with-lock", "barrier",
+                                   "--repo", repo, "--wait", "30", "--",
+                                   sys.executable, "-c", body],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                 for _ in range(20)]
+        for proc in procs:
+            assert proc.wait() == 0
+        lines = [line.strip() for line in open(trace)]
+        assert len(lines) == 40, len(lines)
+        assert lines == ["in", "out"] * 20, "two processes were inside the lock at once"
+    print("ok: (i) twenty contenders enter the repo lock strictly one at a time")
+
+    # (j) a lock whose owner is alive is never reclaimed by age.
+    with tf.TemporaryDirectory() as run_dir:
+        lock_dir = _lock_dir(run_dir)
+        os.mkdir(lock_dir)
+        with open(os.path.join(lock_dir, "owner.json"), "w") as f:
+            json.dump({"pid": os.getpid(), "pid_start": _pid_start(os.getpid()),
+                       "started": time.time() - 86400}, f)
+        assert cmd_lock(argparse.Namespace(run_dir=run_dir, stale_hours=6.0)) == 1
+        # a dead owner IS reclaimed
+        with open(os.path.join(lock_dir, "owner.json"), "w") as f:
+            json.dump({"pid": 999999, "pid_start": "never", "started": time.time()}, f)
+        assert cmd_lock(argparse.Namespace(run_dir=run_dir, stale_hours=6.0)) == 0
+    print("ok: (j) a day-old lock with a live owner holds; a dead owner's lock is reclaimed")
+
+    # (k) a readable but stale snapshot does not beat a newer journal entry.
+    with tf.TemporaryDirectory() as run_dir:
+        os.makedirs(os.path.join(run_dir, "handoffs"))
+        open(_journal_path(run_dir), "a").close()
+        atomic_write_json(_state_path(run_dir), {
+            "t1": {"status": "in-progress", "commit": None, "reviewer": None,
+                   "ts": time.time() - 10}})
+        append_journal(run_dir, {"ticket_id": "t1", "status": "merged",
+                                 "commit": "abc123", "reviewer": "codex"})
+        state = load_state(run_dir)
+        assert state["t1"]["status"] == "merged", state
+        assert state["t1"]["reviewer"] == "codex"
+    print("ok: (k) a newer journal entry wins over a readable, older snapshot")
 
 
 def selftest():
@@ -333,12 +786,22 @@ def selftest():
         assert rc2 == 1, "second lock attempt should be refused while first is held"
     print("ok: (c) concurrent /driver runs against the same run-dir are refused")
 
+    selftest_land()
     print("ALL SELFTESTS PASSED")
 
 
 def main():
+    # argparse's REMAINDER swallows this command's OWN options, so split the
+    # wrapped command off by hand at the first `--`.
+    argv = sys.argv[1:]
+    wrapped = []
+    if argv[:1] == ["with-lock"] and "--" in argv:
+        cut = argv.index("--")
+        wrapped, argv = argv[cut + 1:], argv[:cut]
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if wrapped:
+        args.command = wrapped
     if args.selftest:
         selftest()
         return 0
