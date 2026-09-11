@@ -78,7 +78,9 @@ run starts only after scope is confirmed (step 2), never before.
 
 ### 2. Confirm scope
 
-**First, check nobody else is already on these tickets.** An open ticket labelled
+**First, check nobody else is already on these tickets. This read is advisory** — it happens before the menu, and a mutex must never be held across a question to the user. The binding claim happens in step 3, under the scope lock, after the scope is agreed.
+
+**The check itself:** An open ticket labelled
 `ready-for-agent` looks identical whether it is untouched or half-built by a run that started
 an hour ago in another thread — `driver_state.py lock` is per-`RUN_DIR` on this machine and
 says nothing about a ticket, so it cannot catch this. Read each ticket's labels **before**
@@ -114,27 +116,47 @@ skip the `init`/branch block and go straight to the resume block at the end of t
 Otherwise:
 
 ```
-RUN_ID="$(date +%Y%m%dT%H%M%S)-<short-slug>"
+RUN_ID="$(date +%Y%m%dT%H%M%S)-<short-slug>-$(openssl rand -hex 2)"   # the suffix stops two same-second runs colliding
 RUN_DIR=".scratch/driver-runs/$RUN_ID"
 mkdir -p "$RUN_DIR"
 python3 <skill-dir>/driver_state.py init "$RUN_DIR" <ticket-id> [<ticket-id> ...]
 python3 <skill-dir>/driver_state.py lock "$RUN_DIR" || exit 1   # refuses if another /driver run is active
 
+REPO="$(basename "$(git rev-parse --show-toplevel)")"
 reg=<skill-dir>/../threads/assets/register.py
-[ -f "$reg" ] && python3 "$reg" claim --verb driver --note "<run label> — N tickets"
+[ -f "$reg" ] && python3 "$reg" claim "$REPO:driver:$RUN_ID" --note "<run label> — N tickets"
 ```
 
-The lock is per-`RUN_DIR` and stops this run starting twice. The claim is per-repo and tells
-every other thread that a driver run holds it. Held by another live thread → say who holds it
-and stop. Never start a second run in one repo.
+**The claim is per RUN, not per repo, so a second run in the same repo is allowed.** Runs build
+independently and only contend at landing, where `driver_state.py land` holds a real lock and
+advances the branch by compare-and-swap. Two independently-green runs still gate the combined
+tree before either reaches the default branch.
+
+To see the other runs: `python3 "$reg" list` and read every `<repo>:driver:` key. Say in the
+opening message which other runs are live, because they share the machine — the dev-server ports
+(3000-3002), the Codex quota and the CPU are finite, so gates run slower with two.
+
+**One run at a time is still the rule for a repo whose tickets are local markdown files.** Claim
+state there lives in tracked files, so a second run either dirties the shared checkout or hides
+its claim on a private branch. GitHub-tracker repos take the parallel path; markdown-tracker
+repos check for any live `<repo>:driver:` key and stop if one exists.
 
 **Re-claim after each ticket resolves**, with the count:
-`--note "<run label> — 7/12, on <ticket>"`. That is what makes `/threads` show the run's
+`python3 "$reg" claim "$REPO:driver:$RUN_ID" --note "<run label> — 7/12, on <ticket>"`. That is what makes `/threads` show the run's
 position without anyone asking this thread.
 
-**Claim every ticket in the tracker, now — before any work starts.** The claim is what makes
-step 2's check work for the next thread; a run that only labels at the end (step 7) leaves the
-whole build window looking unclaimed.
+**Claim every ticket in the tracker, now — before any work starts, and under the scope lock.**
+The claim is what makes step 2's check work for the next thread; a run that only labels at the
+end (step 7) leaves the whole build window looking unclaimed. Two runs can otherwise both read a
+ticket as unclaimed and both build it, because a tracker label is not a conditional write.
+
+Re-read each selected ticket's labels inside the lock and drop any that another run claimed while
+the menu was open. The lock covers the re-read and the labelling, never the menu itself:
+
+```
+python3 <skill-dir>/driver_state.py with-lock driver-scope --repo . --wait 300 -- \
+  bash -c '<re-read each ticket, drop any now labelled in-progress, then label the rest>'
+```
 
 **Post as the repo's own identity.** `gh` ignores the repo-local credential helper, so resolve
 the account once, up front, and use it on every `gh` write in this run:
@@ -154,11 +176,21 @@ Create the `in-progress` label once per repo if it doesn't exist:
 `gh label create in-progress -R <owner>/<repo> -c FBCA04 -d "A /driver run holds this ticket"`.
 Local markdown tracker → set `status: in-progress` + the run id in the ticket file instead.
 
-Create a run-specific **integration branch** off the current default branch:
+Create a run-specific **integration branch in its own worktree**. Never `git switch` the shared
+checkout for this: another run, or the user, may be working in it.
 
 ```
-git switch <default-branch> && git pull --ff-only
-git switch -c "driver/$RUN_ID"
+git fetch --quiet && git -C "$(git rev-parse --show-toplevel)" worktree add \
+  -b "driver/$RUN_ID" "$HOME/LOCAL-DEV/$REPO-wt/driver-$RUN_ID" <default-branch>
+WORK="$HOME/LOCAL-DEV/$REPO-wt/driver-$RUN_ID"
+```
+
+Record the run's identity so a resume never re-derives it from the slug:
+
+```
+python3 <skill-dir>/driver_state.py init "$RUN_DIR" <ticket-id> ... \
+  --work "$WORK" --integration-branch "driver/$RUN_ID" --default-ref <default-branch> \
+  --base "$(git rev-parse <default-branch>)"
 ```
 
 Every ticket's worktree branches from **this integration branch's tip**, not
@@ -250,7 +282,7 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
 
    ```
    python3 <skill-dir>/driver_state.py land \
-     --work "<checkout holding the integration branch>" --target "driver/$RUN_ID" --source "<ticket-branch>" \
+     --work "$WORK" --target "driver/$RUN_ID" --source "<ticket-branch>" \
      --run-dir "$RUN_DIR" --ticket-id "<ticket-id>" --wait 1800 \
      --gate "<typecheck && lint && tests, plus e2e only if the diff touches UI>"
    ```
@@ -307,7 +339,7 @@ gate a candidate, then advance the default branch only if it has not moved:
 
 ```
 python3 <skill-dir>/driver_state.py land \
-  --work "<checkout holding the integration branch>" --target "<default-branch>" --source "driver/$RUN_ID" \
+  --work "$WORK" --target "<default-branch>" --source "driver/$RUN_ID" \
   --run-dir "$RUN_DIR" --wait 1800 \
   --gate "<typecheck && lint && tests, plus e2e if the run touched UI>"
 ```
@@ -320,6 +352,17 @@ integration branch name and leave it, rather than writing over someone's uncommi
 
 No push. `/push` remains a separate, explicitly human-invoked step, same as every other verb in
 the fleet.
+
+Then tear down the run's own worktree, so a finished run leaves nothing resident:
+
+```
+bash "$HOME/.claude/scripts/localhost-dev.sh" kill-repo "$WORK"
+git worktree remove "$WORK"
+```
+
+Keep the `driver/$RUN_ID` branch until `/prune`, so the run's history is inspectable. A run that
+stopped at `ready-to-land` (exit 6) keeps its worktree too — there is nothing to inspect once it
+is gone.
 
 ### 7. Roadmap and tracker write-back
 
@@ -339,7 +382,7 @@ the fleet.
 
 ```
 python3 <skill-dir>/driver_state.py unlock "$RUN_DIR"
-[ -f "$reg" ] && python3 "$reg" sign-off --verb driver --status done \
+[ -f "$reg" ] && python3 "$reg" sign-off "$REPO:driver:$RUN_ID" --status done \
   --note "<n> shipped, <n> blocked, <n> skipped"
 ```
 

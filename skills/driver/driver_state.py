@@ -394,9 +394,42 @@ def _land_locked(args, work, target, source):
               file=sys.stderr)
         return LAND_MOVED
     _journal(args, {"phase": "landed", "target": target, "base": g, "candidate": t})
+    _log_overlap(args, work, target, t)
     _git(work, "switch", "--quiet", "--no-overwrite-ignore", target)
     print(t)
     return LAND_OK
+
+
+def _changed_paths(work, base, tip):
+    """NUL-delimited: a filename can contain a newline."""
+    res = _git(work, "diff", "--name-only", "-z", f"{base}...{tip}")
+    return {p for p in res.stdout.split("\0") if p}
+
+
+def _log_overlap(args, work, target, t):
+    """How much does this landing touch what another live run has already landed?
+
+    ponytail: recorded, never enforced. Path overlap arrives after the build it
+    would have saved, it false-positives on lockfiles, and holding a ticket on it
+    deadlocks two runs that each wait on the other's file. The gate on the
+    combined tree is the real check. This line exists to answer 'how often does
+    it actually happen' with data rather than a guess."""
+    if not target.startswith("driver/"):
+        return
+    res = _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads/driver/")
+    others = [b for b in res.stdout.split() if b != target]
+    if not others:
+        return
+    for other in others:
+        base = _git(work, "merge-base", target, other).stdout.strip()
+        if not base:
+            continue
+        ours = _changed_paths(work, base, t)
+        theirs = _changed_paths(work, base, other)
+        shared = sorted(ours & theirs)
+        if shared:
+            _journal(args, {"phase": "overlap", "target": target, "other": other,
+                            "paths": shared[:50], "count": len(shared)})
 
 
 def _journal(args, entry):
@@ -408,6 +441,9 @@ def _journal(args, entry):
     append_journal(run_dir, entry)
 
 
+RUN_KEY = "_run"  # reserved: run metadata, never a ticket id
+
+
 def cmd_init(args):
     os.makedirs(args.run_dir, exist_ok=True)
     os.makedirs(os.path.join(args.run_dir, "handoffs"), exist_ok=True)
@@ -416,6 +452,13 @@ def cmd_init(args):
         return 0
     state = {tid: {"status": "pending", "commit": None, "reviewer": None, "ts": time.time()}
              for tid in args.ticket_ids}
+    if args.integration_branch or args.work:
+        state[RUN_KEY] = {"run_id": os.path.basename(os.path.abspath(args.run_dir)),
+                          "run_dir": os.path.abspath(args.run_dir),
+                          "work": os.path.abspath(args.work) if args.work else None,
+                          "integration_branch": args.integration_branch,
+                          "default_ref": args.default_ref,
+                          "base": args.base, "ts": time.time()}
     open(_journal_path(args.run_dir), "a").close()
     for tid in args.ticket_ids:
         append_journal(args.run_dir, {"ticket_id": tid, "status": "pending",
@@ -526,6 +569,9 @@ def cmd_get_status(args):
 def cmd_summary(args):
     state = load_state(args.run_dir)
     for tid, entry in sorted(state.items()):
+        if tid == RUN_KEY:
+            print(f"{tid}\t{json.dumps(entry)}")
+            continue
         print(f"{tid}\t{entry.get('status')}\t{entry.get('commit') or '-'}\t{entry.get('reviewer') or '-'}")
     return 0
 
@@ -538,6 +584,8 @@ def cmd_reconcile(args):
     state = load_state(args.run_dir)
     changed = False
     for tid, entry in state.items():
+        if tid == RUN_KEY:
+            continue
         status, commit = entry.get("status"), entry.get("commit")
         if status not in ("in-progress", "merged"):
             continue
@@ -582,6 +630,10 @@ def build_parser():
     s = sub.add_parser("init")
     s.add_argument("run_dir")
     s.add_argument("ticket_ids", nargs="+")
+    s.add_argument("--work", help="worktree holding the integration branch")
+    s.add_argument("--integration-branch")
+    s.add_argument("--default-ref")
+    s.add_argument("--base", help="default branch OID when the run started")
     s.set_defaults(func=cmd_init)
 
     s = sub.add_parser("lock")
@@ -775,6 +827,45 @@ def selftest_land():
         assert rc == LAND_GATE_RED, rc
         assert _rev(repo, "main") == sneak, "our candidate did not land"
     print("ok: (o) a red gate that moved the target lands nothing and says so")
+
+    # (p) run metadata is not a ticket, and reconcile leaves it alone.
+    with tf.TemporaryDirectory() as repo, tf.TemporaryDirectory() as run_dir:
+        _fixture_repo(repo)
+        cmd_init(argparse.Namespace(run_dir=run_dir, ticket_ids=["t1"], work=repo,
+                                    integration_branch="driver/x", default_ref="main",
+                                    base=_rev(repo, "main")))
+        cmd_reconcile(argparse.Namespace(run_dir=run_dir, repo=repo,
+                                         integration_branch="main"))
+        state = load_state(run_dir)
+        assert state[RUN_KEY]["integration_branch"] == "driver/x", state
+        assert state["t1"]["status"] == "pending", state
+    print("ok: (p) run metadata survives init and reconcile without posing as a ticket")
+
+    # (q) a landing records what it shares with another run, and lands anyway.
+    with tf.TemporaryDirectory() as repo, tf.TemporaryDirectory() as run_dir:
+        _fixture_repo(repo)
+        os.makedirs(os.path.join(run_dir, "handoffs"))
+        open(_journal_path(run_dir), "a").close()
+        for branch in ("driver/other", "driver/mine"):
+            subprocess.run(["git", "-C", repo, "switch", "-q", "-c", branch, "main"], check=True)
+            with open(os.path.join(repo, "shared.txt"), "w") as f:
+                f.write(branch + "\n")
+            subprocess.run(["git", "-C", repo, "add", "."], check=True)
+            subprocess.run(["git", "-C", repo, "commit", "-q", "-m", f"touch shared on {branch}"],
+                           check=True)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "-c", "ticket", "driver/mine"],
+                       check=True)
+        with open(os.path.join(repo, "shared.txt"), "a") as f:
+            f.write("ticket\n")
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "ticket work"], check=True)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "driver/mine"], check=True)
+        assert _land(repo, source="ticket", target="driver/mine", run_dir=run_dir) == LAND_OK
+        phases = [json.loads(line) for line in open(_journal_path(run_dir))]
+        overlaps = [e for e in phases if e.get("phase") == "overlap"]
+        assert overlaps and "shared.txt" in overlaps[0]["paths"], phases
+        assert overlaps[0]["other"] == "driver/other"
+    print("ok: (q) an overlapping landing is recorded and still lands")
 
     # (i) the repo lock is a mutex: no two holders overlap.
     with tf.TemporaryDirectory() as repo:

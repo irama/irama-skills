@@ -116,7 +116,7 @@ worktree of one repo shares it. Four verbs claim one today:
 | `<repo>:push` | `/push`, and any `git push` landing on the default branch | Yes — refused if another live thread holds it |
 | `<repo>:merge` | `/merge`, and any `git merge` | Yes |
 | `<repo>:commit` | `/commit` | No — reporting only |
-| `<repo>:driver` | a `/driver` run, for the whole run | No — reporting only, but it is the longest hold in the fleet |
+| `<repo>:driver:<run-id>` | one `/driver` run, for the whole run | No — reporting only, but it is the longest hold in the fleet. One key per RUN: several runs can share a repo, and they contend only when landing |
 
 A claim from the same thread replaces its own note, so a long run re-claims to
 report progress. Any other key is free-form: claim what you are working on.
