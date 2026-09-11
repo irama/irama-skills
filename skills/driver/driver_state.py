@@ -323,9 +323,12 @@ def _land_locked(args, work, target, source):
         print(f"worktree is dirty: {work}", file=sys.stderr)
         return LAND_BLOCKED
     busy = _checked_out_elsewhere(work, target, work)
-    if busy:
-        print(f"{target} is checked out in {busy[0]} — land from there, or free it",
-              file=sys.stderr)
+    if len(busy) > 1:
+        print(f"{target} is checked out in {len(busy)} worktrees — free one", file=sys.stderr)
+        return LAND_BLOCKED
+    if busy and not _is_clean(busy[0]):
+        print(f"{target} is checked out with uncommitted work in {busy[0]} — "
+              "ready to land, but not over the top of that", file=sys.stderr)
         return LAND_BLOCKED
     original = _git(work, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     g = _rev(work, target)
@@ -382,12 +385,18 @@ def _land_locked(args, work, target, source):
     _journal(args, {"phase": "gated", "target": target, "base": g, "candidate": t})
 
     busy = _checked_out_elsewhere(work, target, work)
-    if busy:
+    if len(busy) > 1 or (busy and not _is_clean(busy[0])):
         restore()
-        print(f"{target} was checked out in {busy[0]} during the gate — nothing landed",
-              file=sys.stderr)
+        print(f"{target} was checked out elsewhere with work in it during the gate — "
+              "nothing landed", file=sys.stderr)
         return LAND_BLOCKED
-    cas = _git(work, "update-ref", f"refs/heads/{target}", t, g)
+    if busy:
+        # The branch is checked out in a clean worktree. Fast-forward IT, so the
+        # ref and that worktree's files move together — an update-ref here would
+        # leave its index and files describing the old commit.
+        cas = _git(busy[0], "merge", "--ff-only", t)
+    else:
+        cas = _git(work, "update-ref", f"refs/heads/{target}", t, g)
     if cas.returncode != 0:
         restore()
         print(f"{target} moved since the gate — nothing landed. Re-run to gate again.",
@@ -416,8 +425,14 @@ def _log_overlap(args, work, target, t):
     it actually happen' with data rather than a guess."""
     if not target.startswith("driver/"):
         return
-    res = _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads/driver/")
-    others = [b for b in res.stdout.split() if b != target]
+    # Live means "still has a worktree": a finished run removes its own, and a
+    # retained branch from a pruned run is history, not a contender.
+    live = set()
+    res = _git(work, "worktree", "list", "--porcelain")
+    for line in res.stdout.splitlines():
+        if line.startswith("branch refs/heads/"):
+            live.add(line.split("refs/heads/", 1)[1])
+    others = [b for b in live if b.startswith("driver/") and b != target]
     if not others:
         return
     for other in others:
@@ -448,6 +463,17 @@ def cmd_init(args):
     os.makedirs(args.run_dir, exist_ok=True)
     os.makedirs(os.path.join(args.run_dir, "handoffs"), exist_ok=True)
     if os.path.exists(_state_path(args.run_dir)):
+        state = load_state(args.run_dir)
+        if (args.integration_branch or args.work) and RUN_KEY not in state:
+            state[RUN_KEY] = {"run_id": os.path.basename(os.path.abspath(args.run_dir)),
+                              "run_dir": os.path.abspath(args.run_dir),
+                              "work": os.path.abspath(args.work) if args.work else None,
+                              "integration_branch": args.integration_branch,
+                              "default_ref": args.default_ref,
+                              "base": args.base, "ts": time.time()}
+            atomic_write_json(_state_path(args.run_dir), state)
+            print(f"run-dir already initialised: {args.run_dir} — recorded its identity")
+            return 0
         print(f"run-dir already initialised: {args.run_dir}", file=sys.stderr)
         return 0
     state = {tid: {"status": "pending", "commit": None, "reviewer": None, "ts": time.time()}
@@ -556,6 +582,22 @@ def cmd_set_status(args):
     return 0
 
 
+def cmd_env(args):
+    """Print the run's identity as shell assignments, for a resume to eval."""
+    meta = load_state(args.run_dir).get(RUN_KEY)
+    if not meta:
+        print(f"no run metadata in {args.run_dir} — this run predates it, or init "
+              "never recorded it", file=sys.stderr)
+        return 1
+    for name, key in (("RUN_ID", "run_id"), ("RUN_DIR", "run_dir"), ("WORK", "work"),
+                      ("INTEGRATION_BRANCH", "integration_branch"),
+                      ("DEFAULT_REF", "default_ref"), ("RUN_BASE", "base")):
+        value = meta.get(key)
+        if value:
+            print(f"{name}={value!r}".replace("'", '"'))
+    return 0
+
+
 def cmd_get_status(args):
     state = load_state(args.run_dir)
     entry = state.get(args.ticket_id)
@@ -652,6 +694,10 @@ def build_parser():
     s.add_argument("--commit")
     s.add_argument("--reviewer")
     s.set_defaults(func=cmd_set_status)
+
+    s = sub.add_parser("env", help="print the run's identity as shell assignments")
+    s.add_argument("run_dir")
+    s.set_defaults(func=cmd_env)
 
     s = sub.add_parser("get-status")
     s.add_argument("run_dir")
@@ -842,7 +888,8 @@ def selftest_land():
     print("ok: (p) run metadata survives init and reconcile without posing as a ticket")
 
     # (q) a landing records what it shares with another run, and lands anyway.
-    with tf.TemporaryDirectory() as repo, tf.TemporaryDirectory() as run_dir:
+    with tf.TemporaryDirectory() as repo, tf.TemporaryDirectory() as run_dir, \
+            tf.TemporaryDirectory() as wt_parent:
         _fixture_repo(repo)
         os.makedirs(os.path.join(run_dir, "handoffs"))
         open(_journal_path(run_dir), "a").close()
@@ -853,6 +900,9 @@ def selftest_land():
             subprocess.run(["git", "-C", repo, "add", "."], check=True)
             subprocess.run(["git", "-C", repo, "commit", "-q", "-m", f"touch shared on {branch}"],
                            check=True)
+        # the other run is live only while it still has a worktree
+        subprocess.run(["git", "-C", repo, "worktree", "add", "-q",
+                        os.path.join(wt_parent, "other"), "driver/other"], check=True)
         subprocess.run(["git", "-C", repo, "switch", "-q", "-c", "ticket", "driver/mine"],
                        check=True)
         with open(os.path.join(repo, "shared.txt"), "a") as f:
@@ -865,7 +915,42 @@ def selftest_land():
         overlaps = [e for e in phases if e.get("phase") == "overlap"]
         assert overlaps and "shared.txt" in overlaps[0]["paths"], phases
         assert overlaps[0]["other"] == "driver/other"
-    print("ok: (q) an overlapping landing is recorded and still lands")
+        # a run whose worktree is gone is history, not a contender
+        subprocess.run(["git", "-C", repo, "worktree", "remove",
+                        os.path.join(wt_parent, "other")], check=True)
+        open(_journal_path(run_dir), "w").close()
+        subprocess.run(["git", "-C", repo, "switch", "-q", "-c", "ticket2", "driver/mine"],
+                       check=True)
+        with open(os.path.join(repo, "shared.txt"), "a") as f:
+            f.write("more\n")
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "more ticket work"], check=True)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "driver/mine"], check=True)
+        assert _land(repo, source="ticket2", target="driver/mine", run_dir=run_dir) == LAND_OK
+        again = [json.loads(line) for line in open(_journal_path(run_dir))]
+        assert not [e for e in again if e.get("phase") == "overlap"], again
+    print("ok: (q) an overlapping live run is recorded; a finished one is not")
+
+    # (r) the target checked out in ANOTHER worktree: clean lands there, dirty stops.
+    with tf.TemporaryDirectory() as repo, tf.TemporaryDirectory() as wt_parent:
+        _fixture_repo(repo)
+        other = os.path.join(wt_parent, "main-wt")
+        subprocess.run(["git", "-C", repo, "switch", "-q", "-c", "side"], check=True)
+        subprocess.run(["git", "-C", repo, "worktree", "add", "-q", other, "main"], check=True)
+        before = _rev(repo, "main")
+        # dirty: nothing lands, the uncommitted file survives
+        with open(os.path.join(other, "a.txt"), "a") as f:
+            f.write("theirs\n")
+        assert _land(repo, source="feature", target="main") == LAND_BLOCKED
+        assert _rev(repo, "main") == before
+        assert open(os.path.join(other, "a.txt")).read().endswith("theirs\n")
+        # clean: the ref AND that worktree's files move together
+        subprocess.run(["git", "-C", other, "checkout", "-q", "--", "a.txt"], check=True)
+        assert _land(repo, source="feature", target="main") == LAND_OK
+        assert _rev(repo, "main") != before
+        assert os.path.exists(os.path.join(other, "b.txt")), "the other worktree got the files"
+        assert _is_clean(other)
+    print("ok: (r) a clean checkout of the target fast-forwards in place; a dirty one stops")
 
     # (i) the repo lock is a mutex: no two holders overlap.
     with tf.TemporaryDirectory() as repo:
