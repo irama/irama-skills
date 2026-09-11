@@ -130,6 +130,7 @@ A **work status** is what happened to the job. A thread writes it at sign-off.
 | `claimed`, `in-progress` | Taken, not yet signed off | No |
 | `blocked` | Stopped on something outside this thread | No — still owned |
 | `waiting-on-user` | Stopped on an answer only the user can give | No — still owned |
+| `waiting-on-machine` | Minding a job elsewhere, wakes itself when it lands | No — still owned |
 | `incomplete` | Stopped part-way and handed back | Yes |
 | `abandoned` | Deliberately dropped | Yes |
 | `done` | Finished | Finished |

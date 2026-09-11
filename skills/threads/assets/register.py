@@ -42,7 +42,11 @@ REGISTER = STATE / "work-register.jsonl"
 #   takeable  -> another thread may pick it up
 #   closed    -> finished with
 OPEN = {"claimed", "in-progress"}                 # claimed, not yet signed off
-HELD = {"blocked", "waiting-on-user"}             # signed off, still owned
+# `waiting-on-machine` is a thread minding a job somewhere else, which wakes
+# itself when the job lands. Held like `waiting-on-user`, and deliberately NOT
+# the same word: the WIP dashboard reads the two apart to decide whether the
+# next move is the human's, and folding them together invents work for them.
+HELD = {"blocked", "waiting-on-user", "waiting-on-machine"}  # signed off, still owned
 TAKEABLE = {"incomplete", "abandoned"}
 CLOSED = {"done", "handed-off"}
 STATUSES = OPEN | HELD | TAKEABLE | CLOSED
