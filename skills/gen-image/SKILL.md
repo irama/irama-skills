@@ -1,6 +1,6 @@
 ---
 name: gen-image
-description: Generate images with GPT Image 2 (the default) or another hosted model — Nano Banana 2, Seedream, Qwen Image Edit Plus, Midjourney v7, Z-Image Turbo — and save them straight into the current project. Use when an artefact needs a generated image (slide, hero, illustration, thumbnail, texture, mockup background), when the user says "generate an image", "gen image", "nano banana", "make me a picture/illustration", or invokes /gen-image. Also handles image-to-image via reference URLs.
+description: Generate images with GPT Image 2.5 (the default) or another hosted model — Nano Banana 2, Seedream, Qwen Image Edit Plus, Midjourney v7, Z-Image Turbo — and save them straight into the current project. Use when an artefact needs a generated image (slide, hero, illustration, thumbnail, texture, mockup background), when the user says "generate an image", "gen image", "nano banana", "make me a picture/illustration", or invokes /gen-image. Also handles image-to-image via reference URLs.
 ---
 
 # gen-image — hosted image generation
@@ -23,11 +23,13 @@ Prints the written path on success. Generation runs 20 s – 5 min; the script p
 
 ## Models
 
-`--model` picks the engine. Default `gpt2`.
+`--model` picks the engine. Default `gpt25`.
 
 | `--model` | Engine | Notes |
 |---|---|---|
-| `gpt2` | GPT Image 2 (`gpt-image-2`) | **The default.** Strongest prompt adherence, and the one to reach for on a brief with several constraints in it. |
+| `gpt25` | GPT Image 2.5 Flare (`gpt-image-2.5-flare`) | **The default.** Strongest prompt adherence, and the one to reach for on a brief with several constraints in it. Takes `--quality`, defaulting to `high`. |
+| `gpt25max` | GPT Image 2.5 Sunburst (`gpt-image-2.5-sunburst`) | The precise 2.5 variant. Slower for the same prompt, so keep it for work where control matters. |
+| `gpt2` | GPT Image 2 (`gpt-image-2`) | The previous default. |
 | `nb2` | Nano Banana 2 (`gemini-3.1-flash-image-preview`) | Up to 14 reference images, so it is still the pick for image-to-image and for holding a style across a set. No seed. |
 | `seedream` | Seedream 5.0 Lite | Up to 14 refs. Painterly, good at atmosphere. |
 | `qwen` | Qwen Image Edit Plus | Up to 3 refs, supports seed + negative prompt. Best for *editing* a supplied image. |
@@ -39,7 +41,10 @@ Prints the written path on success. Generation runs 20 s – 5 min; the script p
 - `--size` — aspect ratio string, e.g. `16:9` (slides), `1:1`, `4:5`, `9:16`. Not pixels.
 - `--ref <url>` — reference image, repeatable. Must be a **public URL** the provider can fetch;
   a local path will not work. For image-to-image on local files, upload the file first.
-- `--timeout <seconds>` — default 600.
+- `--quality` — `low`, `medium`, `high`, `xhigh` or `max`. GPT Image 2.5 only, and it defaults
+  to `high` there. The other engines reject the field, so the script refuses it.
+- `--timeout <seconds>` — default 600. A 2.5 generation usually lands in 15–70 s, and the API
+  quotes up to 330 s.
 
 ## Auth
 

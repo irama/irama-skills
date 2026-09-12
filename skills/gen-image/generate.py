@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate an image with Nano Banana 2 (or another hosted model) and save it locally.
+"""Generate an image with GPT Image 2.5 (or another hosted model) and save it locally.
 
     python3 generate.py --prompt "a lone lighthouse in fog" --out ~/Desktop/lighthouse.png
     python3 generate.py --model seedream --size 1:1 --ref https://... --prompt "..." --out out.png
@@ -26,7 +26,9 @@ FALLBACK_ENV = os.path.expanduser(os.environ.get("GEN_IMAGE_FALLBACK_ENV", ""))
 
 # Internal name → host model string. Matches the companion app's generate route.
 MODELS = {
-    "gpt2": "gpt-image-2",                     # the default: strongest prompt adherence
+    "gpt25": "gpt-image-2.5-flare",            # the default: GPT Image 2.5 Flare
+    "gpt25max": "gpt-image-2.5-sunburst",      # slower, more precise 2.5 variant
+    "gpt2": "gpt-image-2",                     # the previous default
     "nb2": "gemini-3.1-flash-image-preview",   # Nano Banana 2 — up to 14 refs, no seed
     "seedream": "doubao-seedream-5.0-lite",    # up to 14 refs, quality param
     "qwen": "qwen-image-edit-plus",            # up to 3 refs, seed + negative prompt
@@ -82,7 +84,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--prompt", required=True)
     ap.add_argument("--out", required=True, help="where to write the image")
-    ap.add_argument("--model", default="gpt2", choices=sorted(MODELS))
+    ap.add_argument("--model", default="gpt25", choices=sorted(MODELS))
+    ap.add_argument("--quality", default=None,
+                    choices=["low", "medium", "high", "xhigh", "max"],
+                    help="GPT Image 2.5 quality tier; defaults to high on those models")
     ap.add_argument("--size", default="16:9", help="aspect ratio, e.g. 16:9, 1:1, 4:5")
     ap.add_argument("--ref", action="append", default=[], help="reference image URL (repeatable)")
     ap.add_argument("--timeout", type=int, default=600, help="seconds to wait before giving up")
@@ -90,6 +95,11 @@ def main() -> None:
 
     key = api_key()
     body = {"model": MODELS[a.model], "prompt": a.prompt, "size": a.size}
+    # Only the 2.5 models take a quality tier; sending it to the others errors.
+    if a.model.startswith("gpt25"):
+        body["quality"] = a.quality or "high"
+    elif a.quality:
+        sys.exit("--quality is only supported by the gpt25 models")
     if a.ref:
         # mj takes references inline in the prompt; everything else takes image_urls.
         if a.model == "mj":
