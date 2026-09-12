@@ -8,7 +8,7 @@ not help: the gap between reading and committing is exactly where it moves.
 
 Allowed: the default branch, and any branch this session created itself (recorded
 by the companion PostToolUse hook when `git switch -c` / `git checkout -b` /
-`git worktree add -b` runs). Everything else is somebody else's branch.
+`git worktree add -b` or EnterWorktree runs). Everything else is somebody else's branch.
 
 Escape hatch: set ALLOW_FOREIGN_BRANCH_COMMIT=1 in the command when the commit
 really does belong on a branch another session made.
@@ -24,8 +24,12 @@ STATE = os.path.expanduser("~/.claude/state/session-branches")
 
 # Must sit at a command position, not merely appear somewhere in the string --
 # otherwise the hook fires on its own test payloads and on any text quoting it.
+# Launcher words (`command git`, `env git`, `rtk git`, `\git`) still count as that
+# position: without them `command git commit` walked straight past the guard.
 COMMIT = re.compile(
-    r"(?:^|[;&|]|&&|\|\||\n)\s*(?:[A-Z_]+=\S+\s+)*git\s+(?:-C\s+\S+\s+)?commit\b")
+    r"(?:^|[;&|]|&&|\|\||\n)\s*"
+    r"(?:(?:[A-Z_]+=\S+|command|env|exec|nice|rtk)\s+)*\\?"
+    r"git\s+(?:-C\s+\S+\s+)?commit\b")
 DEFAULTS = {"main", "master"}
 
 
