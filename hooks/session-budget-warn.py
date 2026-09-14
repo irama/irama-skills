@@ -17,8 +17,11 @@ import os
 import sys
 
 STATE_DIR = os.path.expanduser("~/.claude/state/session-budget")
-SOFT_CALLS, SOFT_CTX = 150, 150_000
-HARD_CALLS, HARD_CTX = 250, 400_000
+# Raised 2026-09-14 from 150/150k and 250/400k: a full planning cycle (explore,
+# prototype, spec, review, tickets) must reach the /driver command in one thread,
+# and the old soft mark pushed a handoff mid-cycle.
+SOFT_CALLS, SOFT_CTX = 250, 300_000
+HARD_CALLS, HARD_CTX = 400, 600_000
 
 
 def counts(path: str):
