@@ -100,8 +100,9 @@ def main() -> int:
     else:
         msg = (
             f"Session budget: {where}. CLAUDE.md asks you to say so ONCE at this point "
-            "and offer /handoff or a ticket split. Tell the user in one line, then carry on "
-            "— this is a nudge, not a stop."
+            "and, only if this thread's own work is still unfinished, offer /handoff or a "
+            "ticket split. A thread whose work is merged or done gets no handoff. Tell the "
+            "user in one line, then carry on: this is a nudge, not a stop."
         )
     print(json.dumps({"systemMessage": msg, "hookSpecificOutput":
                       {"hookEventName": "PostToolUse", "additionalContext": msg}}))
