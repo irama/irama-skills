@@ -25,6 +25,13 @@ costing.
   are one option. One road plus "do nothing" is a valid answer.
 - **Cost it in units he can use** — hours or sessions to build, dollars per month to run.
   State the assumption behind an estimate in half a line.
+- **Every road answers the same question about the same subject.** Name the subject in
+  each road's opening sentence, by its noun, never as "them", "it", "these" or "the two".
+  If the honest answer needs a different subject (the question was about two holdings, the
+  answer is about the two mixes that hold them), say the switch in one sentence before the
+  roads, and never inside them. Measured 2026-09-17: a crossroad about two sleeves offered a
+  road to "stop ranking them", where "them" had silently become two mixes; the reply was
+  "what two mixes? So confusing dude", and the decision cost two more turns.
 
 ## Open with the ELI5 — mandatory, before any option
 
