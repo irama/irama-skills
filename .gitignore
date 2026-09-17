@@ -10,3 +10,7 @@ __pycache__/
 
 # Private domain and name list for the leak guard, never published
 .leakrc
+
+# claude multi-thread worktrees + local multi-root workspace file
+.claude/worktrees/
+irama-skills.code-workspace
