@@ -115,6 +115,18 @@ failure the reviewer found, in the ticket where it will bite), acceptance criter
 dependencies. A ticket agent starts with no context — the trap has to be *in* the ticket, not in a
 document it might read.
 
+**A ticket with a UI surface carries its mockup, not a sentence about it.** The mockup is the
+spec for how the thing looks, and one line of prose ("a dot per future on a year axis") describes
+both the mockup and a page that looks nothing like it. So the ticket names the mockup file and
+the section anchor, and if the mockup lives in another repo it says the full path from the
+worker's own checkout. The ticket lists the mockup's visible elements as acceptance items
+(headline treatment, picker form, chart marks, axes, labels, colours, captions, block order),
+and its last acceptance item is a side-by-side screenshot of the build against the mockup with
+every deviation listed and given a reason. A deviation with a reason is allowed. A silent one
+is a defect. Measured 2026-09-18: a ten-ticket run named its mockup in one ticket, and the FIRE
+page shipped with none of the mockup's visual structure while every numeric acceptance item
+passed.
+
 ### 7. Land the work on the default branch — before the command, not after
 
 **A fresh thread starts from the default branch. Anything still sitting on a feature branch does
