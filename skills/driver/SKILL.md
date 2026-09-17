@@ -347,10 +347,17 @@ never batched to the end of the run. Render the **crossroad message** and send i
 telegram skill, resolved relative to this one:
 
 ```
-bash <skill-dir>/../telegram/send.sh "<crossroad message>" \
-  || python3 <skill-dir>/driver_state.py note "$RUN_DIR" <ticket-id> telegram "ping not sent: <error line>"
+msg=$(cat <<'CROSSROAD'
+<crossroad message>
+CROSSROAD
+)
+bash <skill-dir>/../telegram/send.sh "$msg" 2>"$RUN_DIR/telegram.err" \
+  || python3 <skill-dir>/driver_state.py note "$RUN_DIR" <ticket-id> telegram \
+       "ping not sent: $(tail -1 "$RUN_DIR/telegram.err")" \
+  || true
 ```
 
+The quoted heredoc stops the shell expanding `$`, backticks and quotes in ticket-derived text.
 A missing or failed ping is journalled and the run carries on. It never fails or pauses the run.
 
 **The crossroad message** is the `/options` shape, sized for a phone:
