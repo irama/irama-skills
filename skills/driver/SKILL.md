@@ -310,8 +310,8 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
    Exit codes: **0** landed (record the printed commit), **3** merge conflict, **4** gate red,
    **5** the target moved during the gate (re-run it, the gate has to see the new base),
    **6** the worktree is dirty or the branch is checked out elsewhere. Anything non-zero: **do
-   not force it** — mark `blocked`, cascade every dependent ticket to `skipped (blocked by
-   <ticket>)`, continue with unaffected tickets.
+   not force it** — mark `blocked`, send the **blocked-ticket ping** (below), cascade every
+   dependent ticket to `skipped (blocked by <ticket>)`, continue with unaffected tickets.
 
    **Why the primitive and not `git merge`:** a merge commit cannot be aborted once it exists, so
    merging first and testing second leaves rejected code on the integration branch, where a later
@@ -323,7 +323,8 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
 7. `driver_state.py set-status "$RUN_DIR" <ticket-id> merged --commit <sha> --reviewer <who>`.
 8. A genuine blocking question from the worker (irreversible action, missing credential, a
    taste call only the user can make) → same as a failure: `blocked`, log the exact question +
-   your recommendation + the alternative, cascade-skip dependents, continue.
+   your recommendation + the alternative, send the **blocked-ticket ping** (below),
+   cascade-skip dependents, continue.
 9. Non-blocking questions the worker hits → take the sensible default per the user's standing
    rule, proceed, note the default taken in that ticket's summary line.
 10. Failed worktree → **retain it**, do not delete. Note it in the final summary as needing
@@ -340,6 +341,42 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
     resident for the whole run, measured at 39 GB across fourteen worktrees. If
     `git worktree remove` reports `Directory not empty`, the dev server outlived the kill:
     retry the kill, then remove.
+
+**The blocked-ticket ping.** Send it the moment a ticket is marked `blocked` (items 6 and 8),
+never batched to the end of the run. Render the **crossroad message** and send it through the
+telegram skill, resolved relative to this one:
+
+```
+bash <skill-dir>/../telegram/send.sh "<crossroad message>" \
+  || python3 <skill-dir>/driver_state.py note "$RUN_DIR" <ticket-id> telegram "ping not sent: <error line>"
+```
+
+A missing or failed ping is journalled and the run carries on. It never fails or pauses the run.
+
+**The crossroad message** is the `/options` shape, sized for a phone:
+
+- Line one: `<repo> driver, <run label>: <ticket-id> blocked`.
+- One sentence saying what is actually being decided, in plain words.
+- Lettered roads `A)`, `B)`, `C)`. Each road gives benefit, risk, cost and reversibility on one
+  or two short lines.
+- The last road is always a costed do-nothing (leave the ticket blocked, and what that stalls).
+- Exactly one road carries `(Recommended)` with a reason under six words.
+- Last line, verbatim with the repo filled in: `Reply with the letter in the <repo> driver thread`.
+  The run cannot read Telegram replies, so the letter is answered in chat.
+- At most about 900 characters. No em dashes. Australian spelling.
+
+```
+acme-web driver, watch tool: T04 blocked
+Decide whether the watch run may call a paid data API.
+A) Use the paid API (Recommended, only source with daily data)
+   Benefit: T04 and T05 land. Risk: key leaks. Cost: ~$20/month. Reversible: cancel anytime.
+B) Leave T04 blocked (do nothing)
+   Benefit: no spend. Risk: T05 stays skipped. Cost: $0, watch has no daily signal. Reversible: yes.
+Reply with the letter in the acme-web driver thread
+```
+
+Step 8's summary renders each blocked ticket with this same message, so the chat and the phone
+carry the same roads under the same letters.
 
 **Batch the plumbing into one shell call per phase.** Claim plus branch (step 3), and merge plus
 status plus teardown (items 6 and 11), each go in one `&&`-joined block printing one line on
@@ -419,8 +456,9 @@ Produce one unified summary, per-ticket:
 
 Statuses: shipped ✅ / skipped-cascaded ⏭ / blocked-needs-you 🛑. Any ticket landed on the
 fallback reviewer is marked ⚠️ degraded-gate in Notes — shipped, but single-model.
-A blocked ticket renders as an inline "your call" item (recommendation + alternative), never a
-popup. List worktrees needing manual `/prune`. State the stop reason if a budget ended the run
+A blocked ticket renders as an inline "your call" item using the **crossroad message** from
+step 5, word for word and under the same letters as the Telegram ping, never a popup. The roads
+use letters so they never collide with the summary's numbered options. List worktrees needing manual `/prune`. State the stop reason if a budget ended the run
 early. Follow the user's standard task-summary format for everything else (opening paragraph,
 solution, status, next steps).
 

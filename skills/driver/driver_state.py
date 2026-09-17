@@ -459,6 +459,11 @@ def _journal(args, entry):
 RUN_KEY = "_run"  # reserved: run metadata, never a ticket id
 
 
+def cmd_note(args):
+    _journal(args, {"phase": args.phase, "note": args.text})
+    return 0
+
+
 def cmd_init(args):
     os.makedirs(args.run_dir, exist_ok=True)
     os.makedirs(os.path.join(args.run_dir, "handoffs"), exist_ok=True)
@@ -694,6 +699,13 @@ def build_parser():
     s.add_argument("--commit")
     s.add_argument("--reviewer")
     s.set_defaults(func=cmd_set_status)
+
+    s = sub.add_parser("note", help="journal a phase record that is not a status change")
+    s.add_argument("run_dir")
+    s.add_argument("ticket_id")
+    s.add_argument("phase")
+    s.add_argument("text")
+    s.set_defaults(func=cmd_note)
 
     s = sub.add_parser("env", help="print the run's identity as shell assignments")
     s.add_argument("run_dir")
