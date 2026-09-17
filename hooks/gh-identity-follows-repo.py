@@ -11,9 +11,16 @@ an account about its own actions. That is the whole fix -- clearing the
 subscription afterwards cannot match it, because the first notification is
 already sent before any thread id exists to clear.
 
-Rewrites `gh issue create ...` into
-`GH_TOKEN="$(gh auth token --user <acct>)" gh issue create ...`.
-Read-only subcommands are left alone; they work fine under any account.
+Rewrites a command that contains `gh issue create ...` into
+`export GH_TOKEN="$(gh auth token --user <acct>)"; <the command unchanged>`.
+Commands with only read-only gh subcommands are left alone.
+
+The export goes at the very start and nowhere else. The earlier version inserted
+the prefix beside each match, and wherever a match sat inside a string (a double
+quoted body, an echo argument, a heredoc) the shell expanded the substitution
+without running gh and printed the live token into the output. Position zero can
+never be inside a quote, so a mis-scan now costs at most a needless export. A
+command that prints its environment (env, printenv, set) is never rewritten.
 """
 
 import json
@@ -37,6 +44,107 @@ def _git(cwd, *args):
         ).stdout.strip()
     except Exception:
         return ""
+
+
+# Words that may sit between a separator and the command they run.
+COMMAND_LEAD = re.compile(
+    r"\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|then|do|else|sudo|command|exec|env)\s+)*"
+)
+
+
+def _scan(cmd):
+    """Mark quoted or heredoc characters, and list unquoted separator positions."""
+    n = len(cmd)
+    quoted = [False] * n
+    seps = []
+    pending = []  # heredoc delimiters opened on the current line
+    quote = None
+    i = 0
+    while i < n:
+        c = cmd[i]
+        if quote == "'":
+            quoted[i] = True
+            if c == "'":
+                quote = None
+        elif quote == '"':
+            quoted[i] = True
+            if c == "\\" and i + 1 < n:
+                quoted[i + 1] = True
+                i += 2
+                continue
+            if c == '"':
+                quote = None
+        elif c == "\\" and i + 1 < n:
+            quoted[i] = quoted[i + 1] = True
+            i += 2
+            continue
+        elif c in "'\"":
+            quote = c
+            quoted[i] = True
+        elif c == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|("):
+            end = cmd.find("\n", i)
+            end = n if end < 0 else end
+            for k in range(i, end):
+                quoted[k] = True
+            i = end
+            continue
+        elif c == "<" and cmd.startswith("<<<", i):
+            i += 3
+            continue
+        elif c == "<":
+            m = re.match(r"<<(-?)\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?", cmd[i:])
+            if m:
+                pending.append((m.group(2), m.group(1) == "-"))
+                i += m.end()
+                continue
+        elif c in ";&|(\n":
+            seps.append(i)
+            if c == "\n" and pending:
+                j = i + 1
+                for delim, tabs in pending:
+                    while j < n:
+                        end = cmd.find("\n", j)
+                        end = n if end < 0 else end
+                        for k in range(j, end):
+                            quoted[k] = True
+                        line, j = cmd[j:end], end + 1
+                        if (line.lstrip("\t") if tabs else line) == delim:
+                            break
+                pending = []
+                seps.append(j - 1)
+                i = j
+                continue
+        i += 1
+    return quoted, seps
+
+
+# Commands that would print the exported token. The export reaches every process in the
+# command, not only gh: accepted, because scoping it to gh means inserting it mid-command,
+# which is the leak this hook was rewritten to remove.
+PRINTS_ENV = re.compile(
+    r"(^|[\s;&|(])(printenv|set|(?:env|export|declare|typeset)(?:\s+-\w+)*)(?=\s*($|[;&|)\n]))"
+    r"|GH_TOKEN"
+)
+
+
+def has_gh_write(command):
+    """True when an unquoted gh write sits in command position."""
+    quoted, seps = _scan(command)
+    for m in GH_WRITE.finditer(command):
+        start = m.start()
+        if quoted[start]:
+            continue
+        prev = max((s for s in seps if s < start), default=-1)
+        if COMMAND_LEAD.fullmatch(command[prev + 1:start]):
+            return True
+    return False
+
+
+def rewrite(command, account):
+    """Export the account's token at the start of a command that makes a gh write."""
+    if not has_gh_write(command) or PRINTS_ENV.search(command):
+        return command
+    return 'export GH_TOKEN="$(gh auth token --user %s)"; %s' % (account, command)
 
 
 def gh_accounts():
@@ -92,15 +200,17 @@ def main():
 
     # ponytail: verify the token resolves rather than risk exporting an empty
     # GH_TOKEN, which gh treats as a hard auth failure rather than falling back.
-    probe = subprocess.run(
-        ["gh", "auth", "token", "--user", account],
-        capture_output=True, text=True, timeout=10,
-    )
+    try:
+        probe = subprocess.run(
+            ["gh", "auth", "token", "--user", account],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return
     if probe.returncode != 0 or not probe.stdout.strip():
         return
 
-    prefix = 'GH_TOKEN="$(gh auth token --user %s)" ' % account
-    updated = GH_WRITE.sub(lambda m: prefix + m.group(0), command, count=1)
+    updated = rewrite(command, account)
     if updated == command:
         return
 
