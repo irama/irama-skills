@@ -13,7 +13,7 @@ disable-model-invocation: true
 
 **The three decisions a run needs are right here, so the spec does not have to be read.**
 Execution is sequential, never parallel. Every ticket worktree branches from the integration
-branch's tip, not the default branch. This skill owns the review pass (step 5) and the test pass (step 6), so workers run neither. Full rationale, the Codex plan-review findings and what got cut
+branch's tip, not the default branch. This skill owns the review pass (step 5) and the test pass (the `land` gate in step 5), so workers run neither. The run stops on its integration branch and never merges to the default branch (step 6). Full rationale, the Codex plan-review findings and what got cut
 for v1 live in `docs/driver-spec.md` under the Claude config directory. It is 22KB, which is
 roughly eleven ordinary file reads carried for the whole run, so open it only when deviating from
 one of those three decisions.
@@ -93,6 +93,8 @@ gh issue view <N> -R <owner>/<repo> --json number,labels,title
 - Labelled **`in-progress`** → another run holds it. Do NOT include it. Name the ticket, say a
   run already claimed it, and offer: drop it from this run (default) / take it over anyway
   because that run died (then say so in the claim comment).
+- Labelled **`ready-to-merge`** → already built on another run's `driver/` branch, awaiting
+  `/merge`. Drop it, same as `landed-locally` below.
 - Labelled **`landed-locally`** → already built and sitting on local `main` unpushed. Do NOT
   rebuild it. Say so and drop it — the work needs `/push`, not a second implementation.
 - Local markdown tracker → same check against the ticket file's `status:` line.
@@ -350,36 +352,34 @@ success. Those commands are 16% of orchestrator context for lines nobody reads.
 Repeat until every ticket is `merged`, `blocked`, or `skipped`, or the context checkpoint (step 4)
 stops the run.
 
-### 6. Land the integration branch
+### 6. Stop at the integration branch
 
-Once the run stops (all tickets resolved, or a budget hit), land it the same way a ticket lands —
-gate a candidate, then advance the default branch only if it has not moved:
+**The run ends on `driver/$RUN_ID`. It never merges onto the default branch.** Invoking `/driver`
+authorises building and landing tickets on the run's own integration branch, and nothing more. The
+user's standing rule is that a merge to the default branch needs an explicit ask, and a run that
+followed the old "land on main" step here merged without one.
 
-```
-python3 <skill-dir>/driver_state.py land \
-  --work "$WORK" --target "<default-branch>" --source "driver/$RUN_ID" \
-  --run-dir "$RUN_DIR" --wait 1800 \
-  --gate "<typecheck && lint && tests, plus e2e if the run touched UI>"
-```
+Report the run as `ready-to-merge` with the integration branch name, and offer `/merge` as an
+option. `/merge` (from the run worktree) or `/merge all` picks the branch up, and its own `land`
+gate runs on the **combined** tree. That gate still matters: another thread may have landed on the
+default branch while this run was building, and two independently-green branches can still
+conflict semantically.
 
-The gate here runs on the **combined** tree, which is the point: another thread may have landed
-on the default branch while this run was building, and two independently-green branches can still
-conflict semantically. Exit **5** means exactly that happened during the gate — re-run it. Exit
-**6** means the default branch is checked out dirty somewhere; report `ready-to-land` with the
-integration branch name and leave it, rather than writing over someone's uncommitted work.
+If the user explicitly asked for the merge in the invocation, hand over to `/merge` after step 8.
+Never call `driver_state.py land --target <default-branch>` from this skill.
 
-No push. `/push` remains a separate, explicitly human-invoked step, same as every other verb in
-the fleet.
+No push either. `/push` remains a separate, explicitly human-invoked step.
 
 The run's own worktree comes down in step 8, after the tracker write-back — not here. Removing it
 first means a failed write-back leaves tickets labelled `in-progress` with nowhere to resume from.
 
 ### 7. Roadmap and tracker write-back
 
-- Tickets that merged: label/comment the tracker ticket `landed-locally` and **remove
-  `in-progress`** (the claim from step 3) — **do not close it**. Closing implies the work is
-  live; it's only live after `/push` and a later confirmed-deployed check, which is not part of
-  this run.
+- Tickets that landed on the integration branch: label the tracker ticket `ready-to-merge`,
+  comment with the branch name, and **remove `in-progress`** (the claim from step 3). **Do not
+  close it**, and do not label it `landed-locally`: that label means the work is on local `main`,
+  which is only true after `/merge`. Create the label once per repo if it is missing:
+  `gh label create ready-to-merge -R <owner>/<repo> -c 5319E7 -d "Built on a /driver branch, awaiting /merge"`.
 - **Every ticket the run does not land must be UNCLAIMED** — `blocked`, `skipped`, or still
   pending when the run stops: remove `in-progress`, restore `ready-for-agent`. A stale claim is
   worse than no claim: the next run reads it as live work and silently drops the ticket, and
@@ -408,8 +408,8 @@ bash "$HOME/.claude/scripts/localhost-dev.sh" kill-repo "$WORK"
 git worktree remove "$WORK"
 ```
 
-Keep the `driver/$RUN_ID` branch until `/prune`, so the run's history stays inspectable. A run
-that stopped at `ready-to-land`, or one that is `blocked`, keeps its worktree: there is nothing
+Keep the `driver/$RUN_ID` branch: it is what `/merge` lands, and `/prune` removes it afterwards. A
+run that is `blocked` keeps its worktree: there is nothing
 to inspect once it is gone, and the overlap telemetry reads a live run by its worktree.
 
 Produce one unified summary, per-ticket:
