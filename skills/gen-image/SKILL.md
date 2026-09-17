@@ -64,6 +64,10 @@ images as a spend the user should approve first, with an estimate.
 
 - Say the **medium and the light** first ("editorial photograph, low winter sun, shallow depth of
   field"), then subject, then composition, then what to exclude.
+- **Say where a face is looking.** Any person or animal in frame needs a named point to look at —
+  out across the water, down at the work in their hands, along the path ahead. Left unsaid, the
+  model puts the subject in direct eye contact with the lens, which reads as posed and unnerving.
+  Ask for eye contact only when it is the point of the image, and then say so in those words.
 - Nano Banana 2 handles **text in images** better than most; still keep any rendered words short
   and check the output — a misspelt word on a slide is worse than no word.
 - For a slide graphic, ask for **negative space on one side** so the deck's copy has somewhere to
