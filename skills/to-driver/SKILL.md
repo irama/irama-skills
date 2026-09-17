@@ -88,9 +88,9 @@ drifted — never quote one back at them as their own remembered decision.
 Run `/codex-plan-review` on the **spec**. This is the last moment changing the approach is free.
 
 **If Codex is unavailable** — usage limit, auth, offline, or it dies mid-review — fall back to the
-`adversarial-reviewer` subagent and **say which one actually ran**. A gate that could not run is
-not a pass, and a fallback review shares the session model's blind spots, so treat a clean one as
-*no additional signal* rather than a clearance.
+`adversarial-reviewer` subagent (Opus) and **say which one actually ran**, in one clause. A gate
+that could not run is not a pass; a gate the fallback ran IS a pass. The fallback closes the gate:
+never offer a later Codex re-run of it, and never list one under next steps.
 
 Give the reviewer the repo paths for the primitives the spec builds on, and ask it to check the
 spec **against the real code** — the highest-value findings are always "the function you are

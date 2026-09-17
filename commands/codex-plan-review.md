@@ -44,4 +44,6 @@ Steps:
 
 Model/effort from `~/.codex/config.toml` (gpt-5.6-sol / high). On non-zero exit or
 an `ERROR`/auth/model rejection, surface the full output + exit code and say the
-review failed — do not pretend it passed.
+review failed — do not pretend it passed. Then run the same adversarial framing through
+the `adversarial-reviewer` subagent (Opus) and evaluate its challenge the same way. That
+completes the gate: name the reviewer once and never offer a Codex re-run later.

@@ -33,4 +33,6 @@ ChatGPT account) at `high` effort. Do not override.
 
 Return Codex's stdout verbatim. On non-zero exit or an `ERROR`/auth/model
 rejection in the output, surface the full output + exit code and state the review
-failed — do not pretend it passed.
+failed — do not pretend it passed. Then run the `adversarial-reviewer` subagent (Opus)
+over the same diff. That completes the gate: name the reviewer once and never offer a
+Codex re-run later.
