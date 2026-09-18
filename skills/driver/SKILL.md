@@ -155,18 +155,27 @@ resume. Launch it with the Bash tool's `run_in_background: true`, never inline. 
 call can hold the orchestrator for hours, so a ping sent between tickets would miss the hour:
 
 ```
-label="$REPO driver, <run label>"
-while sleep 3600 && msg=$(python3 <skill-dir>/driver_state.py progress "$RUN_DIR" --label "$label"); do
+RUN_DIR=<the run dir, written out>          # shell variables do not survive between Bash calls
+IFS= read -r run_label <<'LABEL'
+<run label>
+LABEL
+label="<repo> driver, $run_label"
+ds=<skill-dir>/driver_state.py
+owner=$(python3 "$ds" progress "$RUN_DIR" --owner-only) || exit 1
+while sleep 3600 && msg=$(python3 "$ds" progress "$RUN_DIR" --label "$label" --owner "$owner"); do
   bash <skill-dir>/../telegram/send.sh "$msg" >/dev/null 2>>"$RUN_DIR/telegram.err" || true
 done
 ```
 
+Write the repo name and the run dir into the block as literal values. The quoted heredoc keeps
+quotes, `$` and backticks in the run label from breaking the loop.
+
 `progress` prints one line, for example
 `acme-web driver, watch tool: 5/8 done (4 merged, 1 blocked), 1 in progress. Running 2h10m. ETA 16:40 (about 1h18m)`.
 The ETA is the mean time per worked ticket since the run started, multiplied by the tickets
-left. `progress` exits non-zero once the lock is released or its owning thread has died, so the
-loop stops by itself. Never kill it by hand, and never start a second one on a resume while the
-first still runs.
+left. `progress --owner` exits non-zero once the lock is released, its owning thread has died,
+or a resumed thread has taken the lock over. The loop stops by itself in each case, so a
+resume starts its own loop and never doubles up. Never kill the loop by hand.
 
 **Claim every ticket in the tracker, now — before any work starts, and under the scope lock.**
 The claim is what makes step 2's check work for the next thread; a run that only labels at the

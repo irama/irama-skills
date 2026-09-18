@@ -666,6 +666,12 @@ def cmd_progress(args):
         return 3
     if not _owner_is_live(owner):
         return 3
+    # A resumed run relocks under a new thread; the old thread's watcher must stop, not double up.
+    if args.owner is not None and owner.get("pid") != args.owner:
+        return 3
+    if args.owner_only:
+        print(owner.get("pid"))
+        return 0
     print(progress_line(load_state(args.run_dir), args.label))
     return 0
 
@@ -769,7 +775,9 @@ def build_parser():
 
     s = sub.add_parser("progress", help="one-line progress + ETA; exit 3 when the run is not live")
     s.add_argument("run_dir")
-    s.add_argument("--label", required=True, help="e.g. '<repo> driver, <run label>'")
+    s.add_argument("--label", default="", help="e.g. '<repo> driver, <run label>'")
+    s.add_argument("--owner", type=int, help="exit 3 unless this pid still owns the lock")
+    s.add_argument("--owner-only", action="store_true", help="print the lock owner's pid")
     s.set_defaults(func=cmd_progress)
 
     s = sub.add_parser("with-lock", help="run a command holding a repo-wide lock")
@@ -1125,7 +1133,11 @@ def selftest():
     assert "Running 2h00m" in line and "(about 2h00m)" in line, line
     assert "after the first ticket" in progress_line({RUN_KEY: {"ts": t0}, "a": {"status": "pending"}}, "x", now=t0)
     with tf.TemporaryDirectory() as run_dir:
-        assert cmd_progress(argparse.Namespace(run_dir=run_dir, label="x")) == 3
+        ns = dict(run_dir=run_dir, label="x", owner=None, owner_only=False)
+        assert cmd_progress(argparse.Namespace(**ns)) == 3
+        assert cmd_lock(argparse.Namespace(run_dir=run_dir, stale_hours=6.0)) == 0
+        assert cmd_progress(argparse.Namespace(**ns)) == 0
+        assert cmd_progress(argparse.Namespace(**{**ns, "owner": _owner_pid() + 1})) == 3
     print("ok: (d) progress ETA ignores skipped tickets; no live lock stops the watcher")
 
     selftest_land()
