@@ -623,6 +623,53 @@ def cmd_summary(args):
     return 0
 
 
+def progress_line(state, label, now=None):
+    """One phone-sized progress line with an ETA. Pure, so the selftest can pin it."""
+    now = now or time.time()
+    tickets = {k: v for k, v in state.items() if k != RUN_KEY}
+    count = {s: 0 for s in VALID_STATUSES}
+    for entry in tickets.values():
+        count[entry.get("status", "pending")] = count.get(entry.get("status", "pending"), 0) + 1
+    started = (state.get(RUN_KEY) or {}).get("ts") or min(
+        (e.get("ts") or now for e in tickets.values()), default=now)
+    elapsed = max(0.0, now - started)
+    # Skipped tickets cascade instantly, so only worked tickets set the pace.
+    # ponytail: mean pace since run start, so a resumed run counts the gap; per-ticket timings if the ETA misleads
+    worked = count["merged"] + count["blocked"]
+    left = count["pending"] + count["in-progress"]
+    done = worked + count["skipped"]
+
+    def dur(s):
+        h, m = divmod(int(s // 60), 60)
+        return f"{h}h{m:02d}m" if h else f"{m}m"
+
+    if left == 0:
+        eta = "ETA: finishing now"
+    elif worked == 0:
+        eta = "ETA after the first ticket lands"
+    else:
+        rest = elapsed / worked * left
+        eta = f"ETA {time.strftime('%H:%M', time.localtime(now + rest))} (about {dur(rest)})"
+    parts = [f"{count['merged']} merged"]
+    parts += [f"{count[s]} {s}" for s in ("blocked", "skipped") if count[s]]
+    return (f"{label}: {done}/{len(tickets)} done ({', '.join(parts)}), "
+            f"{count['in-progress']} in progress. Running {dur(elapsed)}. {eta}")
+
+
+def cmd_progress(args):
+    """Print the progress line. Exit 3 when no live run holds the lock, so an
+    hourly watcher loop stops by itself when the run ends or its thread dies."""
+    try:
+        with open(os.path.join(_lock_dir(args.run_dir), "owner.json")) as f:
+            owner = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return 3
+    if not _owner_is_live(owner):
+        return 3
+    print(progress_line(load_state(args.run_dir), args.label))
+    return 0
+
+
 def cmd_reconcile(args):
     """A ticket marked in-progress/merged with a commit that isn't actually an
     ancestor of the integration branch tip did NOT really land — a crash could
@@ -719,6 +766,11 @@ def build_parser():
     s = sub.add_parser("summary")
     s.add_argument("run_dir")
     s.set_defaults(func=cmd_summary)
+
+    s = sub.add_parser("progress", help="one-line progress + ETA; exit 3 when the run is not live")
+    s.add_argument("run_dir")
+    s.add_argument("--label", required=True, help="e.g. '<repo> driver, <run label>'")
+    s.set_defaults(func=cmd_progress)
 
     s = sub.add_parser("with-lock", help="run a command holding a repo-wide lock")
     s.add_argument("name")
@@ -1062,6 +1114,19 @@ def selftest():
         rc2 = cmd_lock(a2)
         assert rc2 == 1, "second lock attempt should be refused while first is held"
     print("ok: (c) concurrent /driver runs against the same run-dir are refused")
+
+    # (d) the progress line paces the ETA on worked tickets only, never skipped ones.
+    t0 = 1_000_000.0
+    st = {RUN_KEY: {"ts": t0},
+          "a": {"status": "merged"}, "b": {"status": "blocked"}, "c": {"status": "skipped"},
+          "d": {"status": "in-progress"}, "e": {"status": "pending"}}
+    line = progress_line(st, "x driver", now=t0 + 2 * 3600)
+    assert "3/5 done (1 merged, 1 blocked, 1 skipped), 1 in progress" in line, line
+    assert "Running 2h00m" in line and "(about 2h00m)" in line, line
+    assert "after the first ticket" in progress_line({RUN_KEY: {"ts": t0}, "a": {"status": "pending"}}, "x", now=t0)
+    with tf.TemporaryDirectory() as run_dir:
+        assert cmd_progress(argparse.Namespace(run_dir=run_dir, label="x")) == 3
+    print("ok: (d) progress ETA ignores skipped tickets; no live lock stops the watcher")
 
     selftest_land()
     print("ALL SELFTESTS PASSED")

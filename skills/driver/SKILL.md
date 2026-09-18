@@ -150,6 +150,24 @@ repos check for any live `<repo>:driver:` key and stop if one exists.
 `python3 "$reg" claim "$REPO:driver:$RUN_ID" --note "<run label> — 7/12, on <ticket>"`. That is what makes `/threads` show the run's
 position without anyone asking this thread.
 
+**Start the hourly Telegram progress report once the lock is held**, on a fresh run and on a
+resume. Launch it with the Bash tool's `run_in_background: true`, never inline. A worker `Agent`
+call can hold the orchestrator for hours, so a ping sent between tickets would miss the hour:
+
+```
+label="$REPO driver, <run label>"
+while sleep 3600 && msg=$(python3 <skill-dir>/driver_state.py progress "$RUN_DIR" --label "$label"); do
+  bash <skill-dir>/../telegram/send.sh "$msg" >/dev/null 2>>"$RUN_DIR/telegram.err" || true
+done
+```
+
+`progress` prints one line, for example
+`acme-web driver, watch tool: 5/8 done (4 merged, 1 blocked), 1 in progress. Running 2h10m. ETA 16:40 (about 1h18m)`.
+The ETA is the mean time per worked ticket since the run started, multiplied by the tickets
+left. `progress` exits non-zero once the lock is released or its owning thread has died, so the
+loop stops by itself. Never kill it by hand, and never start a second one on a resume while the
+first still runs.
+
 **Claim every ticket in the tracker, now — before any work starts, and under the scope lock.**
 The claim is what makes step 2's check work for the next thread; a run that only labels at the
 end (step 7) leaves the whole build window looking unclaimed. Two runs can otherwise both read a
@@ -326,8 +344,8 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
 
    **Run e2e only if the ticket's diff touches UI.** Check the diff, don't add it by default.
 7. `driver_state.py set-status "$RUN_DIR" <ticket-id> merged --commit <sha> --reviewer <who>`.
-8. A genuine blocking question from the worker (irreversible action, missing credential, a
-   taste call only the user can make) → same as a failure: `blocked`, log the exact question +
+8. A showstopper question from the worker or the orchestrator (irreversible action, missing
+   credential, a taste call only the user can make) → same as a failure: `blocked`, log the exact question +
    your recommendation + the alternative, send the **blocked-ticket ping** (below),
    cascade-skip dependents, continue.
 9. Non-blocking questions the worker hits → take the sensible default per the user's standing
@@ -364,6 +382,13 @@ bash <skill-dir>/../telegram/send.sh "$msg" 2>"$RUN_DIR/telegram.err" \
 
 The quoted heredoc stops the shell expanding `$`, backticks and quotes in ticket-derived text.
 A missing or failed ping is journalled and the run carries on. It never fails or pauses the run.
+
+**Keep the Telegram details private.** `send.sh` reads the bot token and chat id from
+`~/.claude/.telegram.env` (mode 600, outside every repo). Never read, echo or copy that file,
+and never write the token or chat id into this skill, the run dir, a handoff, a ticket, a
+commit or a tracker comment. This skill is public. A ping holds only the repo name, the run
+label, ticket ids, counts, times and the crossroad text. It never holds secrets, env values,
+code or diff content, because every message leaves the machine for Telegram's servers.
 
 **The crossroad message** is the `/options` shape, sized for a phone:
 
@@ -449,6 +474,15 @@ Sign off with what actually happened. A run that stopped on a budget or a blocke
 ticket is `--status incomplete`; a run waiting on a decision only the user can make
 is `--status waiting-on-user`, which keeps the repo held so nobody else starts a
 second run over the top of a half-finished one.
+
+Releasing the lock stops the hourly report. Send the **completion ping** now, through the same
+quoted-heredoc `send.sh` call and failure handling as the blocked-ticket ping. It is at most
+three lines:
+
+- Line one: `<repo> driver, <run label>: finished` (or `stopped at the context checkpoint`).
+- The counts and the elapsed time: `6 merged, 1 blocked, 1 skipped in 3h12m.`
+- What waits: `driver/<run-id> is ready to /merge. 1 decision waits in the thread.`, or the
+  resume command for an incomplete run.
 
 Now the run's worktree comes down, after the write-back above succeeded:
 
