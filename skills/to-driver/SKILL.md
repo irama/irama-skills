@@ -42,6 +42,29 @@ worse than no tickets:
 
 Do not "save the user time" by answering either gate yourself.
 
+## Claim the planning cycle — by topic, never the bare verb
+
+Several `/to-driver` threads can plan in one repo at once. The claim does not block anything; it
+tells the dashboard and the other threads what this one is planning. The register is last claim
+wins per key, so a bare `<repo>:to-driver` key lets a second planning thread silently overwrite
+the first and hide it. Key the claim to the topic:
+
+```bash
+common="$(git rev-parse --path-format=absolute --git-common-dir)"
+REPO="$(basename "$([ "$(basename "$common")" = .git ] && dirname "$common" || echo "$common")")"
+reg=<skill-dir>/../threads/assets/register.py
+KEY="$REPO:to-driver:<topic-slug>"   # kebab-case, names the work: watch-dashboard, likelihood-round-v13
+[ -f "$reg" ] && python3 "$reg" claim "$KEY" --note "<one line: what is being planned>"
+```
+
+- **Claim on pick-up**, in step 1, before the first question.
+- **At every human gate**, sign off `waiting-on-user` with the gate in the note
+  (`--note "grill Q3 of ~6"`, `"ticket breakdown awaiting approval"`), and claim `$KEY` again
+  when the answer lands. Claiming again reopens the same key.
+- **In step 8**, sign off `handed-off`, with the `/driver` command's label in the note. From
+  there, `/driver` claims its own per-run key.
+- **Stopping part-way**, with no command handed back, signs off `waiting-on-user` and says why.
+
 ## Process
 
 ### 1. Assess — show the working, don't judge silently
@@ -185,6 +208,8 @@ Lead with a **short label naming the work**, then the references, on one line, r
 - Add one line on the suggested grouping if the set splits sensibly.
 - **State what was merged in step 7**, so the next thread knows what its checkout already carries.
   Name the branches, and name anything left unmerged with the reason.
+
+Sign off the planning claim: `python3 "$reg" sign-off "$KEY" --status handed-off --note "<label>"`.
 
 Then stop. **Never run `/driver` yourself.**
 
