@@ -27,6 +27,15 @@ Run (foreground, generous timeout — a review can take a minute or two):
     # or, with custom instructions on the default scope:
     codex exec review "<focus instructions>" 2>&1
 
+**If the diff contains a brief or report** (a rendered brief html, a `docs/plans/` document,
+or a `.md` with a brief id in its front matter), run one extra prompt-only pass over that
+document asking three questions: does the top of the document state what the body proves, is
+any `Recommended` option consistent with the document's own disclosures, and does every
+decision question state cost, benefit and likelihood in its own text. Report a failure on any
+of the three as a P2 finding. A scope flag and prompt text cannot be combined, so this is a
+separate call, and it carries into the `adversarial-reviewer` prompt when that reviewer runs
+instead.
+
 Model/effort come from `~/.codex/config.toml` — the account's own default model
 (deliberately unset since 2026-08-24, when named models were rejected on a
 ChatGPT account) at `high` effort. Do not override.

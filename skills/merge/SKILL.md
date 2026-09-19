@@ -76,6 +76,14 @@ window that matters.
    - **Skip if already reviewed.** If a full-diff Codex review of (essentially) this same diff already ran this session — e.g. a user-invoked `/codex-review --base <default-branch>` just before merging — do NOT re-review the whole diff; reuse those findings and only review what changed since (see re-run scoping below).
    - **Scope the first pass to THIS thread's work, not all unpushed main.** Capture `pre=$(git rev-parse <default-branch>)` BEFORE merging, then review with `--base "$pre"`. `--base origin/<default-branch>` re-reviews every other thread's already-merged (and possibly already-reviewed) work on each pass — that's how one merge burns multi-hundred-KB passes and surfaces out-of-thread findings. Use `origin/<default-branch>` only for `/merge all`, where the whole set is genuinely new.
    - **One lens by default.** Run a single default review: `codex-auto exec review --base "$pre"`. Add the second account as a **security lens** (`codex-as <other> exec review --base "$pre"`) ONLY when the diff touches auth, payments/money, data deletion, or externally-reachable input handling. (Note: `codex exec review` cannot combine a scope flag with prompt text — scope-only.) Trivial/docs-only diff → skip and say so.
+   - **Diff contains a brief or report** (a rendered brief html, a `docs/plans/` document, or a
+     `.md` with a brief id in its front matter) → the reviewer also answers three questions about
+     that document: does its top state what the body proves, is any `Recommended` option
+     consistent with the document's own disclosures, and does every decision question state cost,
+     benefit and likelihood in its own text. A failure on any of the three is a **P2** finding.
+     `codex exec review` takes a scope flag *or* prompt text, never both, so ask these as a
+     second, prompt-only pass naming the document, or put them in the `adversarial-reviewer`
+     prompt when that reviewer is the one running.
    - Findings are advisory, not a hard block — but a real correctness/security/data-loss finding means **STOP and ask** before the change can be pushed.
 
    **Re-run after fixing findings — but only when severity warrants, and scope the re-run to the FIX, not the branch.**

@@ -127,6 +127,19 @@ is a defect. Measured 2026-09-18: a ten-ticket run named its mockup in one ticke
 page shipped with none of the mockup's visual structure while every numeric acceptance item
 passed.
 
+**A ticket that produces a brief, report or decision document carries two more acceptance
+items, verbatim.** `/to-tickets` cannot be edited (it is a versioned plugin skill), so it
+includes them because the prompt this step hands it says to: state that the two items below
+are mandatory on every document-producing ticket, and repeat them word for word in that
+prompt, not as a summary of them.
+
+- "The first sentence states the call and its price; the reader does not have to compute the trade from numbers in different sections."
+- "Every Recommended option survives the document's own disclosures; a gate passed at a tie is reported as a tie and is not recommended."
+
+Both are reader checks, not author checks. The first fails when the verdict is assembled from
+a table on page one and a cost on page four. The second fails when a document discloses a
+result and still recommends the option the disclosure undercuts.
+
 ### 7. Land the work on the default branch — before the command, not after
 
 **A fresh thread starts from the default branch. Anything still sitting on a feature branch does

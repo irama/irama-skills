@@ -326,6 +326,11 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
      for days, and blocking migration/auth/payments tickets on it stalls exactly the work the
      fallback exists to unblock. Record `--reviewer adversarial-reviewer` and name the degraded
      gate in the final summary.
+   - **Diff is a brief, report or decision document** (a rendered brief, a plans document, a
+     `.md` carrying a brief id) → the review prompt also asks three things: does the top of the
+     document state what the body proves, is any `Recommended` option consistent with the
+     document's own disclosures, and does every decision question state cost, benefit and
+     likelihood in its own text. A failure on any of the three is returned at **P2**.
    - Only a *failed* review blocks — the fallback couldn't run at all, or it left a P0/P1/P2
      finding unresolved. That's an ordinary `blocked`, handled like any other ticket failure.
 6. **Land the reviewed ticket with `driver_state.py land`. Never merge onto the integration
