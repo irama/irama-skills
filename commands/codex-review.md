@@ -1,7 +1,7 @@
 ---
 description: Codex code review of the current changes via the local Codex CLI (codex exec review). Read-only second-model review over your ChatGPT-subscription auth. Defaults to uncommitted changes; --base <ref> reviews a branch.
 argument-hint: '[--uncommitted | --base <ref> | --commit <sha>] [extra focus instructions…]'
-allowed-tools: Bash(codex:*), Bash(git:*)
+allowed-tools: Bash(codex:*), Bash(codex-review-env:*), Bash(git:*)
 ---
 
 Run an independent Codex code review of the current repository and return its
@@ -21,9 +21,22 @@ plain `codex exec`). Pick one form:
   confirm there is something to review with `git status --short --untracked-files=all`;
   if empty, say so and stop.
 
-**Model routing.** If `~/.config/models-route/review.env` exists, source it and pass its
-model on to `codex exec review`. Assemble the flags first so a missing file or a file with
-no `REVIEW_MODEL` produces the exact same command as today:
+**Model routing.** Run the review through `codex-review-env` — a thin exec wrapper beside
+`codex-auto`/`codex-as` on PATH — instead of calling `codex` directly. It sources
+`~/.config/models-route/review.env` per call (each Bash tool call is a fresh process, so an
+inline `REVIEW_FLAGS` assembled once would not survive to a later call) and inserts its
+model/effort after the `exec review` words. A missing file, or one with no `REVIEW_MODEL`,
+leaves the argv byte-identical to calling `codex` directly.
+
+Run (foreground, generous timeout — a review can take a minute or two):
+
+    codex-review-env exec review --uncommitted 2>&1
+    # or, with custom instructions on the default scope:
+    codex-review-env exec review "<focus instructions>" 2>&1
+
+No `codex-review-env` on PATH (same optional-tooling case as `codex-auto`)? Assemble the
+flags inline instead, in the SAME Bash call as the review (a separate earlier call does not
+carry the variable forward):
 
     REVIEW_FLAGS=()
     if [ -f ~/.config/models-route/review.env ]; then
@@ -33,12 +46,7 @@ no `REVIEW_MODEL` produces the exact same command as today:
         [ -n "${REVIEW_EFFORT:-}" ] && REVIEW_FLAGS+=(-c "model_reasoning_effort=$REVIEW_EFFORT")
       fi
     fi
-
-Run (foreground, generous timeout — a review can take a minute or two):
-
     codex exec review --uncommitted "${REVIEW_FLAGS[@]}" 2>&1
-    # or, with custom instructions on the default scope:
-    codex exec review "<focus instructions>" "${REVIEW_FLAGS[@]}" 2>&1
 
 **If the diff contains a brief or report** (a rendered brief html, a `docs/plans/` document,
 or a `.md` with a brief id in its front matter), run one extra prompt-only pass over that

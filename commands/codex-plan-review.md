@@ -1,7 +1,7 @@
 ---
 description: Adversarial Codex review of a PLAN or design (not code) via the local Codex CLI. Read-only second-model challenge — pressure-tests the approach, assumptions, tradeoffs, and failure modes before you build. Use when a plan is agreed but not yet implemented.
 argument-hint: '[plan text, or path to a plan file — defaults to the current in-context plan]'
-allowed-tools: Bash(codex:*), Bash(git:*), Read
+allowed-tools: Bash(codex:*), Bash(codex-review-env:*), Bash(git:*), Read
 ---
 
 Get an independent second model to CHALLENGE the current plan before building.
@@ -34,8 +34,21 @@ Steps:
        <paste the full plan here>
        EOF
 
-2. If `~/.config/models-route/review.env` exists, source it and build the model flags —
-   a missing file or a file with no `REVIEW_MODEL` leaves the command unchanged:
+2. Run it through `codex-review-env` — a thin exec wrapper beside `codex-auto`/`codex-as`
+   on PATH — instead of calling `codex` directly. It sources
+   `~/.config/models-route/review.env` per call (each Bash tool call is a fresh process, so
+   an inline `REVIEW_FLAGS` assembled in step 2 would not survive to step 3's call) and
+   inserts its model/effort right after the `exec` word. A missing file, or one with no
+   `REVIEW_MODEL`, leaves the argv byte-identical to calling `codex` directly.
+
+3. Run read-only, with the repo as context (generous timeout — a minute or two):
+
+       codex-review-env exec --color never -s read-only --skip-git-repo-check \
+         -C "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" - < "$F" 2>&1
+
+   No `codex-review-env` on PATH (same optional-tooling case as `codex-auto`)? Assemble the
+   flags inline instead, in the SAME Bash call as the run (a separate earlier call does not
+   carry the variable forward):
 
        REVIEW_FLAGS=()
        if [ -f ~/.config/models-route/review.env ]; then
@@ -45,9 +58,6 @@ Steps:
            [ -n "${REVIEW_EFFORT:-}" ] && REVIEW_FLAGS+=(-c "model_reasoning_effort=$REVIEW_EFFORT")
          fi
        fi
-
-3. Run read-only, with the repo as context (generous timeout — a minute or two):
-
        codex exec --color never -s read-only --skip-git-repo-check \
          -C "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" "${REVIEW_FLAGS[@]}" - < "$F" 2>&1
 

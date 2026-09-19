@@ -166,8 +166,9 @@ symlink `skills/sourced` into `~/.claude/skills/` the same way this repo's skill
 
 `/allow-asks`, `/codex-review`, `/codex-plan-review`.
 
-The `codex-auto` / `codex-as` / `codex-alt` wrappers referenced by the Codex agent
-are a private multi-account pool helper and are **not** shipped here. Plain `codex`
+The `codex-auto` / `codex-as` / `codex-alt` / `codex-review-env` wrappers referenced by
+the Codex agent and the review commands are a private multi-account pool helper (plus a
+model-routing wrapper that composes with it) and are **not** shipped here. Plain `codex`
 works everywhere they appear — the agent doc says so at the top.
 
 ---

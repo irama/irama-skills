@@ -72,7 +72,7 @@ window that matters.
 
       **Otherwise run it — and that includes the common case.** A `--no-ff` merge onto a `<default-branch>` that other branches have already landed on produces a **new tree that nothing has ever validated**: both sides can be independently green and still conflict semantically. Also always run it for `/merge all`, for any hand-resolved conflict, and whenever the tip's gate is unknown or was skipped. Note the `Stop` hook commits `--no-verify`, so a branch of pure WIP auto-commits is **ungated** — condition (ii) fails and the gate is mandatory.
    e) **If the branch touched UI/render code and the repo has a browser/e2e tier** (Playwright, Cypress), add it to `--gate` too — a green unit suite will NOT catch a white-screen render crash (Rules-of-Hooks / React #310, bad context read, effect throw); only a real browser mount does. Red → the landing refuses and `<default-branch>` never saw it.
-5. **Codex review gate (second-model axis — runs here, not at `/push`).** These are the rules step 4b runs by, on the branch, **before** it lands. Before the first `codex exec review` call, assemble the model flags once — a missing `~/.config/models-route/review.env` or one with no `REVIEW_MODEL` leaves every `codex exec review` call below byte-identical to today:
+5. **Codex review gate (second-model axis — runs here, not at `/push`).** These are the rules step 4b runs by, on the branch, **before** it lands. Every `codex exec review` call below runs through `codex-review-env` instead of calling `codex-auto`/`codex-as` directly — it is a thin exec wrapper beside them on PATH that sources `~/.config/models-route/review.env` per call and inserts its model/effort after the `exec review` words. Each Bash tool call is a fresh process (no shell state survives between them), so an inline `REVIEW_FLAGS=(...)` assembled once and reused across later calls silently loses the flags — the wrapper carries them instead. A missing `review.env`, or one with no `REVIEW_MODEL`, leaves every call below byte-identical to calling `codex-auto`/`codex-as` directly. No `codex-review-env` on PATH (same optional-tooling case as `codex-auto`) → assemble `REVIEW_FLAGS` fresh in each individual Bash call (not once for reuse) and append `"${REVIEW_FLAGS[@]}"`:
 
    ```bash
    REVIEW_FLAGS=()
@@ -85,10 +85,10 @@ window that matters.
    fi
    ```
 
-   Append `"${REVIEW_FLAGS[@]}"` to every `codex exec review` / `codex-auto exec review` / `codex-as <acct> exec review` invocation below. **Quota discipline first** (2026-07-18: a review loop burned ~5 full-diff passes in one merge):
+   **Quota discipline first** (2026-07-18: a review loop burned ~5 full-diff passes in one merge):
    - **Skip if already reviewed.** If a full-diff Codex review of (essentially) this same diff already ran this session — e.g. a user-invoked `/codex-review --base <default-branch>` just before merging — do NOT re-review the whole diff; reuse those findings and only review what changed since (see re-run scoping below).
    - **Scope the first pass to THIS thread's work, not all unpushed main.** Capture `pre=$(git rev-parse <default-branch>)` BEFORE merging, then review with `--base "$pre"`. `--base origin/<default-branch>` re-reviews every other thread's already-merged (and possibly already-reviewed) work on each pass — that's how one merge burns multi-hundred-KB passes and surfaces out-of-thread findings. Use `origin/<default-branch>` only for `/merge all`, where the whole set is genuinely new.
-   - **One lens by default.** Run a single default review: `codex-auto exec review --base "$pre" "${REVIEW_FLAGS[@]}"`. Add the second account as a **security lens** (`codex-as <other> exec review --base "$pre" "${REVIEW_FLAGS[@]}"`) ONLY when the diff touches auth, payments/money, data deletion, or externally-reachable input handling. (Note: `codex exec review` cannot combine a scope flag with prompt text — scope-only.) Trivial/docs-only diff → skip and say so.
+   - **One lens by default.** Run a single default review: `codex-review-env codex-auto exec review --base "$pre"`. Add the second account as a **security lens** (`codex-review-env codex-as <other> exec review --base "$pre"`) ONLY when the diff touches auth, payments/money, data deletion, or externally-reachable input handling. (Note: `codex exec review` cannot combine a scope flag with prompt text — scope-only.) Trivial/docs-only diff → skip and say so.
    - **Diff contains a brief or report** (a rendered brief html, a `docs/plans/` document, or a
      `.md` with a brief id in its front matter) → the reviewer also answers three questions about
      that document: does its top state what the body proves, is any `Recommended` option
@@ -101,7 +101,7 @@ window that matters.
 
    **Re-run after fixing findings — but only when severity warrants, and scope the re-run to the FIX, not the branch.**
    - **Severity gate:** re-run Codex only if the pass found a **P1 / security / data-loss** issue (the fix to a serious bug is new, unreviewed code, frequently wrong in a new way — 2026-07-17: five consecutive passes, five real defects, each in the previous fix). A pass whose findings are **all P2/minor** (focus handling, copy, layout nits): fix them, verify with the repo's own gates (typecheck/tests/lint), and stop — no Codex re-run. Codex reliably finds *something* every pass; without this gate the loop never converges (2026-07-18: rounds 3–4 of a 5-round loop surfaced only escalating focus-management nits).
-   - **Scoping:** re-run as `codex exec review --commit <fix-sha> "${REVIEW_FLAGS[@]}"` (or `--base <sha-of-last-reviewed-state>`), so Codex reads only the delta.
+   - **Scoping:** re-run as `codex-review-env codex-auto exec review --commit <fix-sha>` (or `--base <sha-of-last-reviewed-state>`), so Codex reads only the delta.
    - **A third round of fixes on the same function stops and re-opens the approach.** The cap
      above bounds the loop; this says what to do when it keeps producing real findings. One
      content-tidying helper went five rounds, every round finding a genuine defect in the
