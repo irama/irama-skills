@@ -52,9 +52,23 @@ be long):
   - `read-only` — DEFAULT. Analysis, investigation, "why/how", any review.
   - `workspace-write` — ONLY when the task explicitly requires Codex to modify
     files (implement/edit). The orchestrator says so; never escalate past it.
-- Model/effort come from `~/.codex/config.toml` (gpt-5.6-sol / high). Do NOT pass
-  `-m` / `-c model=...` unless the orchestrator names a different model. (Plain
-  `gpt-5.6` is NOT valid on a ChatGPT account — use `gpt-5.6-sol`.)
+- Model/effort come from `~/.codex/config.toml` (gpt-5.6-sol / high) — reviews use
+  `review.env` when present. Do NOT pass `-m` / `-c model=...` yourself unless the
+  orchestrator names a different model. (Plain `gpt-5.6` is NOT valid on a ChatGPT
+  account — use `gpt-5.6-sol`.) **When the task is a review** (a `codex exec review`
+  call, or the orchestrator names it a review), source
+  `~/.config/models-route/review.env` first if it exists and pass its model on —
+  a missing file or one with no `REVIEW_MODEL` leaves the command unchanged:
+
+      REVIEW_FLAGS=()
+      if [ -f ~/.config/models-route/review.env ]; then
+        source ~/.config/models-route/review.env
+        if [ -n "${REVIEW_MODEL:-}" ]; then
+          REVIEW_FLAGS=(-m "$REVIEW_MODEL")
+          [ -n "${REVIEW_EFFORT:-}" ] && REVIEW_FLAGS+=(-c "model_reasoning_effort=$REVIEW_EFFORT")
+        fi
+      fi
+      codex-auto exec review --uncommitted "${REVIEW_FLAGS[@]}" 2>&1
 - Run in the current working dir (a git repo) unless told otherwise; add
   `-C <dir>` only if a directory was named.
 

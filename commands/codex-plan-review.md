@@ -34,15 +34,29 @@ Steps:
        <paste the full plan here>
        EOF
 
-2. Run read-only, with the repo as context (generous timeout — a minute or two):
+2. If `~/.config/models-route/review.env` exists, source it and build the model flags —
+   a missing file or a file with no `REVIEW_MODEL` leaves the command unchanged:
+
+       REVIEW_FLAGS=()
+       if [ -f ~/.config/models-route/review.env ]; then
+         source ~/.config/models-route/review.env
+         if [ -n "${REVIEW_MODEL:-}" ]; then
+           REVIEW_FLAGS=(-m "$REVIEW_MODEL")
+           [ -n "${REVIEW_EFFORT:-}" ] && REVIEW_FLAGS+=(-c "model_reasoning_effort=$REVIEW_EFFORT")
+         fi
+       fi
+
+3. Run read-only, with the repo as context (generous timeout — a minute or two):
 
        codex exec --color never -s read-only --skip-git-repo-check \
-         -C "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" - < "$F" 2>&1
+         -C "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" "${REVIEW_FLAGS[@]}" - < "$F" 2>&1
 
-3. Return Codex's output verbatim. Then briefly state which challenges you accept
+4. Return Codex's output verbatim. Then briefly state which challenges you accept
    and how the plan changes — do not auto-apply Codex's suggestions.
 
-Model/effort from `~/.codex/config.toml` (gpt-5.6-sol / high). On non-zero exit or
+Model/effort from `~/.codex/config.toml` (gpt-5.6-sol / high) — unless
+`~/.config/models-route/review.env` names a `REVIEW_MODEL`, in which case that model
+(and `REVIEW_EFFORT`, if set) wins per step 2's flags. On non-zero exit or
 an `ERROR`/auth/model rejection, surface the full output + exit code and say the
 review failed — do not pretend it passed. Then run the same adversarial framing through
 the `adversarial-reviewer` subagent (Opus) and evaluate its challenge the same way. That

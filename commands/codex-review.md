@@ -21,11 +21,24 @@ plain `codex exec`). Pick one form:
   confirm there is something to review with `git status --short --untracked-files=all`;
   if empty, say so and stop.
 
+**Model routing.** If `~/.config/models-route/review.env` exists, source it and pass its
+model on to `codex exec review`. Assemble the flags first so a missing file or a file with
+no `REVIEW_MODEL` produces the exact same command as today:
+
+    REVIEW_FLAGS=()
+    if [ -f ~/.config/models-route/review.env ]; then
+      source ~/.config/models-route/review.env
+      if [ -n "${REVIEW_MODEL:-}" ]; then
+        REVIEW_FLAGS=(-m "$REVIEW_MODEL")
+        [ -n "${REVIEW_EFFORT:-}" ] && REVIEW_FLAGS+=(-c "model_reasoning_effort=$REVIEW_EFFORT")
+      fi
+    fi
+
 Run (foreground, generous timeout — a review can take a minute or two):
 
-    codex exec review --uncommitted 2>&1
+    codex exec review --uncommitted "${REVIEW_FLAGS[@]}" 2>&1
     # or, with custom instructions on the default scope:
-    codex exec review "<focus instructions>" 2>&1
+    codex exec review "<focus instructions>" "${REVIEW_FLAGS[@]}" 2>&1
 
 **If the diff contains a brief or report** (a rendered brief html, a `docs/plans/` document,
 or a `.md` with a brief id in its front matter), run one extra prompt-only pass over that
@@ -38,7 +51,9 @@ instead.
 
 Model/effort come from `~/.codex/config.toml` — the account's own default model
 (deliberately unset since 2026-08-24, when named models were rejected on a
-ChatGPT account) at `high` effort. Do not override.
+ChatGPT account) at `high` effort — unless `~/.config/models-route/review.env`
+names a `REVIEW_MODEL`, in which case that model (and `REVIEW_EFFORT`, if set)
+wins per the flags above. Do not override either by hand.
 
 Return Codex's stdout verbatim. On non-zero exit or an `ERROR`/auth/model
 rejection in the output, surface the full output + exit code and state the review
