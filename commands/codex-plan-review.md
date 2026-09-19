@@ -35,9 +35,8 @@ Steps:
        EOF
 
 2. Run it through `codex-review-env`, a thin exec wrapper beside `codex-auto`/`codex-as`
-   on PATH, instead of calling `codex` directly. It sources
-   `~/.config/models-route/review.env` per call (each Bash tool call is a fresh process, so
-   an inline `REVIEW_FLAGS` assembled in step 2 would not survive to step 3's call) and
+   on PATH, instead of calling `codex` directly. It reads
+   `~/.config/models-route/review.env` per call and
    inserts its model/effort right after the `exec` word. A missing file, or one with no
    `REVIEW_MODEL`, leaves the argv byte-identical to calling `codex` directly.
 
@@ -46,20 +45,7 @@ Steps:
        codex-review-env exec --color never -s read-only --skip-git-repo-check \
          -C "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" - < "$F" 2>&1
 
-   No `codex-review-env` on PATH (same optional-tooling case as `codex-auto`)? Assemble the
-   flags inline instead, in the SAME Bash call as the run (a separate earlier call does not
-   carry the variable forward):
-
-       REVIEW_FLAGS=()
-       if [ -f ~/.config/models-route/review.env ]; then
-         source ~/.config/models-route/review.env
-         if [ -n "${REVIEW_MODEL:-}" ]; then
-           REVIEW_FLAGS=(-m "$REVIEW_MODEL")
-           [ -n "${REVIEW_EFFORT:-}" ] && REVIEW_FLAGS+=(-c "model_reasoning_effort=$REVIEW_EFFORT")
-         fi
-       fi
-       codex exec --color never -s read-only --skip-git-repo-check \
-         -C "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" "${REVIEW_FLAGS[@]}" - < "$F" 2>&1
+   No `codex-review-env` on PATH? Call `codex` exactly as before, with no routing flags; the review then runs on the default model.
 
 4. Return Codex's output verbatim. Then briefly state which challenges you accept
    and how the plan changes — do not auto-apply Codex's suggestions.

@@ -72,18 +72,7 @@ window that matters.
 
       **Otherwise run it — and that includes the common case.** A `--no-ff` merge onto a `<default-branch>` that other branches have already landed on produces a **new tree that nothing has ever validated**: both sides can be independently green and still conflict semantically. Also always run it for `/merge all`, for any hand-resolved conflict, and whenever the tip's gate is unknown or was skipped. Note the `Stop` hook commits `--no-verify`, so a branch of pure WIP auto-commits is **ungated** — condition (ii) fails and the gate is mandatory.
    e) **If the branch touched UI/render code and the repo has a browser/e2e tier** (Playwright, Cypress), add it to `--gate` too — a green unit suite will NOT catch a white-screen render crash (Rules-of-Hooks / React #310, bad context read, effect throw); only a real browser mount does. Red → the landing refuses and `<default-branch>` never saw it.
-5. **Codex review gate (second-model axis — runs here, not at `/push`).** These are the rules step 4b runs by, on the branch, **before** it lands. Every `codex exec review` call below runs through `codex-review-env` instead of calling `codex-auto`/`codex-as`. It is a thin exec wrapper beside them on PATH that sources `~/.config/models-route/review.env` per call and inserts its model/effort after the `exec review` words. Each Bash tool call is a fresh process (no shell state survives between them), so an inline `REVIEW_FLAGS=(...)` assembled once and reused across later calls silently loses. The wrapper carries them instead. A missing `review.env`, or one with no `REVIEW_MODEL`, leaves every call below byte-identical to calling `codex-auto`/`codex-as` directly. No `codex-review-env` on PATH (same optional-tooling case as `codex-auto`) → assemble `REVIEW_FLAGS` fresh in each individual Bash call (not once for reuse) and append `"${REVIEW_FLAGS[@]}"`:
-
-   ```bash
-   REVIEW_FLAGS=()
-   if [ -f ~/.config/models-route/review.env ]; then
-     source ~/.config/models-route/review.env
-     if [ -n "${REVIEW_MODEL:-}" ]; then
-       REVIEW_FLAGS=(-m "$REVIEW_MODEL")
-       [ -n "${REVIEW_EFFORT:-}" ] && REVIEW_FLAGS+=(-c "model_reasoning_effort=$REVIEW_EFFORT")
-     fi
-   fi
-   ```
+5. **Codex review gate (second-model axis — runs here, not at `/push`).** These are the rules step 4b runs by, on the branch, **before** it lands. Every `codex exec review` call below runs through `codex-review-env` instead of calling `codex-auto`/`codex-as`. It is a thin exec wrapper beside them on PATH that reads `~/.config/models-route/review.env` per call and inserts its model/effort after the `exec review` words. A missing `review.env`, or one with no `REVIEW_MODEL`, leaves every call below byte-identical to calling `codex-auto`/`codex-as` directly. No `codex-review-env` on PATH? Call `codex-auto` exactly as before, with no routing flags; the review then runs on the default model.
 
    **Quota discipline first** (2026-07-18: a review loop burned ~5 full-diff passes in one merge):
    - **Skip if already reviewed.** If a full-diff Codex review of (essentially) this same diff already ran this session — e.g. a user-invoked `/codex-review --base <default-branch>` just before merging — do NOT re-review the whole diff; reuse those findings and only review what changed since (see re-run scoping below).
