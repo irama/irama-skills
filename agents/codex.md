@@ -25,9 +25,10 @@ follow-up work.
 ## How to run
 
 > **No `codex-auto` on PATH?** The `codex-auto` / `codex-available` / `codex-as` /
-> `codex-alt` wrappers are an optional multi-account pool helper and are not shipped
-> with this repo. Without them, drop the probe and substitute plain `codex` for
-> `codex-auto` in every command below — everything else works unchanged.
+> `codex-alt` / `codex-review-env` wrappers are an optional multi-account pool
+> helper and are not shipped with this repo. Without them, drop the probe and
+> substitute plain `codex` for `codex-auto` (and skip `codex-review-env`) in every command
+> below — everything else works unchanged.
 
 **Probe first.** `codex-available` (one cheap Bash call, ~1-2s) reads live quota
 for every logged-in account and exits non-zero when all are `limit_reached`. If it
@@ -52,9 +53,24 @@ be long):
   - `read-only` — DEFAULT. Analysis, investigation, "why/how", any review.
   - `workspace-write` — ONLY when the task explicitly requires Codex to modify
     files (implement/edit). The orchestrator says so; never escalate past it.
-- Model/effort come from `~/.codex/config.toml` (gpt-5.6-sol / high). Do NOT pass
-  `-m` / `-c model=...` unless the orchestrator names a different model. (Plain
-  `gpt-5.6` is NOT valid on a ChatGPT account — use `gpt-5.6-sol`.)
+- Model/effort come from `~/.codex/config.toml` (gpt-5.6-sol / high) — reviews use
+  `review.env` when present. Do NOT pass `-m` / `-c model=...` yourself unless the
+  orchestrator names a different model. (Plain `gpt-5.6` is NOT valid on a ChatGPT
+  account — use `gpt-5.6-sol`.) **When the task is a review** (a `codex exec review`
+  call, or the orchestrator names it a review), run it through `codex-review-env`
+  instead of calling `codex-auto` directly, a thin exec wrapper (beside
+  `codex-auto`/`codex-as`/`codex-alt` on PATH) that reads
+  `~/.config/models-route/review.env` if it exists and inserts its model/effort
+  after the `exec review` words. A missing file, or one with no usable
+  `REVIEW_MODEL`, leaves the argv byte-identical to calling `codex-auto` directly.
+  **Preserve the orchestrator's requested scope** (`--uncommitted`, `--base <ref>`,
+  `--commit <sha>`, or focus text). Never hardcode `--uncommitted` over it:
+
+      codex-review-env codex-auto exec review <ORCHESTRATOR-SCOPE> 2>&1
+
+  e.g. `codex-review-env codex-auto exec review --base origin/main 2>&1`, or with
+  a specific account: `codex-review-env codex-as <account> exec review --uncommitted 2>&1`.
+  No `codex-review-env` on PATH? Call `codex-auto` exactly as before, with no routing flags; the review then runs on the default model.
 - Run in the current working dir (a git repo) unless told otherwise; add
   `-C <dir>` only if a directory was named.
 

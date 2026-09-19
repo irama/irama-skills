@@ -1,7 +1,7 @@
 ---
 description: Codex code review of the current changes via the local Codex CLI (codex exec review). Read-only second-model review over your ChatGPT-subscription auth. Defaults to uncommitted changes; --base <ref> reviews a branch.
 argument-hint: '[--uncommitted | --base <ref> | --commit <sha>] [extra focus instructions…]'
-allowed-tools: Bash(codex:*), Bash(git:*)
+allowed-tools: Bash(codex:*), Bash(codex-review-env:*), Bash(git:*)
 ---
 
 Run an independent Codex code review of the current repository and return its
@@ -21,11 +21,19 @@ plain `codex exec`). Pick one form:
   confirm there is something to review with `git status --short --untracked-files=all`;
   if empty, say so and stop.
 
+**Model routing.** Run the review through `codex-review-env`, a thin exec wrapper beside
+`codex-auto`/`codex-as` on PATH, instead of calling `codex` directly. It reads
+`~/.config/models-route/review.env` per call and inserts its
+model/effort after the `exec review` words. A missing file, or one with no `REVIEW_MODEL`,
+leaves the argv byte-identical to calling `codex` directly.
+
 Run (foreground, generous timeout — a review can take a minute or two):
 
-    codex exec review --uncommitted 2>&1
+    codex-review-env exec review --uncommitted 2>&1
     # or, with custom instructions on the default scope:
-    codex exec review "<focus instructions>" 2>&1
+    codex-review-env exec review "<focus instructions>" 2>&1
+
+No `codex-review-env` on PATH? Call `codex` exactly as before, with no routing flags; the review then runs on the default model.
 
 **If the diff contains a brief or report** (a rendered brief html, a `docs/plans/` document,
 or a `.md` with a brief id in its front matter), run one extra prompt-only pass over that
@@ -38,7 +46,9 @@ instead.
 
 Model/effort come from `~/.codex/config.toml` — the account's own default model
 (deliberately unset since 2026-08-24, when named models were rejected on a
-ChatGPT account) at `high` effort. Do not override.
+ChatGPT account) at `high` effort, unless `~/.config/models-route/review.env`
+names a `REVIEW_MODEL`, in which case that model (and `REVIEW_EFFORT`, if set)
+wins per the flags above. Do not override either by hand.
 
 Return Codex's stdout verbatim. On non-zero exit or an `ERROR`/auth/model
 rejection in the output, surface the full output + exit code and state the review

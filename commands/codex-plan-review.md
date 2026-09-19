@@ -1,7 +1,7 @@
 ---
 description: Adversarial Codex review of a PLAN or design (not code) via the local Codex CLI. Read-only second-model challenge — pressure-tests the approach, assumptions, tradeoffs, and failure modes before you build. Use when a plan is agreed but not yet implemented.
 argument-hint: '[plan text, or path to a plan file — defaults to the current in-context plan]'
-allowed-tools: Bash(codex:*), Bash(git:*), Read
+allowed-tools: Bash(codex:*), Bash(codex-review-env:*), Bash(git:*), Read
 ---
 
 Get an independent second model to CHALLENGE the current plan before building.
@@ -34,15 +34,25 @@ Steps:
        <paste the full plan here>
        EOF
 
-2. Run read-only, with the repo as context (generous timeout — a minute or two):
+2. Run it through `codex-review-env`, a thin exec wrapper beside `codex-auto`/`codex-as`
+   on PATH, instead of calling `codex` directly. It reads
+   `~/.config/models-route/review.env` per call and
+   inserts its model/effort right after the `exec` word. A missing file, or one with no
+   `REVIEW_MODEL`, leaves the argv byte-identical to calling `codex` directly.
 
-       codex exec --color never -s read-only --skip-git-repo-check \
+3. Run read-only, with the repo as context (generous timeout — a minute or two):
+
+       codex-review-env exec --color never -s read-only --skip-git-repo-check \
          -C "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" - < "$F" 2>&1
 
-3. Return Codex's output verbatim. Then briefly state which challenges you accept
+   No `codex-review-env` on PATH? Call `codex` exactly as before, with no routing flags; the review then runs on the default model.
+
+4. Return Codex's output verbatim. Then briefly state which challenges you accept
    and how the plan changes — do not auto-apply Codex's suggestions.
 
-Model/effort from `~/.codex/config.toml` (gpt-5.6-sol / high). On non-zero exit or
+Model/effort from `~/.codex/config.toml` (gpt-5.6-sol / high) — unless
+`~/.config/models-route/review.env` names a `REVIEW_MODEL`, in which case that model
+(and `REVIEW_EFFORT`, if set) wins per step 2's flags. On non-zero exit or
 an `ERROR`/auth/model rejection, surface the full output + exit code and say the
 review failed — do not pretend it passed. Then run the same adversarial framing through
 the `adversarial-reviewer` subagent (Opus) and evaluate its challenge the same way. That
