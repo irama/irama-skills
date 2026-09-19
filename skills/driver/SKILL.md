@@ -372,6 +372,7 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
     ```
     bash "$HOME/.claude/scripts/localhost-dev.sh" kill-repo <worktree-path>
     git worktree remove <worktree-path> && git branch -d <ticket-branch>
+    rmdir "$(dirname <worktree-path>)" 2>/dev/null || true
     ```
 
     Deferring this to a `/prune` leaves every landed ticket's `node_modules` and `.next`
@@ -503,7 +504,12 @@ Now the run's worktree comes down, after the write-back above succeeded:
 ```
 bash "$HOME/.claude/scripts/localhost-dev.sh" kill-repo "$WORK"
 git worktree remove "$WORK"
+rmdir "$(dirname "$WORK")" 2>/dev/null || true
 ```
+
+The `rmdir` deletes the `<repo>-wt` parent folder only when it is empty, so a finished run leaves
+nothing in `~/LOCAL-DEV`. It fails quietly while another run or a blocked ticket still has a
+worktree there.
 
 Keep the `driver/$RUN_ID` branch: it is what `/merge` lands, and `/prune` removes it afterwards. A
 run that is `blocked` keeps its worktree: there is nothing
