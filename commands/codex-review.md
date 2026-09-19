@@ -21,8 +21,8 @@ plain `codex exec`). Pick one form:
   confirm there is something to review with `git status --short --untracked-files=all`;
   if empty, say so and stop.
 
-**Model routing.** Run the review through `codex-review-env` — a thin exec wrapper beside
-`codex-auto`/`codex-as` on PATH — instead of calling `codex` directly. It sources
+**Model routing.** Run the review through `codex-review-env`, a thin exec wrapper beside
+`codex-auto`/`codex-as` on PATH, instead of calling `codex` directly. It sources
 `~/.config/models-route/review.env` per call (each Bash tool call is a fresh process, so an
 inline `REVIEW_FLAGS` assembled once would not survive to a later call) and inserts its
 model/effort after the `exec review` words. A missing file, or one with no `REVIEW_MODEL`,
@@ -59,7 +59,7 @@ instead.
 
 Model/effort come from `~/.codex/config.toml` — the account's own default model
 (deliberately unset since 2026-08-24, when named models were rejected on a
-ChatGPT account) at `high` effort — unless `~/.config/models-route/review.env`
+ChatGPT account) at `high` effort, unless `~/.config/models-route/review.env`
 names a `REVIEW_MODEL`, in which case that model (and `REVIEW_EFFORT`, if set)
 wins per the flags above. Do not override either by hand.
 

@@ -34,8 +34,8 @@ Steps:
        <paste the full plan here>
        EOF
 
-2. Run it through `codex-review-env` — a thin exec wrapper beside `codex-auto`/`codex-as`
-   on PATH — instead of calling `codex` directly. It sources
+2. Run it through `codex-review-env`, a thin exec wrapper beside `codex-auto`/`codex-as`
+   on PATH, instead of calling `codex` directly. It sources
    `~/.config/models-route/review.env` per call (each Bash tool call is a fresh process, so
    an inline `REVIEW_FLAGS` assembled in step 2 would not survive to step 3's call) and
    inserts its model/effort right after the `exec` word. A missing file, or one with no

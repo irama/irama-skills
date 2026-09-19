@@ -59,13 +59,13 @@ be long):
   orchestrator names a different model. (Plain `gpt-5.6` is NOT valid on a ChatGPT
   account — use `gpt-5.6-sol`.) **When the task is a review** (a `codex exec review`
   call, or the orchestrator names it a review), run it through `codex-review-env`
-  instead of calling `codex-auto` directly — a thin exec wrapper (beside
+  instead of calling `codex-auto` directly, a thin exec wrapper (beside
   `codex-auto`/`codex-as`/`codex-alt` on PATH) that sources
   `~/.config/models-route/review.env` if it exists and inserts its model/effort
   after the `exec review` words. A missing file, or one with no usable
   `REVIEW_MODEL`, leaves the argv byte-identical to calling `codex-auto` directly.
   **Preserve the orchestrator's requested scope** (`--uncommitted`, `--base <ref>`,
-  `--commit <sha>`, or focus text) — never hardcode `--uncommitted` over it:
+  `--commit <sha>`, or focus text). Never hardcode `--uncommitted` over it:
 
       codex-review-env codex-auto exec review <ORCHESTRATOR-SCOPE> 2>&1
 
