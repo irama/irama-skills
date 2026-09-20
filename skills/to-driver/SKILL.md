@@ -42,6 +42,19 @@ worse than no tickets:
 
 Do not "save the user time" by answering either gate yourself.
 
+**But the breakdown gate carries the `/driver` command with it.** The approval turn is the last
+turn: present the numbered tickets AND, below them, the exact command that will be handed back
+once they are approved. "Approved" then means publish and confirm, not publish and wait another
+round for the invocation. Two turns to say the same thing is the waste this removes.
+
+- The command is **provisional until the tickets exist**, so write it with the titles rather than
+  with issue numbers, and say in one line that the numbers arrive when they are published.
+- **The gate itself does not soften.** A change to the breakdown changes the command, so re-present
+  both together.
+- This applies to every gate that is followed by a mechanical step. If the only thing standing
+  between an approval and a finished artefact is work you could have done first, do it first and
+  show it alongside the question.
+
 ## Claim the planning cycle — by topic, never the bare verb
 
 Several `/to-driver` threads can plan in one repo at once. The claim does not block anything; it
@@ -197,6 +210,9 @@ the database no longer carried. Nothing was wrong with the code, and finding tha
 full suite runs.
 
 ### 8. Hand back the command
+
+**The command was already drafted and shown at the step 6 gate**, so this step resolves its
+titles into real references and confirms. Do not make the user ask for it a second time.
 
 Lead with a **short label naming the work**, then the references, on one line, ready to paste:
 
