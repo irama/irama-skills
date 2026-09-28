@@ -64,3 +64,30 @@ so the admin can paste it straight back to Claude for troubleshooting. Never
 show internals to non-admins; never swallow the detail before it reaches the
 admin path (thread the raw error through, don't pre-flatten to "Unexpected
 error").
+
+## Designing a new look and feel
+
+**Before inventing a visual language for a new app, surface or redesign, pull a
+reference and pick a tool. Do not freehand it.**
+
+- **Reference library: [Refero Styles](https://styles.refero.design/).** Design
+  systems extracted from 2,000+ real product sites (colour, type, spacing,
+  components), published as `DESIGN.md` files built to be read by an AI coding
+  tool. Browse for a style close to the target feel, take the `DESIGN.md`, and
+  adapt it into the project's own tokens. Real products beat a palette invented
+  on the spot, which is the usual reason generated UI looks generic.
+- **`/impeccable`** is the design and critique skill: use it for the whole loop,
+  from information architecture and visual hierarchy through to polish, motion
+  and accessibility. It is the default for any non-trivial UI surface.
+- **Claude Design** (the `claude-design` MCP server) is the other half: it holds
+  named design systems (`list_design_systems`, `read_design_skill`), renders a
+  live preview (`render_preview`) and carries review comments. Use it when the
+  work is a new look and feel, a multi-screen layout, or anything a person will
+  comment on before it is built.
+- **`/frontend-design:frontend-design`** is the plugin skill for general frontend
+  design work, and it is a versioned plugin cache, so it cannot be patched with
+  project rules. Bring the references above to it, rather than expecting it to
+  know them.
+
+Both `/impeccable` and Claude Design are installed and available. Complex UI, a
+new look and feel, or a new layout means using one of the two, never neither.
