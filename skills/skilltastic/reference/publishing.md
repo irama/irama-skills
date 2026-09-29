@@ -18,7 +18,10 @@ python3 scripts/check-no-leaks.py --selftest
 python3 scripts/check-no-leaks.py --all
 ```
 
-`.githooks/pre-commit` runs it over the staged diff. `.githooks/pre-push` runs
+`.githooks/pre-commit` runs it over the staged diff, and it reads each file from
+the index (`git show :<path>`), not the working copy. With partial staging the
+two differ, and a leak cleaned from the working copy but still staged would
+otherwise pass. `--all` reads the working tree. `.githooks/pre-push` runs
 it over the authorship of the commits about to leave, because an author line is
 metadata rather than a file and the content check cannot see it. Both hooks are
 four lines; copy them from a repo that already has them.
@@ -63,6 +66,7 @@ committed by the guard itself.
 ```
 example-private-domain.test        a domain that must never appear
 names: Surname                     someone who works on this repo
+literals: Internalapp               a word that must never appear under skills/
 commands: internal-verb            a group read by another tool
 hosts: vendor.tld                  a host the tree is allowed to link to
 ```
@@ -76,6 +80,14 @@ case that leaked.
 Set `LEAK_PRIVATE_DOMAINS` and `LEAK_TEAM_NAMES` instead if a file is awkward.
 With neither set the three private rules simply do not run, which is correct for
 anyone who cloned the repo and has no such list.
+
+**The `literals:` group blocks private words as bare words under `skills/`.** `names:`
+fires only on attributed speech ("Surname said ..."), so a surname, an employer
+or an internal app name could sit in a skill body and pass. A literal fails
+wherever it appears as a whole word in a file under `skills/`. The match is
+case-sensitive and exact, so list each spelling you mean. Never list a published
+author the skills cite (a method credit or an APA reference): the reference
+list would fail.
 
 **`hosts:` — the URL allowlist, and the only rule here that works by
 inversion.** Every other rule names what must not appear. This one names what

@@ -1,6 +1,6 @@
 ---
 name: skilltastic
-description: Author a skill that runs on every host — scaffold SKILL.md with valid front matter, keep the body small, and design against the tightest host's limits of 20 companion files and 10MB with no local filesystem. Use when writing a new skill, reviewing an existing one, or working out whether a skill can run where you need it.
+description: Author a portable skill — scaffold SKILL.md with valid front matter, keep the body small, and design against the tightest host's limits of 20 companion files and 10MB with no local filesystem. Use when writing a new skill, reviewing an existing one, or working out whether a skill can run where you need it.
 ---
 
 # skilltastic
@@ -56,8 +56,13 @@ works on one machine and is silently broken everywhere else.
 
 Design against the tightest host — one `SKILL.md` under 1MB plus **20 companion
 files**, 10MB per skill, and no access to local device files. A skill that fits
-that fits all four hosts. The limits, the runtimes and the per-host verdicts are
-in [hosts.md](hosts.md).
+that fits the packaging limits of the four hosts that load a skill folder.
+ChatGPT, Copilot declarative agents and Gemini read the same format but gate
+it by plan, preview or account type. The limits, the capabilities table for all
+eight surfaces, the three ladders and the per-host verdicts are in
+[hosts.md](hosts.md). At run time a skill trusts its own tool list over that
+table: it checks which tools it can call now and takes the first rung that
+works.
 
 If a skill needs a real shell — a renderer, a headless browser, a package
 install — say so in its own body and ship a smaller cut for the hosts that have

@@ -5,12 +5,12 @@ One file does four jobs, because four separate guards is four things to
 remember and two of them were already missing from the repos that needed them:
 
   leaks        absolute home paths, credentials, private domains, personal
-               email, quoted working conversation
+               email, quoted working conversation, private literals
   portability  hardcoded skill install paths, dead relative links, shellcheck
   allowlist    a skill under skills/<name>/ that skills/PUBLIC does not name
   front matter a SKILL.md whose name or description breaks the format
 
-Run over the staged diff:   python3 scripts/check-no-leaks.py
+Run over the staged diff:   python3 scripts/check-no-leaks.py   (reads the index)
 Run over the whole tree:    python3 scripts/check-no-leaks.py --all
 Run over commit authorship: python3 scripts/check-no-leaks.py --authors <range>
 Prove the rules still work:  python3 scripts/check-no-leaks.py --selftest
@@ -81,8 +81,11 @@ HARD = [
 # no such list.
 
 def _leakrc(prefix=None):
-    env = "LEAK_TEAM_NAMES" if prefix else "LEAK_PRIVATE_DOMAINS"
-    raw = os.environ.get(env, "")
+    # The env lists stand in for two groups only. Any other group comes from
+    # the file, so a team name set in the environment never becomes a host or
+    # a literal.
+    env = {None: "LEAK_PRIVATE_DOMAINS", "names:": "LEAK_TEAM_NAMES"}.get(prefix)
+    raw = os.environ.get(env, "") if env else ""
     # Repo-local list first, then one shared private list for every repo that
     # has none of its own. Without the fallback each repo needs its own copy of
     # the same secret inventory, and the one that forgets is the one that leaks.
@@ -178,6 +181,25 @@ if _names:
         "quoted working conversation — paraphrase the substance instead"))
 
 
+_literals = _leakrc("literals:")
+
+
+def check_literals(name, text, hits):
+    """Refuse a private literal as a bare word anywhere under skills/.
+
+    `names:` only catches attributed speech, so a surname, an employer or an
+    internal app name could sit in a skill body and pass. A literal is matched
+    whole-word and case-sensitive, exactly as written in .leakrc: list each
+    spelling you mean. Never list a published author you cite; a reference
+    list would then fail."""
+    if not _literals or Path(name).parts[:1] != ("skills",):
+        return
+    pat = re.compile(r"\b(?:" + "|".join(re.escape(l) for l in _literals) + r")\b")
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for hit in pat.findall(line):
+            hits.append((name, lineno, "private literal: describe it generically instead", hit))
+
+
 # Reported for eyeballing, never blocks.
 SOFT = re.compile(r"(?!)")  # nothing soft-flagged at present
 
@@ -190,6 +212,14 @@ def staged_files():
         capture_output=True, text=True, check=True,
     ).stdout
     return [f for f in out.splitlines() if f.strip()]
+
+
+def staged_text(name):
+    """The bytes being committed, not the working copy. With partial staging the
+    two differ, and a leak cleaned from the working copy but still in the index
+    would otherwise pass. `None` when the index holds no such blob."""
+    r = subprocess.run(["git", "show", ":" + name], capture_output=True)
+    return r.stdout.decode(errors="ignore") if r.returncode == 0 else None
 
 
 def all_files():
@@ -349,6 +379,41 @@ def selftest_no_leakrc() -> bool:
     return True
 
 
+def selftest_staged() -> bool:
+    """Pre-commit mode must scan the index, not the working copy.
+
+    Two runs in a scratch repo. A leak that is staged while the working copy
+    has been cleaned must block; a clean staged file must pass even when the
+    working copy has since gained a leak."""
+    import os, tempfile
+    leak = "see /ho" + "me/leaker/notes\n"      # split so this file stays clean
+    with tempfile.TemporaryDirectory() as d:
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("LEAK_PRIVATE_DOMAINS", "LEAK_TEAM_NAMES")}
+        env["HOME"] = d
+        env["LEAKRC"] = str(Path(d) / "nope")
+        git = lambda *a: subprocess.run(["git", *a], cwd=d, env=env, check=True,
+                                        capture_output=True)
+        git("init", "-q")
+        f = Path(d) / "notes.md"
+        run = lambda: subprocess.run([sys.executable, str(Path(__file__).resolve())],
+                                     cwd=d, env=env, capture_output=True, text=True)
+        f.write_text(leak)
+        git("add", "notes.md")
+        f.write_text("clean\n")
+        if run().returncode != 1:
+            print("selftest FAIL: a staged leak with a clean working copy passed")
+            return False
+        f.write_text("clean\n")
+        git("add", "notes.md")
+        f.write_text(leak)
+        r = run()
+        if r.returncode != 0:
+            print(f"selftest FAIL: a clean staged file was blocked by its working copy\n{r.stdout}")
+            return False
+    return True
+
+
 def selftest() -> int:
     """Three rules, three known answers. Both false positives these rules shipped
     with — a link inside a code span, and a format example in a code block — are
@@ -442,6 +507,28 @@ def selftest() -> int:
     finally:
         _hosts = _saved
 
+    # literals: a bare word under skills/ blocks; a longer word containing it,
+    # the same word outside skills/, and an empty list do not.
+    global _literals
+    _saved_l, _literals = _literals, ["Privco", "XQX"]
+    try:
+        lh = []
+        check_literals("skills/a/SKILL.md", "Built at Privco.\nuses XQX data\n", lh)
+        check_literals("skills/a/SKILL.md", "Privcorp and XQXY are other words\n", lh)
+        check_literals("docs/notes.md", "Privco\n", lh)
+        if sorted(h[3] for h in lh) != ["Privco", "XQX"]:
+            print(f"selftest FAIL: literals flagged {[h[3] for h in lh]}")
+            ok = False
+        lh = []
+        _literals = []
+        check_literals("skills/a/SKILL.md", "Privco\n", lh)
+        if lh:
+            print("selftest FAIL: literal rule ran with no declared list")
+            ok = False
+    finally:
+        _literals = _saved_l
+
+    ok = selftest_staged() and ok
     ok = selftest_no_leakrc() and ok
     print("selftest passed" if ok else "selftest FAILED")
     return 0 if ok else 1
@@ -569,21 +656,29 @@ def main() -> int:
         rng = sys.argv[i + 1] if len(sys.argv) > i + 1 else "@{push}..HEAD"
         return check_authors(rng)
 
-    files = all_files() if "--all" in sys.argv else staged_files()
+    staged = "--all" not in sys.argv
+    files = staged_files() if staged else all_files()
     if not files:
         return 0
 
     hard_hits, soft_hits, big = [], [], []
     for name in files:
         path = Path(name)
-        if not path.is_file() or SKIP_DIRS & set(path.parts):
+        if SKIP_DIRS & set(path.parts):
             continue
         if path.name == "check-no-leaks.py":  # this file names the patterns
             continue
-        try:
-            text = path.read_text(errors="ignore")
-        except OSError:
-            continue
+        if staged:
+            text = staged_text(name)
+            if text is None:
+                continue
+        else:
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(errors="ignore")
+            except OSError:
+                continue
         for lineno, line in enumerate(text.splitlines(), 1):
             for pattern, label in HARD:
                 for hit in pattern.findall(line):
@@ -592,6 +687,7 @@ def main() -> int:
                 soft_hits.append((name, lineno, hit))
         check_portability(name, path, text, hard_hits)
         check_hosts(name, text, hard_hits)
+        check_literals(name, text, hard_hits)
         check_front_matter(name, path, text, hard_hits, big)
 
     check_shell(files, hard_hits)
