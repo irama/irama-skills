@@ -9,7 +9,7 @@ below say what vendors document, and the same host differs by plan, by tenant
 and from month to month. A skill that needs a tool checks whether it can call
 that tool now, and takes the first rung of its ladder that works (see "The
 three ladders" below). The canonical wording for that check is
-`assets/host-snippet.md`.
+`assets/host-snippet.md` (`host-snippet.md` in a portable cut).
 
 **The `SKILL.md` format is portable and the machine underneath is not.** The
 hosts that load a skill folder read the front matter at startup, load the body
@@ -44,8 +44,11 @@ it is not a "no".
 
 Three readings of the table that matter when you design:
 
-- **Only four surfaces load a skill folder for any signed-in user today:**
-  Claude Code, claude.ai, Claude Cowork and Copilot Cowork. On ChatGPT, Copilot
+- **Four surfaces load a skill folder today, and each has conditions:**
+  Claude Code, claude.ai, Claude Cowork and Copilot Cowork. claude.ai needs
+  code execution switched on. Claude Cowork needs a Pro, Max or Team plan, or
+  an Enterprise owner who enables it. Copilot Cowork does not run on mobile,
+  and an admin can turn it off. On ChatGPT, Copilot
   declarative agents and Gemini, a skill is format-compatible but gated by plan,
   preview or account type. Say so; never claim a skill works on every host.
 - **Image generation is the least portable capability.** Claude surfaces do not

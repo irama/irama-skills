@@ -62,7 +62,8 @@ it by plan, preview or account type. The limits, the capabilities table for all
 eight surfaces, the three ladders and the per-host verdicts are in
 [hosts.md](hosts.md). At run time a skill trusts its own tool list over that
 table: it checks which tools it can call now and takes the first rung that
-works.
+works. The wording for that check is in [host-snippet.md](host-snippet.md):
+paste it into any skill that makes a diagram, an image or a file.
 
 If a skill needs a real shell — a renderer, a headless browser, a package
 install — say so in its own body and ship a smaller cut for the hosts that have

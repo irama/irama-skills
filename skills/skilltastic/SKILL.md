@@ -70,8 +70,8 @@ guard blocks this one.
 
 ## Step 2 — Decide which hosts it targets
 
-Four hosts load a skill folder for any signed-in user today, and none of them
-syncs to the others. ChatGPT, Copilot declarative agents and Gemini read the
+Four hosts load a skill folder today, each with conditions (plan, tenant or
+admin settings), and none of them syncs to the others. ChatGPT, Copilot declarative agents and Gemini read the
 same format but gate it by plan, preview or account type, so a skill is
 format-compatible there, not supported. The format is portable; the machine
 underneath is not. The capabilities table for all eight surfaces, the three

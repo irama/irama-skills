@@ -222,9 +222,28 @@ def staged_text(name):
     return r.stdout.decode(errors="ignore") if r.returncode == 0 else None
 
 
+def tree_text(name):
+    try:
+        return Path(name).read_text(errors="ignore")
+    except OSError:
+        return None
+
+
 def all_files():
     out = subprocess.run(["git", "ls-files"], capture_output=True, text=True, check=True).stdout
     return [f for f in out.splitlines() if f.strip()]
+
+
+def index_exists():
+    """`exists` for a link target, answered from the index instead of the tree.
+    A staged link to a file that is only in the working copy, or whose deletion
+    is staged, is dead in the commit, so it must fail here too."""
+    known = set()
+    for f in all_files():
+        p = Path(f)
+        known.add(str(p))
+        known.update(str(d) for d in p.parents)
+    return lambda path: os.path.normpath(str(path)) in known
 
 
 # The email pattern, reused for authorship. Kept as a lookup into HARD rather
@@ -284,8 +303,9 @@ CODE_SPAN = re.compile(r"`[^`]*`")
 MD_LINK = re.compile(r"\[[^\]]*\]\((?!https?:|mailto:|#|<)([^)\s]+)\)")
 
 
-def check_portability(name, path, text, hits):
-    """Three checks a leak guard cannot express as one line pattern."""
+def check_portability(name, path, text, hits, exists=Path.exists):
+    """Three checks a leak guard cannot express as one line pattern. `exists`
+    answers from the tree by default and from the index in pre-commit mode."""
     parts = set(path.parts)
 
     # 1. A skill must not name its own install location.
@@ -319,34 +339,41 @@ def check_portability(name, path, text, hits):
                 rel = target.split("#", 1)[0]
                 if not rel or rel.startswith("/") or "<" in target or ">" in target:
                     continue
-                if not (path.parent / rel).exists():
+                if not exists(path.parent / rel):
                     hits.append((name, lineno, "dead relative link", target))
 
 
-def check_shell(files, hits):
+def check_shell(files, hits, read=tree_text):
     """3. shellcheck every shell script. `bash -n` proves syntax, not correctness:
-    it passed a quoting bug that word-split any path containing a space."""
-    import shutil
+    it passed a quoting bug that word-split any path containing a space.
+
+    `read` supplies the text (the index in pre-commit mode), and shellcheck runs
+    on copies under the same relative paths, so a working copy cleaned after
+    staging cannot hide the staged script."""
+    import shutil, tempfile
     if not shutil.which("shellcheck"):
         return
     # A .sh extension is not a promise: this repo has a .sh file that is Python
     # and another that is zsh, neither of which shellcheck can parse. Trust the
     # shebang, so an unparseable *bash* file is still reported.
-    scripts = []
+    scripts = {}
     for f in files:
         if not f.endswith(".sh"):
             continue
-        try:
-            first = Path(f).read_text(errors="ignore").split("\n", 1)[0]
-        except OSError:
+        text = read(f)
+        if text is None:
             continue
-        if re.search(r"\b(bash|sh|dash|ksh)\b", first):
-            scripts.append(f)
+        if re.search(r"\b(bash|sh|dash|ksh)\b", text.split("\n", 1)[0]):
+            scripts[f] = text
     if not scripts:
         return
-    out = subprocess.run(
-        ["shellcheck", "--severity=warning", "--exclude=SC1090", "--format=gcc", *scripts],
-        capture_output=True, text=True).stdout
+    with tempfile.TemporaryDirectory() as d:
+        for f, text in scripts.items():
+            (Path(d) / f).parent.mkdir(parents=True, exist_ok=True)
+            (Path(d) / f).write_text(text)
+        out = subprocess.run(
+            ["shellcheck", "--severity=warning", "--exclude=SC1090", "--format=gcc", *scripts],
+            capture_output=True, text=True, cwd=d).stdout
     for line in out.splitlines():
         bits = line.split(":", 4)
         if len(bits) >= 5 and "warning" in bits[3] or len(bits) >= 5 and "error" in bits[3]:
@@ -382,9 +409,11 @@ def selftest_no_leakrc() -> bool:
 def selftest_staged() -> bool:
     """Pre-commit mode must scan the index, not the working copy.
 
-    Two runs in a scratch repo. A leak that is staged while the working copy
-    has been cleaned must block; a clean staged file must pass even when the
-    working copy has since gained a leak."""
+    Runs in a scratch repo. A leak that is staged while the working copy has
+    been cleaned must block; a clean staged file must pass even when the working
+    copy has since gained a leak. The same holds for what the checks depend on:
+    an unstaged skills/PUBLIC edit must not approve a staged skill, and a link
+    to a file only the working copy holds is dead."""
     import os, tempfile
     leak = "see /ho" + "me/leaker/notes\n"      # split so this file stays clean
     with tempfile.TemporaryDirectory() as d:
@@ -410,6 +439,39 @@ def selftest_staged() -> bool:
         r = run()
         if r.returncode != 0:
             print(f"selftest FAIL: a clean staged file was blocked by its working copy\n{r.stdout}")
+            return False
+        # notes.md stays staged clean; the cases below add to it.
+
+        # The allowlist comes from the index: a skill staged with an empty
+        # skills/PUBLIC blocks even when the working copy has approved it.
+        sk = Path(d) / "skills" / "priv"
+        sk.mkdir(parents=True)
+        (sk / "SKILL.md").write_text("---\nname: priv\ndescription: A test skill.\n---\nbody\n")
+        pub = Path(d) / "skills" / "PUBLIC"
+        pub.write_text("")
+        git("add", "skills")
+        pub.write_text("priv\n")
+        r = run()
+        if "skill not approved" not in r.stdout:
+            print(f"selftest FAIL: an unstaged allowlist edit approved a staged skill\n{r.stdout}")
+            return False
+        pub.write_text("priv\n")
+        git("add", "skills/PUBLIC")
+
+        # A link target must exist in the index: one that only the working
+        # copy holds is dead in the commit.
+        (sk / "SKILL.md").write_text("---\nname: priv\ndescription: A test skill.\n---\n"
+                                     "[ref](ref.md)\n")
+        (sk / "ref.md").write_text("ref\n")
+        git("add", "skills/priv/SKILL.md")
+        r = run()
+        if "dead relative link" not in r.stdout:
+            print(f"selftest FAIL: a link to an unstaged file passed\n{r.stdout}")
+            return False
+        git("add", "skills/priv/ref.md")
+        r = run()
+        if r.returncode != 0:
+            print(f"selftest FAIL: a link to a staged file was blocked\n{r.stdout}")
             return False
     return True
 
@@ -542,20 +604,25 @@ def selftest() -> int:
 PUBLIC_SKILLS = ROOT / "skills" / "PUBLIC"
 
 
-def approved_skills() -> set:
-    if not PUBLIC_SKILLS.is_file():
-        return set()
+def approved_skills(text=None) -> set:
+    """The allowlist. Pre-commit mode passes the staged skills/PUBLIC, so an
+    unstaged edit to the list can never approve a staged skill."""
+    if text is None:
+        if not PUBLIC_SKILLS.is_file():
+            return set()
+        text = PUBLIC_SKILLS.read_text(errors="ignore")
     out = set()
-    for line in PUBLIC_SKILLS.read_text(errors="ignore").splitlines():
+    for line in text.splitlines():
         line = line.split("#", 1)[0].strip()
         if line:
             out.add(line)
     return out
 
 
-def check_new_skills(files, hits) -> None:
+def check_new_skills(files, hits, approved=None) -> None:
     """Refuse a skill this repo has not been told it may publish."""
-    approved = approved_skills()
+    if approved is None:
+        approved = approved_skills()
     seen = set()
     for name in files:
         parts = Path(name).parts
@@ -661,6 +728,11 @@ def main() -> int:
     if not files:
         return 0
 
+    # Pre-commit mode reads every input from the index: the file text, the
+    # skills/PUBLIC allowlist, the shell scripts and the link targets. A working
+    # copy that differs from the index must never change the verdict.
+    read = staged_text if staged else tree_text
+    exists = index_exists() if staged else Path.exists
     hard_hits, soft_hits, big = [], [], []
     for name in files:
         path = Path(name)
@@ -668,30 +740,28 @@ def main() -> int:
             continue
         if path.name == "check-no-leaks.py":  # this file names the patterns
             continue
-        if staged:
-            text = staged_text(name)
-            if text is None:
-                continue
-        else:
-            if not path.is_file():
-                continue
-            try:
-                text = path.read_text(errors="ignore")
-            except OSError:
-                continue
+        if not staged and not path.is_file():
+            continue
+        text = read(name)
+        if text is None:
+            continue
         for lineno, line in enumerate(text.splitlines(), 1):
             for pattern, label in HARD:
                 for hit in pattern.findall(line):
                     hard_hits.append((name, lineno, label, hit))
             for hit in SOFT.findall(line):
                 soft_hits.append((name, lineno, hit))
-        check_portability(name, path, text, hard_hits)
+        check_portability(name, path, text, hard_hits, exists)
         check_hosts(name, text, hard_hits)
         check_literals(name, text, hard_hits)
         check_front_matter(name, path, text, hard_hits, big)
 
-    check_shell(files, hard_hits)
-    check_new_skills(files, hard_hits)
+    check_shell(files, hard_hits, read)
+    if staged:
+        pub = staged_text("skills/PUBLIC")
+        check_new_skills(files, hard_hits, approved_skills(pub or ""))
+    else:
+        check_new_skills(files, hard_hits)
 
     for name, why in big:
         print(f"note: {name} {why}")
