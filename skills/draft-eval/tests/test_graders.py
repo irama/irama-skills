@@ -120,6 +120,11 @@ class ValidateTest(unittest.TestCase):
         self.assertFalse(validate.quotes_unit('"a provenance question"', unit))
         self.assertTrue(validate.quotes_unit('"In Bartz ... a capability question"', unit))
         self.assertFalse(validate.quotes_unit('"In Bartz ... a provenance question"', unit))
+        # review fixes: word boundaries still count, elided pieces must keep their order
+        self.assertFalse(validate.quotes_unit('"therapist"', {"text": "The rapist was caught.", "notes": ""}))
+        self.assertTrue(validate.quotes_unit('"alpha ... omega"', {"text": "alpha then omega", "notes": ""}))
+        self.assertFalse(validate.quotes_unit('"omega ... alpha"', {"text": "alpha then omega", "notes": ""}))
+        self.assertTrue(validate.quotes_unit('"ends.That gap"', unit))
 
     def test_missing_unit_and_bad_json(self):
         errs = self.errors(json.dumps({"model": "m", "records": self.records[:2]}))

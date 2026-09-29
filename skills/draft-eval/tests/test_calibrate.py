@@ -82,6 +82,7 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(calibrate.pick_article(article(9)["units"], 6),
                          ["s0-p1", "s2-p1", "s3-p1", "s5-p1", "s6-p1", "s8-p1"])
         self.assertEqual(len(calibrate.pick_article(article(4)["units"], 6)), 4)
+        self.assertEqual(calibrate.pick_article(article(4)["units"], 1), [article(4)["units"][0]["id"]])
 
 
 class BuildTest(unittest.TestCase):

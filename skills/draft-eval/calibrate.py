@@ -58,7 +58,7 @@ def pick_deck(units, n, avoid_roles=()):
 def pick_article(units, n):
     if len(units) <= n:
         return [u["id"] for u in units]
-    return [units[round(k * (len(units) - 1) / (n - 1))]["id"] for k in range(n)]
+    return [units[round(k * (len(units) - 1) / max(n - 1, 1))]["id"] for k in range(n)]
 
 
 def criteria_for(unit, first, kind, rubric):
