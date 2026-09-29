@@ -1,6 +1,6 @@
 ---
 name: skilltastic
-description: Author a skill that runs on every host and is safe to publish — scaffold SKILL.md with valid front matter, design against the tightest host's limits (20 companion files, 10MB, no local filesystem), install the leak/portability/allowlist guard in the repo, and cut a portable drop-in folder. Use when writing a new skill, reviewing or fixing an existing one, packaging a skill for claude.ai or Cowork, or wiring the publishability guard into a public repo.
+description: Author a portable skill that is safe to publish — scaffold SKILL.md with valid front matter, design against the tightest host's limits (20 companion files, 10MB, no local filesystem), install the leak/portability/allowlist guard in the repo, and cut a portable drop-in folder. Use when writing a new skill, reviewing or fixing an existing one, packaging a skill for claude.ai or Cowork, or wiring the publishability guard into a public repo.
 ---
 
 # skilltastic
@@ -70,8 +70,12 @@ guard blocks this one.
 
 ## Step 2 — Decide which hosts it targets
 
-Four hosts read the same `SKILL.md` and none of them syncs to the others. The
-format is portable; the machine underneath is not.
+Four hosts load a skill folder today, each with conditions (plan, tenant or
+admin settings), and none of them syncs to the others. ChatGPT, Copilot declarative agents and Gemini read the
+same format but gate it by plan, preview or account type, so a skill is
+format-compatible there, not supported. The format is portable; the machine
+underneath is not. The capabilities table for all eight surfaces, the three
+ladders and their sources are in [reference/hosts.md](reference/hosts.md).
 
 | Host | The binding limit |
 |---|---|
@@ -80,14 +84,19 @@ format is portable; the machine underneath is not.
 | Claude Cowork | A shell in a Linux VM. Egress through an allow-list proxy, so package and browser downloads are unproven at best. |
 | Claude Code | The whole machine. Whatever is installed is available. |
 
-**Design against Copilot Cowork.** A skill that fits it fits everywhere. Twenty
-companion files is the cap that bites first, and it bites at packaging time,
-long after the design is set.
+**Design against Copilot Cowork.** A skill that fits it fits the packaging
+limits of the other three. Twenty companion files is the cap that bites first,
+and it bites at packaging time, long after the design is set.
 
 If the skill needs a shell — a renderer, a headless browser, a package install —
 say so in its body and ship a **portable cut** for the other three (Step 4),
 rather than letting it half-work. Detail and the per-host verdicts:
 [reference/hosts.md](reference/hosts.md).
+
+**At run time the skill trusts its own tool list, not the table.** If a skill
+makes a diagram, an image or a file, paste `assets/host-snippet.md` into its
+body. The snippet tells the agent to check which tools it can call now, take
+the first rung of the ladder that works, and say which rung it took.
 
 ## Step 3 — Make the repo refuse to publish a leak
 
@@ -98,7 +107,7 @@ front matter from Step 1. Install it in any repo that pushes to a public remote.
 mkdir -p scripts .githooks
 cp <skill-dir>/assets/check-no-leaks.py scripts/
 git config core.hooksPath .githooks
-python3 scripts/check-no-leaks.py --selftest   # 11 rules, known answers
+python3 scripts/check-no-leaks.py --selftest   # 13 rules, known answers
 python3 scripts/check-no-leaks.py --all        # the whole tree, before you trust it
 ```
 
@@ -109,7 +118,8 @@ it. Copy them from this repo's `.githooks/`.
 Two lists make the guard specific to a repo, and neither one is committed:
 
 - **`.leakrc`** — the private literals: domains, surnames, internal command,
-  repo, library and infrastructure names. The guard reads the repo's own
+  repo, library and infrastructure names, and a `literals:` list of words that
+  fail as bare words anywhere under `skills/`. The guard reads the repo's own
   `.leakrc` if it has one, otherwise the shared list in the config directory.
   **Gitignore it.** A guard that spells out what it blocks publishes the
   inventory it exists to protect.
@@ -122,8 +132,16 @@ Format, findings and what to do about each one:
 
 ## Step 4 — Cut the portable version
 
-The portable cut is the flat folder a host with no shell can use. Declare it in
-`portable/FILES`, one line per file:
+The portable cut is the folder a host with no shell can use. The packer has two
+modes, picked by whether the skill has a `portable/FILES`.
+
+**Folder mode** (no `portable/FILES`): the cut is the whole skill folder,
+recursively, with relative paths kept, so `references/library.md` stays at
+`references/library.md`. Use it for a skill that already fits every host as it
+stands.
+
+**Legacy mode** (`portable/FILES` exists): declare the cut one line per file,
+and it lands flat:
 
 ```
 portable/SKILL.md -> SKILL.md    # written by hand: a different document for a different reader
@@ -141,7 +159,21 @@ python3 <skill-dir>/assets/make-portable.py . /tmp/out --zip
 `SKILL.md` over 1MB or without front matter, an empty file, and — the one that
 actually catches things — a companion the portable `SKILL.md` never mentions. An
 unmentioned file is never opened by the host and still costs one of twenty
-slots.
+slots. In folder mode every check and the ZIP walk the subfolders too.
+
+Two flags narrow the cut for stricter hosts, and work with a build or with
+`--self-check`:
+
+- `--md-only` fails on any file that is not `.md`, for a marketplace that
+  refuses code files.
+- `--single-file` writes one `SKILL.md`: each `references/*.md` is inlined
+  under `## Reference: <file>`, links to it become in-page anchors, and
+  `SOURCES.md` goes last under `## Sources`. It fails over 1MB, and on any
+  file it cannot fold in.
+
+The packer refuses symlinks, `..`, absolute paths, hidden files and two files
+landing on one name, and it refuses a destination that is not empty, so a
+stale file never rides along. `--selftest` tests the packer itself.
 
 The `--zip` output is what uploads to claude.ai. The folder is what goes in the
 Cowork skills directory on the cloud drive.
