@@ -17,6 +17,16 @@ BANNED = [{"term": "\u2014", "case_sensitive": True},
 
 
 class CheckTest(unittest.TestCase):
+    def test_audit_reads_summary_line_not_labels(self):
+        clean = "01 ok     bottom=900/1080  right=1800/1920  [PROBLEM framing!]\n\nall 1 slides clean"
+        self.assertEqual(check.audit_verdict(clean), {"pass": True, "problems": []})
+        bad = ("01 ok     bottom=900/1080  right=1800/1920  [A]\n"
+               "02 OVERFLOW +40px  bottom=1120/1080  right=1800/1920  [B]  <- p\n\n1 PROBLEM(S)")
+        v = check.audit_verdict(bad)
+        self.assertFalse(v["pass"])
+        self.assertEqual(len(v["problems"]), 1)
+        self.assertFalse(check.audit_verdict("")["pass"])
+
     def test_banned_terms_respect_case(self):
         units = [unit("a", text="a grade of B"), unit("b", notes="GRADE it \u2014 now"),
                  unit("c", text="Call To Action")]

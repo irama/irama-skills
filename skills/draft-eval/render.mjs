@@ -67,8 +67,11 @@ export async function render(indexPath, unitsPath, outdir) {
       await page.addStyleTag({ content: HIDE_BAR });
       await settle(page);
       const active = await page.evaluate(() => {
-        const s = document.querySelector('deck-stage > section[data-deck-active]');
-        return s ? s.getAttribute('data-slide-id') : null;
+        const all = [...document.querySelectorAll('deck-stage > section')];
+        const i = all.findIndex((s) => s.hasAttribute('data-deck-active'));
+        if (i < 0) return null;
+        // Same fallback as extract.py: a section with no data-slide-id is section-<1-based index>.
+        return all[i].getAttribute('data-slide-id') || `section-${i + 1}`;
       });
       if (active !== u.id) {
         throw new Error(`unit ${u.ordinal} ${u.id}: #${u.hash_index} shows ${active}`);

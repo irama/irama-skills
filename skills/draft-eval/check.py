@@ -148,10 +148,18 @@ def dump_dom(index, query):
 
 def audit(index):
     m = re.search(r"<pre[^>]*>(.*?)</pre>", dump_dom(index, "audit"), re.S)
-    report = m.group(1) if m else ""
-    ok = bool(re.search(r"all \d+ slides clean", report)) and "PROBLEM" not in report
-    problems = [ln.strip() for ln in report.splitlines() if "!" in ln or "OVERFLOW" in ln]
-    return {"pass": ok, "problems": problems if m else ["no ?audit report in the DOM"]}
+    if not m:
+        return {"pass": False, "problems": ["no ?audit report in the DOM"]}
+    return audit_verdict(m.group(1))
+
+
+def audit_verdict(report):
+    """Judge a ?audit report by its final summary line only. Slide lines carry the
+    screen label, so a label containing "PROBLEM" must not fail a clean deck."""
+    lines = [ln.strip() for ln in report.splitlines() if ln.strip()]
+    ok = bool(lines) and re.fullmatch(r"all \d+ slides clean", lines[-1]) is not None
+    problems = [ln for ln in lines[:-1] if re.match(r"\d+ OVERFLOW", ln)]
+    return {"pass": ok, "problems": problems}
 
 
 def screen_metrics(index, units):
