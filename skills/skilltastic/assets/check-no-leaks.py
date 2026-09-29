@@ -5,12 +5,12 @@ One file does four jobs, because four separate guards is four things to
 remember and two of them were already missing from the repos that needed them:
 
   leaks        absolute home paths, credentials, private domains, personal
-               email, quoted working conversation
+               email, quoted working conversation, private literals
   portability  hardcoded skill install paths, dead relative links, shellcheck
   allowlist    a skill under skills/<name>/ that skills/PUBLIC does not name
   front matter a SKILL.md whose name or description breaks the format
 
-Run over the staged diff:   python3 scripts/check-no-leaks.py
+Run over the staged diff:   python3 scripts/check-no-leaks.py   (reads the index)
 Run over the whole tree:    python3 scripts/check-no-leaks.py --all
 Run over commit authorship: python3 scripts/check-no-leaks.py --authors <range>
 Prove the rules still work:  python3 scripts/check-no-leaks.py --selftest
@@ -81,8 +81,11 @@ HARD = [
 # no such list.
 
 def _leakrc(prefix=None):
-    env = "LEAK_TEAM_NAMES" if prefix else "LEAK_PRIVATE_DOMAINS"
-    raw = os.environ.get(env, "")
+    # The env lists stand in for two groups only. Any other group comes from
+    # the file, so a team name set in the environment never becomes a host or
+    # a literal.
+    env = {None: "LEAK_PRIVATE_DOMAINS", "names:": "LEAK_TEAM_NAMES"}.get(prefix)
+    raw = os.environ.get(env, "") if env else ""
     # Repo-local list first, then one shared private list for every repo that
     # has none of its own. Without the fallback each repo needs its own copy of
     # the same secret inventory, and the one that forgets is the one that leaks.
@@ -178,6 +181,25 @@ if _names:
         "quoted working conversation — paraphrase the substance instead"))
 
 
+_literals = _leakrc("literals:")
+
+
+def check_literals(name, text, hits):
+    """Refuse a private literal as a bare word anywhere under skills/.
+
+    `names:` only catches attributed speech, so a surname, an employer or an
+    internal app name could sit in a skill body and pass. A literal is matched
+    whole-word and case-sensitive, exactly as written in .leakrc: list each
+    spelling you mean. Never list a published author you cite; a reference
+    list would then fail."""
+    if not _literals or Path(name).parts[:1] != ("skills",):
+        return
+    pat = re.compile(r"\b(?:" + "|".join(re.escape(l) for l in _literals) + r")\b")
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for hit in pat.findall(line):
+            hits.append((name, lineno, "private literal: describe it generically instead", hit))
+
+
 # Reported for eyeballing, never blocks.
 SOFT = re.compile(r"(?!)")  # nothing soft-flagged at present
 
@@ -192,9 +214,36 @@ def staged_files():
     return [f for f in out.splitlines() if f.strip()]
 
 
+def staged_text(name):
+    """The bytes being committed, not the working copy. With partial staging the
+    two differ, and a leak cleaned from the working copy but still in the index
+    would otherwise pass. `None` when the index holds no such blob."""
+    r = subprocess.run(["git", "show", ":" + name], capture_output=True)
+    return r.stdout.decode(errors="ignore") if r.returncode == 0 else None
+
+
+def tree_text(name):
+    try:
+        return Path(name).read_text(errors="ignore")
+    except OSError:
+        return None
+
+
 def all_files():
     out = subprocess.run(["git", "ls-files"], capture_output=True, text=True, check=True).stdout
     return [f for f in out.splitlines() if f.strip()]
+
+
+def index_exists():
+    """`exists` for a link target, answered from the index instead of the tree.
+    A staged link to a file that is only in the working copy, or whose deletion
+    is staged, is dead in the commit, so it must fail here too."""
+    known = set()
+    for f in all_files():
+        p = Path(f)
+        known.add(str(p))
+        known.update(str(d) for d in p.parents)
+    return lambda path: os.path.normpath(str(path)) in known
 
 
 # The email pattern, reused for authorship. Kept as a lookup into HARD rather
@@ -254,8 +303,9 @@ CODE_SPAN = re.compile(r"`[^`]*`")
 MD_LINK = re.compile(r"\[[^\]]*\]\((?!https?:|mailto:|#|<)([^)\s]+)\)")
 
 
-def check_portability(name, path, text, hits):
-    """Three checks a leak guard cannot express as one line pattern."""
+def check_portability(name, path, text, hits, exists=Path.exists):
+    """Three checks a leak guard cannot express as one line pattern. `exists`
+    answers from the tree by default and from the index in pre-commit mode."""
     parts = set(path.parts)
 
     # 1. A skill must not name its own install location.
@@ -289,34 +339,41 @@ def check_portability(name, path, text, hits):
                 rel = target.split("#", 1)[0]
                 if not rel or rel.startswith("/") or "<" in target or ">" in target:
                     continue
-                if not (path.parent / rel).exists():
+                if not exists(path.parent / rel):
                     hits.append((name, lineno, "dead relative link", target))
 
 
-def check_shell(files, hits):
+def check_shell(files, hits, read=tree_text):
     """3. shellcheck every shell script. `bash -n` proves syntax, not correctness:
-    it passed a quoting bug that word-split any path containing a space."""
-    import shutil
+    it passed a quoting bug that word-split any path containing a space.
+
+    `read` supplies the text (the index in pre-commit mode), and shellcheck runs
+    on copies under the same relative paths, so a working copy cleaned after
+    staging cannot hide the staged script."""
+    import shutil, tempfile
     if not shutil.which("shellcheck"):
         return
     # A .sh extension is not a promise: this repo has a .sh file that is Python
     # and another that is zsh, neither of which shellcheck can parse. Trust the
     # shebang, so an unparseable *bash* file is still reported.
-    scripts = []
+    scripts = {}
     for f in files:
         if not f.endswith(".sh"):
             continue
-        try:
-            first = Path(f).read_text(errors="ignore").split("\n", 1)[0]
-        except OSError:
+        text = read(f)
+        if text is None:
             continue
-        if re.search(r"\b(bash|sh|dash|ksh)\b", first):
-            scripts.append(f)
+        if re.search(r"\b(bash|sh|dash|ksh)\b", text.split("\n", 1)[0]):
+            scripts[f] = text
     if not scripts:
         return
-    out = subprocess.run(
-        ["shellcheck", "--severity=warning", "--exclude=SC1090", "--format=gcc", *scripts],
-        capture_output=True, text=True).stdout
+    with tempfile.TemporaryDirectory() as d:
+        for f, text in scripts.items():
+            (Path(d) / f).parent.mkdir(parents=True, exist_ok=True)
+            (Path(d) / f).write_text(text)
+        out = subprocess.run(
+            ["shellcheck", "--severity=warning", "--exclude=SC1090", "--format=gcc", *scripts],
+            capture_output=True, text=True, cwd=d).stdout
     for line in out.splitlines():
         bits = line.split(":", 4)
         if len(bits) >= 5 and "warning" in bits[3] or len(bits) >= 5 and "error" in bits[3]:
@@ -345,6 +402,76 @@ def selftest_no_leakrc() -> bool:
                            capture_output=True, text=True, env=env, cwd=d)
         if r.returncode != 0:
             print(f"selftest FAIL: no-.leakrc run exited {r.returncode}\n{r.stderr}")
+            return False
+    return True
+
+
+def selftest_staged() -> bool:
+    """Pre-commit mode must scan the index, not the working copy.
+
+    Runs in a scratch repo. A leak that is staged while the working copy has
+    been cleaned must block; a clean staged file must pass even when the working
+    copy has since gained a leak. The same holds for what the checks depend on:
+    an unstaged skills/PUBLIC edit must not approve a staged skill, and a link
+    to a file only the working copy holds is dead."""
+    import os, tempfile
+    leak = "see /ho" + "me/leaker/notes\n"      # split so this file stays clean
+    with tempfile.TemporaryDirectory() as d:
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("LEAK_PRIVATE_DOMAINS", "LEAK_TEAM_NAMES")}
+        env["HOME"] = d
+        env["LEAKRC"] = str(Path(d) / "nope")
+        git = lambda *a: subprocess.run(["git", *a], cwd=d, env=env, check=True,
+                                        capture_output=True)
+        git("init", "-q")
+        f = Path(d) / "notes.md"
+        run = lambda: subprocess.run([sys.executable, str(Path(__file__).resolve())],
+                                     cwd=d, env=env, capture_output=True, text=True)
+        f.write_text(leak)
+        git("add", "notes.md")
+        f.write_text("clean\n")
+        if run().returncode != 1:
+            print("selftest FAIL: a staged leak with a clean working copy passed")
+            return False
+        f.write_text("clean\n")
+        git("add", "notes.md")
+        f.write_text(leak)
+        r = run()
+        if r.returncode != 0:
+            print(f"selftest FAIL: a clean staged file was blocked by its working copy\n{r.stdout}")
+            return False
+        # notes.md stays staged clean; the cases below add to it.
+
+        # The allowlist comes from the index: a skill staged with an empty
+        # skills/PUBLIC blocks even when the working copy has approved it.
+        sk = Path(d) / "skills" / "priv"
+        sk.mkdir(parents=True)
+        (sk / "SKILL.md").write_text("---\nname: priv\ndescription: A test skill.\n---\nbody\n")
+        pub = Path(d) / "skills" / "PUBLIC"
+        pub.write_text("")
+        git("add", "skills")
+        pub.write_text("priv\n")
+        r = run()
+        if "skill not approved" not in r.stdout:
+            print(f"selftest FAIL: an unstaged allowlist edit approved a staged skill\n{r.stdout}")
+            return False
+        pub.write_text("priv\n")
+        git("add", "skills/PUBLIC")
+
+        # A link target must exist in the index: one that only the working
+        # copy holds is dead in the commit.
+        (sk / "SKILL.md").write_text("---\nname: priv\ndescription: A test skill.\n---\n"
+                                     "[ref](ref.md)\n")
+        (sk / "ref.md").write_text("ref\n")
+        git("add", "skills/priv/SKILL.md")
+        r = run()
+        if "dead relative link" not in r.stdout:
+            print(f"selftest FAIL: a link to an unstaged file passed\n{r.stdout}")
+            return False
+        git("add", "skills/priv/ref.md")
+        r = run()
+        if r.returncode != 0:
+            print(f"selftest FAIL: a link to a staged file was blocked\n{r.stdout}")
             return False
     return True
 
@@ -442,6 +569,28 @@ def selftest() -> int:
     finally:
         _hosts = _saved
 
+    # literals: a bare word under skills/ blocks; a longer word containing it,
+    # the same word outside skills/, and an empty list do not.
+    global _literals
+    _saved_l, _literals = _literals, ["Privco", "XQX"]
+    try:
+        lh = []
+        check_literals("skills/a/SKILL.md", "Built at Privco.\nuses XQX data\n", lh)
+        check_literals("skills/a/SKILL.md", "Privcorp and XQXY are other words\n", lh)
+        check_literals("docs/notes.md", "Privco\n", lh)
+        if sorted(h[3] for h in lh) != ["Privco", "XQX"]:
+            print(f"selftest FAIL: literals flagged {[h[3] for h in lh]}")
+            ok = False
+        lh = []
+        _literals = []
+        check_literals("skills/a/SKILL.md", "Privco\n", lh)
+        if lh:
+            print("selftest FAIL: literal rule ran with no declared list")
+            ok = False
+    finally:
+        _literals = _saved_l
+
+    ok = selftest_staged() and ok
     ok = selftest_no_leakrc() and ok
     print("selftest passed" if ok else "selftest FAILED")
     return 0 if ok else 1
@@ -455,20 +604,25 @@ def selftest() -> int:
 PUBLIC_SKILLS = ROOT / "skills" / "PUBLIC"
 
 
-def approved_skills() -> set:
-    if not PUBLIC_SKILLS.is_file():
-        return set()
+def approved_skills(text=None) -> set:
+    """The allowlist. Pre-commit mode passes the staged skills/PUBLIC, so an
+    unstaged edit to the list can never approve a staged skill."""
+    if text is None:
+        if not PUBLIC_SKILLS.is_file():
+            return set()
+        text = PUBLIC_SKILLS.read_text(errors="ignore")
     out = set()
-    for line in PUBLIC_SKILLS.read_text(errors="ignore").splitlines():
+    for line in text.splitlines():
         line = line.split("#", 1)[0].strip()
         if line:
             out.add(line)
     return out
 
 
-def check_new_skills(files, hits) -> None:
+def check_new_skills(files, hits, approved=None) -> None:
     """Refuse a skill this repo has not been told it may publish."""
-    approved = approved_skills()
+    if approved is None:
+        approved = approved_skills()
     seen = set()
     for name in files:
         parts = Path(name).parts
@@ -569,20 +723,27 @@ def main() -> int:
         rng = sys.argv[i + 1] if len(sys.argv) > i + 1 else "@{push}..HEAD"
         return check_authors(rng)
 
-    files = all_files() if "--all" in sys.argv else staged_files()
+    staged = "--all" not in sys.argv
+    files = staged_files() if staged else all_files()
     if not files:
         return 0
 
+    # Pre-commit mode reads every input from the index: the file text, the
+    # skills/PUBLIC allowlist, the shell scripts and the link targets. A working
+    # copy that differs from the index must never change the verdict.
+    read = staged_text if staged else tree_text
+    exists = index_exists() if staged else Path.exists
     hard_hits, soft_hits, big = [], [], []
     for name in files:
         path = Path(name)
-        if not path.is_file() or SKIP_DIRS & set(path.parts):
+        if SKIP_DIRS & set(path.parts):
             continue
         if path.name == "check-no-leaks.py":  # this file names the patterns
             continue
-        try:
-            text = path.read_text(errors="ignore")
-        except OSError:
+        if not staged and not path.is_file():
+            continue
+        text = read(name)
+        if text is None:
             continue
         for lineno, line in enumerate(text.splitlines(), 1):
             for pattern, label in HARD:
@@ -590,12 +751,17 @@ def main() -> int:
                     hard_hits.append((name, lineno, label, hit))
             for hit in SOFT.findall(line):
                 soft_hits.append((name, lineno, hit))
-        check_portability(name, path, text, hard_hits)
+        check_portability(name, path, text, hard_hits, exists)
         check_hosts(name, text, hard_hits)
+        check_literals(name, text, hard_hits)
         check_front_matter(name, path, text, hard_hits, big)
 
-    check_shell(files, hard_hits)
-    check_new_skills(files, hard_hits)
+    check_shell(files, hard_hits, read)
+    if staged:
+        pub = staged_text("skills/PUBLIC")
+        check_new_skills(files, hard_hits, approved_skills(pub or ""))
+    else:
+        check_new_skills(files, hard_hits)
 
     for name, why in big:
         print(f"note: {name} {why}")
