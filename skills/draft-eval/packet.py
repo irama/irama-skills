@@ -19,6 +19,7 @@ graded unit. Prints the batch list as JSON: dir, prompt, units, pngs.
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -47,9 +48,12 @@ def render_criteria(rubric, kind):
 
 def render_prompt(rubric, kind, rows):
     text = (HERE / "grader-prompt.md").read_text()
-    units = "\n".join(f"- `{r['folder']}`: unit id `{r['id']}`, role `{r.get('role', 'content')}`, "
-                      f"first unit of the draft: {'yes' if r['first'] else 'no'}, "
-                      f"files: {', '.join(r.get('files', []))}" for r in rows)
+    # Unit ids and roles come from the draft's own markup, so they are untrusted: they go in
+    # as JSON inside a fenced data block, never spliced into the prompt's own sentences.
+    # json.dumps escapes newlines, so no value can close the fence or start a new line.
+    data = [{"folder": r["folder"], "unit": r["id"], "role": r.get("role", "content"),
+             "first_unit_of_draft": r["first"], "files": r.get("files", [])} for r in rows]
+    units = "```json\n" + json.dumps(data, indent=1) + "\n```"
     for key, val in {"KIND": kind, "RUBRIC_VERSION": rubric["rubric_version"],
                      "CRITERIA": render_criteria(rubric, kind), "UNITS": units}.items():
         text = text.replace("{{" + key + "}}", val)
@@ -65,6 +69,11 @@ def build(units_doc, outdir, shots_path=None, rubric=None):
         for s in json.loads(shots_path.read_text())["shots"]:
             shots[s["id"]] = shots_path.parent / s["file"]
     graded = [u for u in units_doc["units"] if not u.get("hidden")]
+    if kind == "deck":
+        # spec section 4: a deck packet holds the unit's screenshot; without it `visual` is a guess
+        missing = [u["id"] for u in graded if u["id"] not in shots]
+        if missing:
+            raise SystemExit(f"packet.py: no screenshot for deck unit(s): {', '.join(map(str, missing))}")
     outdir = Path(outdir).resolve()
     outdir.mkdir(parents=True, exist_ok=True)
     batches = []
@@ -76,7 +85,8 @@ def build(units_doc, outdir, shots_path=None, rubric=None):
         rows, pngs = [], []
         for i in range(b, min(b + BATCH, len(graded))):
             u, prev = graded[i], graded[i - 1] if i else None
-            folder = f"{i + 1:02d}-{u['id']}"
+            # the id is draft markup: keep it out of the path (no "/", no "..")
+            folder = f"{i + 1:02d}-" + re.sub(r"[^A-Za-z0-9_-]", "_", str(u["id"]))
             udir = bdir / folder
             udir.mkdir()
             (udir / "text.txt").write_text(u.get("text", ""))

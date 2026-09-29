@@ -23,6 +23,7 @@ run folder, `<n>` the round number.
 
 1. Build the packets. Decks pass the screenshots from `render.mjs`; articles have none.
 
+       mkdir -p <run>/grading/r<n>
        python3 <skill-dir>/packet.py <run>/units.json <run>/grading/r<n> --shots <run>/shots/shots.json > <run>/grading/r<n>/batches.json
 
    Each batch is a directory of up to 8 unit folders, and the rendered prompt sits beside it

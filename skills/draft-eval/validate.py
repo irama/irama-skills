@@ -131,6 +131,8 @@ def check(raw, units_doc, batch_ids, rubric=None, schema=None):
     if not isinstance(doc, dict):
         return [], ["$: not an object"]
     errs = schema_errors({**doc, "records": []}, schema)
+    if not isinstance(doc.get("records"), list):
+        errs.append("$.records: missing or not a list")
     if errs:
         return [], errs
     item = schema["properties"]["records"]["items"]
