@@ -64,7 +64,10 @@ def need(ok, msg):
 def safe_rel(rel: str, what: str) -> str:
     """A relative POSIX path with no traversal, no hidden part, no absolute root."""
     p = PurePosixPath(rel)
-    need(rel and not p.is_absolute() and not re.match(r"^[A-Za-z]:", rel),
+    # A backslash or colon is a plain character to POSIX but a separator, drive
+    # (`C:`) or UNC root (`\\host\share`) on Windows, so `sub\..\..\x.md`
+    # would pass the parts check below and still traverse once joined there.
+    need(rel and not p.is_absolute() and "\\" not in rel and ":" not in rel,
          f"{what} {rel!r} must be a relative path")
     for part in p.parts:
         need(part not in ("..", "."), f"{what} {rel!r} may not use '..' or '.'")
@@ -126,11 +129,18 @@ def anchor(heading: str) -> str:
 LINK = re.compile(r"\]\((?!#|[a-z][a-z0-9+.-]*:)([^)\s#]+\.md)(#[^)\s]*)?\)", re.I)
 
 
-def single_file(files) -> str:
+def single_file(files, skill: Path) -> str:
     """Fold SKILL.md, references/*.md and SOURCES.md into one document."""
     by = dict((rel, src) for src, rel in files)
-    refs = sorted(r for r in by if r.startswith("references/") and r.count("/") == 1
-                  and r.endswith(".md"))
+
+    # A reference is known by its source path: a legacy cut has already
+    # flattened `references/x.md` to `x.md` on the destination side.
+    def is_ref(src):
+        r = src.relative_to(skill).as_posix()
+        return r.startswith("references/") and r.count("/") == 1 and r.endswith(".md")
+
+    refs = sorted((r for r in by if r not in ("SKILL.md", "SOURCES.md") and is_ref(by[r])),
+                  key=lambda r: by[r].name)
     extra = sorted(set(by) - {"SKILL.md", "SOURCES.md", *refs})
     need(not extra, "--single-file cannot carry " + ", ".join(extra))
     heads = {"SKILL.md": ""}
@@ -174,7 +184,7 @@ def build(skill: Path, dest: Path, md_only=False, one_file=False) -> Path:
     os.chmod(tmp, 0o777 & ~mask)  # mkdtemp makes 0700; a cut folder is shared
     try:
         if one_file:
-            (tmp / "SKILL.md").write_text(single_file(files))
+            (tmp / "SKILL.md").write_text(single_file(files, skill))
         else:
             for src, rel in files:
                 (tmp / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -332,6 +342,14 @@ def selftest() -> int:
         refuses(lambda: build(s, T / "one2", one_file=True), "cannot carry assets/x.md")
         (s / "assets" / "x.md").unlink()
         (s / "assets").rmdir()
+        # A legacy cut flattens references/lib.md to lib.md; still inlined.
+        s2 = skill(T / "lf", {"SKILL.md": "full\n", "portable/SKILL.md": fm + "Read [l](lib.md).\n",
+                              "references/lib.md": "# Lib\n",
+                              "portable/FILES": "portable/SKILL.md -> SKILL.md\n"
+                                                "references/lib.md\n"})
+        doc = (build(s2, T / "lf-out", one_file=True) / "SKILL.md").read_text()
+        check("## Reference: lib.md\n\n# Lib" in doc and "[l](#reference-libmd)" in doc,
+              "legacy --single-file inlines references by source path")
         (s / "references" / "big.md").write_text("x" * MAX_SKILL_MD)
         refuses(lambda: build(s, T / "one3", one_file=True), "over 1MB")
         (s / "references" / "big.md").unlink()
@@ -345,11 +363,20 @@ def selftest() -> int:
         s = skill(T / "r2", {"SKILL.md": fm, "portable/FILES": "SKILL.md\nlink/x.md\n"})
         (s / "link").symlink_to(T)
         refuses(lambda: build(s, T / "r2-out"), "goes through a symlink")
+        s = skill(T / "r5", {"SKILL.md": fm, "a\\..\\b.md": "x\n"})
+        refuses(lambda: build(s, T / "r5-out"), "must be a relative path")
         s = skill(T / "r3", {"SKILL.md": fm, ".DS_Store": "x"})
         refuses(lambda: build(s, T / "r3-out"), "is hidden")
         for i, (files, frag) in enumerate([
                 ("SKILL.md\n../secret.md\n", "may not use '..'"),
                 ("SKILL.md\n/etc/hosts\n", "must be a relative path"),
+                ("SKILL.md\nsub\\..\\..\\victim.md\n", "must be a relative path"),
+                ("SKILL.md\nSKILL.md -> ..\\..\\victim.md\n", "must be a relative path"),
+                ("SKILL.md\nC:/Windows/x.md\n", "must be a relative path"),
+                ("SKILL.md\nSKILL.md -> c:x.md\n", "must be a relative path"),
+                ("SKILL.md\n\\\\host\\share\\x.md\n", "must be a relative path"),
+                ("SKILL.md\nSKILL.md -> \\x.md\n", "must be a relative path"),
+                ("SKILL.md\n//host/share/x.md\n", "must be a relative path"),
                 ("SKILL.md\nSKILL.md -> /tmp/x.md\n", "must be a relative path"),
                 ("SKILL.md\nSKILL.md -> sub/x.md\n", "must be a bare name"),
                 ("SKILL.md\nSKILL.md -> ../x.md\n", "may not use '..'"),
