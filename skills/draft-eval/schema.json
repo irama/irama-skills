@@ -1,0 +1,417 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "draft-eval grader batch",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "model",
+  "records"
+ ],
+ "properties": {
+  "model": {
+   "type": "string"
+  },
+  "records": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "unit",
+     "scores"
+    ],
+    "properties": {
+     "unit": {
+      "type": "string"
+     },
+     "scores": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "visual",
+       "clear",
+       "flow",
+       "delight",
+       "one_idea",
+       "concrete_first",
+       "guess_reveal",
+       "earns_place",
+       "honest_numbers"
+      ],
+      "properties": {
+       "visual": {
+        "anyOf": [
+         {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "score",
+           "reason"
+          ],
+          "properties": {
+           "score": {
+            "anyOf": [
+             {
+              "type": "integer",
+              "enum": [
+               1,
+               2,
+               3,
+               4,
+               5
+              ]
+             },
+             {
+              "type": "string",
+              "enum": [
+               "n/a"
+              ]
+             }
+            ]
+           },
+           "reason": {
+            "type": "string",
+            "minLength": 1
+           }
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "clear": {
+        "anyOf": [
+         {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "score",
+           "reason"
+          ],
+          "properties": {
+           "score": {
+            "anyOf": [
+             {
+              "type": "integer",
+              "enum": [
+               1,
+               2,
+               3,
+               4,
+               5
+              ]
+             },
+             {
+              "type": "string",
+              "enum": [
+               "n/a"
+              ]
+             }
+            ]
+           },
+           "reason": {
+            "type": "string",
+            "minLength": 1
+           }
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "flow": {
+        "anyOf": [
+         {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "score",
+           "reason"
+          ],
+          "properties": {
+           "score": {
+            "anyOf": [
+             {
+              "type": "integer",
+              "enum": [
+               1,
+               2,
+               3,
+               4,
+               5
+              ]
+             },
+             {
+              "type": "string",
+              "enum": [
+               "n/a"
+              ]
+             }
+            ]
+           },
+           "reason": {
+            "type": "string",
+            "minLength": 1
+           }
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "delight": {
+        "anyOf": [
+         {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "score",
+           "reason"
+          ],
+          "properties": {
+           "score": {
+            "anyOf": [
+             {
+              "type": "integer",
+              "enum": [
+               1,
+               2,
+               3,
+               4,
+               5
+              ]
+             },
+             {
+              "type": "string",
+              "enum": [
+               "n/a"
+              ]
+             }
+            ]
+           },
+           "reason": {
+            "type": "string",
+            "minLength": 1
+           }
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "one_idea": {
+        "anyOf": [
+         {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "score",
+           "reason"
+          ],
+          "properties": {
+           "score": {
+            "anyOf": [
+             {
+              "type": "integer",
+              "enum": [
+               1,
+               2,
+               3,
+               4,
+               5
+              ]
+             },
+             {
+              "type": "string",
+              "enum": [
+               "n/a"
+              ]
+             }
+            ]
+           },
+           "reason": {
+            "type": "string",
+            "minLength": 1
+           }
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "concrete_first": {
+        "anyOf": [
+         {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "score",
+           "reason"
+          ],
+          "properties": {
+           "score": {
+            "anyOf": [
+             {
+              "type": "integer",
+              "enum": [
+               1,
+               2,
+               3,
+               4,
+               5
+              ]
+             },
+             {
+              "type": "string",
+              "enum": [
+               "n/a"
+              ]
+             }
+            ]
+           },
+           "reason": {
+            "type": "string",
+            "minLength": 1
+           }
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "guess_reveal": {
+        "anyOf": [
+         {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "score",
+           "reason"
+          ],
+          "properties": {
+           "score": {
+            "anyOf": [
+             {
+              "type": "integer",
+              "enum": [
+               1,
+               2,
+               3,
+               4,
+               5
+              ]
+             },
+             {
+              "type": "string",
+              "enum": [
+               "n/a"
+              ]
+             }
+            ]
+           },
+           "reason": {
+            "type": "string",
+            "minLength": 1
+           }
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "earns_place": {
+        "anyOf": [
+         {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "score",
+           "reason"
+          ],
+          "properties": {
+           "score": {
+            "anyOf": [
+             {
+              "type": "integer",
+              "enum": [
+               1,
+               2,
+               3,
+               4,
+               5
+              ]
+             },
+             {
+              "type": "string",
+              "enum": [
+               "n/a"
+              ]
+             }
+            ]
+           },
+           "reason": {
+            "type": "string",
+            "minLength": 1
+           }
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "honest_numbers": {
+        "anyOf": [
+         {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "score",
+           "reason"
+          ],
+          "properties": {
+           "score": {
+            "anyOf": [
+             {
+              "type": "integer",
+              "enum": [
+               1,
+               2,
+               3,
+               4,
+               5
+              ]
+             },
+             {
+              "type": "string",
+              "enum": [
+               "n/a"
+              ]
+             }
+            ]
+           },
+           "reason": {
+            "type": "string",
+            "minLength": 1
+           }
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}
