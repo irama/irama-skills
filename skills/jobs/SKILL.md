@@ -88,7 +88,8 @@ the prompt, so run `$J get <id>` for each picked job before working it.
    one machine, because both read the same claim token from `claims.json` and the hub treats
    the second call as a retry. The conductor claim is what separates those two sessions.
    If the hub refuses after the conductor claim succeeded, sign off
-   `jobs:JOB-<id> --status incomplete` before you skip.
+   `jobs:JOB-<id> --status incomplete` before you skip. The same applies when the hub claim
+   returns `UNREACHABLE` (status 0): the job is not yours, so release the conductor claim too.
 2. **Size** it with the chain-sizing table in the global instructions (one-line fix → `quick`;
    single bounded change → `build`; unclear intent → `grill`; unproven design → `prototype`;
    multi-session feature → `to_driver`; huge and foggy → `wayfinder`). Record it:
@@ -145,7 +146,9 @@ the target repo.
    ```
 
    It runs `git fetch`, refuses if the default branch has commits not on its upstream (another
-   thread's work would ship too), and refuses if the job branch head is not `approved_sha`. On
+   thread's work would ship too), and refuses if the job branch head does not have the same tree
+   as `approved_sha`. It compares trees because `/merge` squashes a multi-commit or wip branch,
+   which gives it a new head commit with the same tree. On
    refusal, `--void` comments why and sets the run back to `committed`, which voids the
    approval. The job stays in In review. **Stop.** Report the reasons to the operator.
 2. **Hold the repo's shipping verbs** in the conductor for the whole sequence, so no other
@@ -158,7 +161,13 @@ the target repo.
 
    Held by another thread → say who holds it and stop.
 3. **From the job's worktree in the target repo** (`/merge` works on the current branch of the
-   current repo), run the `/merge` procedure.
+   current repo), run the `/merge` procedure. Record the default branch tip before the merge,
+   and again after it:
+
+   ```bash
+   pre=$(git rev-parse <default>)     # before /merge
+   landed=$(git rev-parse <default>)  # after /merge
+   ```
 4. **Re-check the approval immediately before the push.** The operator can void it, or edit
    the job, while the merge runs:
 
@@ -167,10 +176,17 @@ the target repo.
    ```
 
    `--recheck` asks the hub again that the run is still `approved`, and that the job branch
-   head is still the `approved_sha`. It skips the unpushed-commits check, because the merge
-   just made that true. If it refuses, do not push. Undo the local merge
-   (`git reset --hard ORIG_HEAD` on the default branch, nothing is pushed yet), sign off both
-   verbs `--status incomplete`, and report the reasons. **Stop.**
+   head still has the tree of `approved_sha`. It skips the unpushed-commits check, because the merge
+   just made that true. If it refuses, do not push. Undo the local merge only if
+   the default branch tip is still `$landed`, so no later commit is lost:
+
+   ```bash
+   m=<target repo main checkout>   # where <default> is checked out
+   [ "$(git -C "$m" rev-parse <default>)" = "$landed" ] && git -C "$m" reset --hard "$pre"
+   ```
+
+   If the tip moved, do not reset. Tell the user the tip moved and leave the merge in place.
+   Either way, sign off both verbs `--status incomplete` and report the reasons. **Stop.**
 5. If the re-check passes, run the `/push` procedure from that repo. The push skill keeps its
    own final check (tree unchanged, range exactly what was reviewed) and still stops on
    extras. Then sign off both verbs.

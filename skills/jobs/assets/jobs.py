@@ -23,6 +23,7 @@ a usage or config error.
 
 import argparse
 import fcntl
+import http.client
 import json
 import os
 import re
@@ -140,13 +141,15 @@ def api(method, path, body=None):
     except urllib.error.HTTPError as e:
         try:
             payload = json.loads(e.read() or b"{}")
-        except (json.JSONDecodeError, OSError):
+        except (ValueError, OSError, http.client.HTTPException):
             payload = {"error": e.reason}
         return e.code, payload
     except urllib.error.URLError as e:
         return 0, {"error": f"hub unreachable: {e.reason}", "code": "UNREACHABLE"}
-    except json.JSONDecodeError:
+    except ValueError:  # JSONDecodeError and UnicodeDecodeError are both ValueError
         return 0, {"error": "hub sent a body that is not JSON", "code": "BAD_RESPONSE"}
+    except http.client.HTTPException as e:  # IncompleteRead and friends while reading the body
+        return 0, {"error": f"hub read failed: {e.__class__.__name__}", "code": "UNREACHABLE"}
     except OSError as e:  # socket.timeout / TimeoutError / reset while reading the body
         return 0, {"error": f"hub read failed: {e.__class__.__name__}: {e}", "code": "UNREACHABLE"}
 
@@ -335,7 +338,9 @@ def default_branch(repo):
 
 def preflight_check(repo, branch, approved_sha, fetch=True, recheck=False):
     """Return a list of reasons the ship must not start; empty means go.
-    Checks: the default branch has nothing unpushed, and the job branch head is the approved SHA.
+    Checks: the default branch has nothing unpushed, and the job branch head has the approved tree.
+    Trees, not commits: /merge squashes a multi-commit or wip branch (reset --soft + a new commit),
+    which changes the head SHA but keeps the tree the operator reviewed.
     recheck=True (just before the push) skips the unpushed check: the merge made it true."""
     reasons = []
     if not recheck:
@@ -343,8 +348,12 @@ def preflight_check(repo, branch, approved_sha, fetch=True, recheck=False):
     head = git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}^{{commit}}", check=False)
     if not head:
         reasons.append(f"branch {branch} not found in {repo}")
-    elif not approved_sha or not (head.startswith(approved_sha) or approved_sha.startswith(head)):
-        reasons.append(f"{branch} head {head[:12]} is not the approved SHA {(approved_sha or 'none')[:12]}")
+    else:
+        tree = git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{tree}}", check=False)
+        want = approved_sha and git(repo, "rev-parse", "--verify", "--quiet", f"{approved_sha}^{{tree}}", check=False)
+        if not want or tree != want:
+            reasons.append(f"{branch} head {head[:12]} does not have the tree of the approved SHA "
+                           f"{(approved_sha or 'none')[:12]}")
     return reasons
 
 
@@ -455,6 +464,24 @@ def selftest():
         assert status == 0 and payload["code"] == "UNREACHABLE", payload
         HTTP_TIMEOUT = saved
         srv.server_close()
+        # A short body (IncompleteRead) and a non-UTF-8 body are JSON refusals too.
+        class Bad(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'{"a"' if self.path == "/short" else b"\xff\xfe"
+                self.send_response(200)
+                self.send_header("Content-Length", "100" if self.path == "/short" else "2")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Bad)
+        threading.Thread(target=lambda: [srv.handle_request() for _ in range(2)], daemon=True).start()
+        os.environ["JOBS_BASE_URL"] = f"http://127.0.0.1:{srv.server_port}"
+        assert api("GET", "/short") == (0, {"error": "hub read failed: IncompleteRead", "code": "UNREACHABLE"})
+        assert api("GET", "/bytes")[1]["code"] == "BAD_RESPONSE"
+        srv.server_close()
         for k in ("JOBS_BASE_URL", "JOBS_AGENT_TOKEN"):
             del os.environ[k]
 
@@ -476,13 +503,27 @@ def selftest():
         assert preflight_check(repo, "job/1-x", approved) == []
         assert preflight_check(repo, "job/1-x", approved[:7]) == []
         r = preflight_check(repo, "job/1-x", "0" * 40)
-        assert len(r) == 1 and "not the approved SHA" in r[0]
+        assert len(r) == 1 and "tree of the approved SHA" in r[0]
         assert "not found" in preflight_check(repo, "job/9-nope", approved)[0]
         sh(repo, "commit", "--quiet", "--allow-empty", "-m", "someone else's work")
         r = preflight_check(repo, "job/1-x", approved)
         assert len(r) == 1 and "1 commit(s) ahead" in r[0], r
         assert preflight_check(repo, "job/1-x", approved, recheck=True) == [], "recheck skips unpushed"
-        assert "not the approved SHA" in preflight_check(repo, "job/1-x", "0" * 40, recheck=True)[0]
+        assert "tree of the approved SHA" in preflight_check(repo, "job/1-x", "0" * 40, recheck=True)[0]
+        # /merge's squash: new head, same tree, still passes. A changed tree refuses.
+        sh(repo, "checkout", "--quiet", "job/1-x")
+        (repo / "f.txt").write_text("a")
+        sh(repo, "add", "f.txt")
+        sh(repo, "commit", "--quiet", "-m", "wip auto-commit")
+        approved = git(repo, "rev-parse", "HEAD")
+        sh(repo, "reset", "--quiet", "--soft", "main~1")
+        sh(repo, "commit", "--quiet", "-m", "feat: squashed")
+        assert git(repo, "rev-parse", "HEAD") != approved
+        assert preflight_check(repo, "job/1-x", approved, recheck=True) == [], "squash keeps the tree"
+        (repo / "f.txt").write_text("b")
+        sh(repo, "commit", "--quiet", "-am", "edit after approval")
+        assert "tree of the approved SHA" in preflight_check(repo, "job/1-x", approved, recheck=True)[0]
+        sh(repo, "checkout", "--quiet", "main")
 
         # Default branch: origin/HEAD wins, else main, else master.
         assert default_branch(repo) == "main"
