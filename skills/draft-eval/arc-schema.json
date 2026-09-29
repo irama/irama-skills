@@ -1,0 +1,98 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "draft-eval arc pass",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "model",
+  "scores"
+ ],
+ "properties": {
+  "model": {
+   "type": "string"
+  },
+  "scores": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "flow",
+    "delight",
+    "participation"
+   ],
+   "properties": {
+    "flow": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "score",
+      "reason"
+     ],
+     "properties": {
+      "score": {
+       "type": "integer",
+       "enum": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "delight": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "score",
+      "reason"
+     ],
+     "properties": {
+      "score": {
+       "type": "integer",
+       "enum": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "participation": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "score",
+      "reason"
+     ],
+     "properties": {
+      "score": {
+       "type": "integer",
+       "enum": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    }
+   }
+  }
+ }
+}
