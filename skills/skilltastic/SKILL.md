@@ -122,8 +122,16 @@ Format, findings and what to do about each one:
 
 ## Step 4 — Cut the portable version
 
-The portable cut is the flat folder a host with no shell can use. Declare it in
-`portable/FILES`, one line per file:
+The portable cut is the folder a host with no shell can use. The packer has two
+modes, picked by whether the skill has a `portable/FILES`.
+
+**Folder mode** (no `portable/FILES`): the cut is the whole skill folder,
+recursively, with relative paths kept, so `references/library.md` stays at
+`references/library.md`. Use it for a skill that already fits every host as it
+stands.
+
+**Legacy mode** (`portable/FILES` exists): declare the cut one line per file,
+and it lands flat:
 
 ```
 portable/SKILL.md -> SKILL.md    # written by hand: a different document for a different reader
@@ -141,7 +149,21 @@ python3 <skill-dir>/assets/make-portable.py . /tmp/out --zip
 `SKILL.md` over 1MB or without front matter, an empty file, and — the one that
 actually catches things — a companion the portable `SKILL.md` never mentions. An
 unmentioned file is never opened by the host and still costs one of twenty
-slots.
+slots. In folder mode every check and the ZIP walk the subfolders too.
+
+Two flags narrow the cut for stricter hosts, and work with a build or with
+`--self-check`:
+
+- `--md-only` fails on any file that is not `.md`, for a marketplace that
+  refuses code files.
+- `--single-file` writes one `SKILL.md`: each `references/*.md` is inlined
+  under `## Reference: <file>`, links to it become in-page anchors, and
+  `SOURCES.md` goes last under `## Sources`. It fails over 1MB, and on any
+  file it cannot fold in.
+
+The packer refuses symlinks, `..`, absolute paths, hidden files and two files
+landing on one name, and it refuses a destination that is not empty, so a
+stale file never rides along. `--selftest` tests the packer itself.
 
 The `--zip` output is what uploads to claude.ai. The folder is what goes in the
 Cowork skills directory on the cloud drive.

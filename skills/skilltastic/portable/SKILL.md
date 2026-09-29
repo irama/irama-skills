@@ -63,6 +63,12 @@ If a skill needs a real shell — a renderer, a headless browser, a package
 install — say so in its own body and ship a smaller cut for the hosts that have
 none, rather than letting it half-work.
 
+The full version's packer builds that cut. With no `portable/FILES` it takes
+the whole folder and keeps subfolders such as `references/`. With one, it
+copies the listed files flat. `--md-only` refuses any file that is not `.md`,
+and `--single-file` folds the references and `SOURCES.md` into one `SKILL.md`
+for a host that takes a single file.
+
 ## 5. Before it goes anywhere public
 
 A skill that only ever talks to private infrastructure belongs in a private
