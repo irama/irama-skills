@@ -14,6 +14,7 @@ portable half. Business-facing, install-anywhere skills live in
 | [driver](skills/driver/) | Drive a piece of roadmap work to done — find or create its tickets, confirm scope, then execute them as a sequential relay of fresh-context Agents… |
 | [flush](skills/flush/) | Run the whole shipping pipeline end-to-end — /commit, /merge, /push, /prune — skipping the steps that don't apply |
 | [gen-image](skills/gen-image/) | Generate images with GPT Image 2 (the default) or another hosted model — Nano Banana 2, Seedream, Qwen Image Edit Plus, Midjourney v7, Z-Image… |
+| [jobs](skills/jobs/) | Work the job board — list the jobs queued for this repo (or every repo), claim, size, build and report back on each card, and ship approved runs through /merge and /push |
 | [legal-pages](skills/legal-pages/) | Create /privacy and /terms pages for an app — Australian-context legal content (Privacy Act 1988/APPs, ACL, not-professional-advice disclaimers)… |
 | [localhost](skills/localhost/) | Manage local dev servers on rotating ports 3000-3002. Bare /localhost (or "start") cleans caches and (re)starts this repo's server, returning a… |
 | [merge](skills/merge/) | Merge shipped feature branch(es) down onto the default branch locally — no migrations, no push. "/merge" merges the current branch; "/merge all"… |

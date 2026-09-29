@@ -1,0 +1,485 @@
+#!/usr/bin/env python3
+"""Client for the job board's agent API. The /jobs skill calls this; it never builds curl.
+
+    jobs.py here                                  this repo's target and whether it orchestrates
+    jobs.py list [--column C] [--target T|none] [--awaiting] [--ship-approved] [--all-pages]
+    jobs.py get ID                                one job, runs, last 200 comments
+    jobs.py attachments ID                        1-hour signed image URLs
+    jobs.py claim ID [--agent LABEL]              claim with this machine's token for the job
+    jobs.py patch ID [--column C] [--size S] [--size-reason R] [--targets-picked a,b] [--ack N]
+    jobs.py run ID --target T [--branch B] [--base-sha S] [--head-sha S] [--state claimed|committed|failed]
+    jobs.py shipped ID --target T --deployed-sha S
+    jobs.py comment ID --kind message|event [--body TEXT | --body-file F | stdin] [--agent LABEL]
+    jobs.py repos [--root DIR] [--dry-run]        report sibling git repos (PUT /api/jobs/repos)
+    jobs.py preflight ID --target T --repo PATH [--void]   ship preflight, before anything mutates
+    jobs.py --selftest
+
+Config: JOBS_BASE_URL, JOBS_AGENT_TOKEN and JOBS_ORCHESTRATORS from ~/.config/jobs/env.
+A variable already in the process environment wins over the file (a dry run points
+JOBS_BASE_URL at a dev hub that way). Claim tokens live in ~/.config/jobs/claims.json.
+Output is JSON on stdout. Exit 0 on success, 1 on an API or preflight refusal, 2 on
+a usage or config error.
+"""
+
+import argparse
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+import uuid
+from pathlib import Path
+
+TARGET_RE = re.compile(r"^[a-z0-9._-]+/[a-z0-9._-]+$")
+TEMPLATE = """# /jobs skill config. Mode 600. Never commit or print this file.
+# JOBS_BASE_URL: the job board hub's base URL, no trailing slash.
+# JOBS_AGENT_TOKEN: the hub's agent bearer token (the same value as the hub's
+#   JOBS_AGENT_TOKEN env var). Paste it; do not generate a new one here.
+# JOBS_ORCHESTRATORS: comma-separated targets (owner/repo) where bare /jobs lists every job.
+JOBS_BASE_URL=
+JOBS_AGENT_TOKEN=
+JOBS_ORCHESTRATORS=
+"""
+
+
+def config_dir():
+    return Path(os.environ.get("JOBS_CONFIG_DIR") or Path.home() / ".config" / "jobs")
+
+
+def load_config():
+    """Read the env file, writing the empty template only if it is absent."""
+    path = config_dir() / "env"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(TEMPLATE)
+    cfg = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            cfg[k.strip()] = v.strip().strip('"').strip("'")
+    for k in ("JOBS_BASE_URL", "JOBS_AGENT_TOKEN", "JOBS_ORCHESTRATORS"):
+        if os.environ.get(k):
+            cfg[k] = os.environ[k]
+    return cfg, path
+
+
+def die(msg, code=2):
+    print(json.dumps({"error": msg}))
+    sys.exit(code)
+
+
+# ── Claim tokens ────────────────────────────────────────────────────────────
+
+
+def claims_path():
+    return config_dir() / "claims.json"
+
+
+def read_claims():
+    try:
+        return json.loads(claims_path().read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def claim_token(job_id, create=False):
+    """The token for a job. Created and persisted BEFORE the claim call, so a retry
+    after a timeout reuses it and the hub answers 200 instead of already_claimed."""
+    claims = read_claims()
+    key = str(job_id)
+    if key not in claims:
+        if not create:
+            die(f"no claim token for JOB-{job_id} on this machine; claim it first")
+        claims[key] = str(uuid.uuid4())
+        p = claims_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(claims, f, indent=1)
+        os.replace(tmp, p)
+    return claims[key]
+
+
+# ── HTTP ────────────────────────────────────────────────────────────────────
+
+
+def api(method, path, body=None):
+    cfg, cfg_path = load_config()
+    base = cfg.get("JOBS_BASE_URL", "").rstrip("/")
+    token = cfg.get("JOBS_AGENT_TOKEN", "")
+    if not base or not token:
+        die(f"JOBS_BASE_URL and JOBS_AGENT_TOKEN must be set in {cfg_path}")
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(base + path, data=data, method=method)
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Accept", "application/json")
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            payload = json.loads(e.read() or b"{}")
+        except json.JSONDecodeError:
+            payload = {"error": e.reason}
+        return e.code, payload
+    except urllib.error.URLError as e:
+        return 0, {"error": f"hub unreachable: {e.reason}", "code": "UNREACHABLE"}
+
+
+def emit(status, payload):
+    """Print the response. 2xx exits 0; anything else carries its HTTP status and exits 1."""
+    if not 200 <= status < 300:
+        payload = {**payload, "status": status}
+    print(json.dumps(payload, indent=1))
+    return 0 if 200 <= status < 300 else 1
+
+
+def agent_label(given=None):
+    if given:
+        return given[:100]
+    root = repo_root(Path.cwd())
+    return f"{socket.gethostname().split('.')[0]}:{root.name if root else 'no-repo'}"[:100]
+
+
+# ── Repos and targets ──────────────────────────────────────────────────────
+
+
+def git(repo, *args, check=True):
+    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    if check and r.returncode:
+        raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()}")
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def repo_root(path):
+    """The MAIN checkout of the repo holding path (not a worktree), or None."""
+    common = git(path, "rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
+    if not common:
+        return None
+    common = Path(common)
+    return common.parent if common.name == ".git" else common
+
+
+def target_from_url(url, dirname):
+    """owner/repo from an origin URL, lower-cased; else local/<dir> (spec § Targets)."""
+    # A path or file:// origin names no owner, so it is local like a missing remote.
+    if url and not url.startswith(("/", ".", "file:")):
+        m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url.strip())
+        if m:
+            t = f"{m.group(1)}/{m.group(2)}".lower()
+            if TARGET_RE.match(t):
+                return t
+    local = re.sub(r"[^a-z0-9._-]", "-", dirname.lower())
+    return f"local/{local}"
+
+
+def target_of(repo):
+    root = repo_root(repo) or Path(repo)
+    return target_from_url(git(root, "remote", "get-url", "origin", check=False), root.name)
+
+
+def cmd_here(_a):
+    root = repo_root(Path.cwd())
+    cfg, _ = load_config()
+    orch = {t.strip().lower() for t in cfg.get("JOBS_ORCHESTRATORS", "").split(",") if t.strip()}
+    target = target_of(root) if root else None
+    print(json.dumps({"repo": str(root) if root else None, "target": target,
+                      "orchestrator": bool(target and target in orch)}, indent=1))
+    return 0
+
+
+def sibling_repos(root):
+    """Main checkouts directly under root. Worktrees (.git is a file) are skipped."""
+    out = []
+    for d in sorted(Path(root).iterdir()):
+        if (d / ".git").is_dir():
+            out.append({"target": target_of(d), "display": d.name[:100]})
+    seen = {}
+    for r in out:
+        seen[r["target"]] = r
+    return list(seen.values())[:200]
+
+
+def cmd_repos(a):
+    here = repo_root(Path.cwd())
+    root = Path(a.root) if a.root else (here.parent if here else None)
+    if not root or not root.is_dir():
+        die("not in a git repo and no --root given")
+    repos = sibling_repos(root)
+    if a.dry_run:
+        print(json.dumps({"repos": repos}, indent=1))
+        return 0
+    return emit(*api("PUT", "/api/jobs/repos", {"repos": repos}))
+
+
+# ── API commands ────────────────────────────────────────────────────────────
+
+
+def cmd_list(a):
+    q = {}
+    if a.column:
+        q["column"] = a.column
+    if a.target:
+        q["target"] = a.target
+    if a.awaiting:
+        q["awaiting"] = "1"
+    if a.ship_approved:
+        q["ship"] = "approved"
+    jobs, cursor = [], None
+    while True:
+        qs = "&".join(f"{k}={urllib.request.quote(v)}" for k, v in {**q, **({"cursor": cursor} if cursor else {})}.items())
+        status, payload = api("GET", "/api/jobs" + (f"?{qs}" if qs else ""))
+        if status != 200:
+            return emit(status, payload)
+        jobs += payload["data"]["jobs"]
+        cursor = payload["data"].get("next_cursor")
+        if not cursor or not a.all_pages:
+            break
+    print(json.dumps({"jobs": jobs, "next_cursor": cursor}, indent=1))
+    return 0
+
+
+def cmd_get(a):
+    return emit(*api("GET", f"/api/jobs/{a.id}"))
+
+
+def cmd_attachments(a):
+    return emit(*api("GET", f"/api/jobs/{a.id}/attachments"))
+
+
+def cmd_claim(a):
+    token = claim_token(a.id, create=True)
+    return emit(*api("POST", f"/api/jobs/{a.id}/claim", {"claim_token": token, "agent": agent_label(a.agent)}))
+
+
+def cmd_patch(a):
+    body = {"claim_token": claim_token(a.id)}
+    if a.column:
+        body["column"] = a.column
+    if a.size:
+        body["size"] = a.size
+    if a.size_reason is not None:
+        body["size_reason"] = a.size_reason
+    if a.targets_picked:
+        body["targets_picked"] = [t.strip().lower() for t in a.targets_picked.split(",") if t.strip()]
+    if a.ack is not None:
+        body["ack_comment_id"] = a.ack
+    return emit(*api("PATCH", f"/api/jobs/{a.id}", body))
+
+
+def run_update(job_id, target, **fields):
+    body = {"claim_token": claim_token(job_id), "target": target}
+    body.update({k: v for k, v in fields.items() if v is not None})
+    return api("PUT", f"/api/jobs/{job_id}/runs", body)
+
+
+def cmd_run(a):
+    return emit(*run_update(a.id, a.target, branch=a.branch, base_sha=a.base_sha,
+                            head_sha=a.head_sha, state=a.state))
+
+
+def cmd_shipped(a):
+    return emit(*api("POST", f"/api/jobs/{a.id}/runs/shipped",
+                     {"claim_token": claim_token(a.id), "target": a.target, "deployed_sha": a.deployed_sha}))
+
+
+def post_comment(job_id, kind, body, agent=None):
+    return api("POST", f"/api/jobs/{job_id}/comments", {"kind": kind, "body": body, "agent": agent_label(agent)})
+
+
+def cmd_comment(a):
+    body = a.body if a.body is not None else (Path(a.body_file).read_text() if a.body_file else sys.stdin.read())
+    if not body.strip():
+        die("empty comment body")
+    return emit(*post_comment(a.id, a.kind, body, a.agent))
+
+
+# ── Ship preflight ──────────────────────────────────────────────────────────
+
+
+def preflight_check(repo, branch, approved_sha, fetch=True):
+    """Return a list of reasons the ship must not start; empty means go.
+    Checks: the default branch has nothing unpushed, and the job branch head is the approved SHA."""
+    reasons = []
+    if fetch and git(repo, "fetch", "--quiet", "origin", check=False) is None:
+        reasons.append("git fetch failed")
+    head_ref = git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD", check=False)
+    default = head_ref.split("/", 1)[1] if head_ref else "main"
+    upstream = git(repo, "rev-parse", "--abbrev-ref", f"{default}@{{u}}", check=False) or f"origin/{default}"
+    ahead = git(repo, "log", "--oneline", f"{upstream}..{default}", check=False)
+    if ahead is None:
+        reasons.append(f"cannot compare {default} with {upstream}")
+    elif ahead:
+        n = len(ahead.splitlines())
+        reasons.append(f"{default} is {n} commit(s) ahead of {upstream}: another thread's work would ship with this job")
+    head = git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}^{{commit}}", check=False)
+    if not head:
+        reasons.append(f"branch {branch} not found in {repo}")
+    elif not approved_sha or not (head.startswith(approved_sha) or approved_sha.startswith(head)):
+        reasons.append(f"{branch} head {head[:12]} is not the approved SHA {(approved_sha or 'none')[:12]}")
+    return reasons
+
+
+def cmd_preflight(a):
+    status, payload = api("GET", f"/api/jobs/{a.id}")
+    if status != 200:
+        return emit(status, payload)
+    job = payload["data"]
+    run = next((r for r in job.get("runs", []) if r["target"] == a.target), None)
+    if not run:
+        die(f"JOB-{a.id} has no run for {a.target}", 1)
+    reasons = [] if run["state"] == "approved" else [f"run state is {run['state']}, not approved"]
+    if not reasons:
+        reasons = preflight_check(a.repo, run["branch"], run.get("approved_sha"))
+    result = {"ok": not reasons, "target": a.target, "branch": run["branch"], "reasons": reasons}
+    if reasons and a.void:
+        body = "Ship preflight refused, nothing was merged or pushed:\n- " + "\n- ".join(reasons) + \
+               "\nThe approval is voided. Re-approve once the cause is cleared."
+        result["comment"] = post_comment(a.id, "event", body)[0]
+        # A state change on an approved run makes job_run_set call void_approval.
+        result["void"] = run_update(a.id, a.target, state="committed")[0]
+    print(json.dumps(result, indent=1))
+    return 0 if not reasons else 1
+
+
+# ── Self-test ───────────────────────────────────────────────────────────────
+
+
+def selftest():
+    import tempfile
+
+    assert target_from_url("git@github.com:Owner/Repo.git", "x") == "owner/repo"
+    assert target_from_url("https://github.com/owner/my.repo.git", "x") == "owner/my.repo"
+    assert target_from_url("https://github.com/owner/repo/", "x") == "owner/repo"
+    assert target_from_url("ssh://git@github.com/o/r", "x") == "o/r"
+    assert target_from_url(None, "My Dir") == "local/my-dir"
+    assert target_from_url("", "WIDGET") == "local/widget"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        os.environ["JOBS_CONFIG_DIR"] = str(tmp / "cfg")
+        for k in ("JOBS_BASE_URL", "JOBS_AGENT_TOKEN", "JOBS_ORCHESTRATORS"):
+            os.environ.pop(k, None)
+        cfg, path = load_config()
+        assert path.read_text() == TEMPLATE and oct(path.stat().st_mode & 0o777) == "0o600"
+        assert cfg["JOBS_AGENT_TOKEN"] == ""
+        path.write_text("JOBS_BASE_URL=http://x\nJOBS_AGENT_TOKEN=\"abc\"\n")
+        load_config()
+        assert path.read_text().startswith("JOBS_BASE_URL=http://x"), "template must not overwrite"
+        os.environ["JOBS_BASE_URL"] = "http://override"
+        assert load_config()[0] == {"JOBS_BASE_URL": "http://override", "JOBS_AGENT_TOKEN": "abc"}
+        del os.environ["JOBS_BASE_URL"]
+
+        t1 = claim_token(7, create=True)
+        assert claim_token(7, create=True) == t1 and claim_token(7) == t1, "retries reuse the token"
+        assert claim_token(8, create=True) != t1
+        assert oct(claims_path().stat().st_mode & 0o777) == "0o600"
+
+        # Preflight against a local bare origin: no network.
+        def sh(cwd, *args):
+            subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+        origin, repo = tmp / "origin.git", tmp / "repo"
+        sh(tmp, "init", "--quiet", "--bare", "-b", "main", str(origin))
+        sh(tmp, "clone", "--quiet", str(origin), str(repo))
+        for c in (("config", "user.email", "t@example.com"), ("config", "user.name", "t")):
+            sh(repo, *c)
+        sh(repo, "commit", "--quiet", "--allow-empty", "-m", "base")
+        sh(repo, "push", "--quiet", "-u", "origin", "main")
+        sh(repo, "remote", "set-head", "origin", "main")
+        sh(repo, "checkout", "--quiet", "-b", "job/1-x")
+        sh(repo, "commit", "--quiet", "--allow-empty", "-m", "work")
+        approved = git(repo, "rev-parse", "HEAD")
+        sh(repo, "checkout", "--quiet", "main")
+        assert preflight_check(repo, "job/1-x", approved) == []
+        assert preflight_check(repo, "job/1-x", approved[:7]) == []
+        r = preflight_check(repo, "job/1-x", "0" * 40)
+        assert len(r) == 1 and "not the approved SHA" in r[0]
+        assert "not found" in preflight_check(repo, "job/9-nope", approved)[0]
+        sh(repo, "commit", "--quiet", "--allow-empty", "-m", "someone else's work")
+        r = preflight_check(repo, "job/1-x", approved)
+        assert len(r) == 1 and "1 commit(s) ahead" in r[0], r
+
+        assert target_of(repo) == "local/repo"
+        sh(repo, "remote", "set-url", "origin", "https://github.com/Acme/Widget.git")
+        assert target_of(repo) == "acme/widget"
+        sh(repo, "worktree", "add", "--quiet", str(tmp / "repo-wt"), "job/1-x")
+        assert repo_root(tmp / "repo-wt") == repo.resolve() or repo_root(tmp / "repo-wt") == repo
+        assert [r["display"] for r in sibling_repos(tmp)] == ["repo"], "bare and worktree dirs skipped"
+    print("jobs.py selftest: ok")
+    return 0
+
+
+def main():
+    if "--selftest" in sys.argv[1:]:
+        return selftest()
+    p = argparse.ArgumentParser(prog="jobs.py", description=__doc__.split("\n\n")[0])
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("here").set_defaults(fn=cmd_here)
+    s = sub.add_parser("list")
+    s.add_argument("--column", choices=["backlog", "in_progress", "in_review", "done"])
+    s.add_argument("--target")
+    s.add_argument("--awaiting", action="store_true")
+    s.add_argument("--ship-approved", action="store_true")
+    s.add_argument("--all-pages", action="store_true")
+    s.set_defaults(fn=cmd_list)
+    for name, fn in (("get", cmd_get), ("attachments", cmd_attachments)):
+        s = sub.add_parser(name)
+        s.add_argument("id", type=int)
+        s.set_defaults(fn=fn)
+    s = sub.add_parser("claim")
+    s.add_argument("id", type=int)
+    s.add_argument("--agent")
+    s.set_defaults(fn=cmd_claim)
+    s = sub.add_parser("patch")
+    s.add_argument("id", type=int)
+    s.add_argument("--column", choices=["in_progress", "in_review", "done"])
+    s.add_argument("--size", choices=["quick", "build", "grill", "prototype", "to_driver", "wayfinder"])
+    s.add_argument("--size-reason")
+    s.add_argument("--targets-picked")
+    s.add_argument("--ack", type=int)
+    s.set_defaults(fn=cmd_patch)
+    s = sub.add_parser("run")
+    s.add_argument("id", type=int)
+    s.add_argument("--target", required=True)
+    s.add_argument("--branch")
+    s.add_argument("--base-sha")
+    s.add_argument("--head-sha")
+    s.add_argument("--state", choices=["claimed", "committed", "failed"])
+    s.set_defaults(fn=cmd_run)
+    s = sub.add_parser("shipped")
+    s.add_argument("id", type=int)
+    s.add_argument("--target", required=True)
+    s.add_argument("--deployed-sha", required=True)
+    s.set_defaults(fn=cmd_shipped)
+    s = sub.add_parser("comment")
+    s.add_argument("id", type=int)
+    s.add_argument("--kind", choices=["message", "event"], default="message")
+    s.add_argument("--body")
+    s.add_argument("--body-file")
+    s.add_argument("--agent")
+    s.set_defaults(fn=cmd_comment)
+    s = sub.add_parser("repos")
+    s.add_argument("--root")
+    s.add_argument("--dry-run", action="store_true")
+    s.set_defaults(fn=cmd_repos)
+    s = sub.add_parser("preflight")
+    s.add_argument("id", type=int)
+    s.add_argument("--target", required=True)
+    s.add_argument("--repo", required=True)
+    s.add_argument("--void", action="store_true")
+    s.set_defaults(fn=cmd_preflight)
+    a = p.parse_args()
+    return a.fn(a)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
