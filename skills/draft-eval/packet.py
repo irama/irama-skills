@@ -60,7 +60,9 @@ def render_prompt(rubric, kind, rows):
     return text
 
 
-def build(units_doc, outdir, shots_path=None, rubric=None):
+def build(units_doc, outdir, shots_path=None, rubric=None, select=None):
+    """Build the batches. `select` (a set of unit ids) packs only those units, each still with
+    its real previous unit from the draft; calibration uses it."""
     rubric = rubric or json.loads((HERE / "rubric.json").read_text())
     kind = units_doc["kind"]
     shots = {}
@@ -69,24 +71,26 @@ def build(units_doc, outdir, shots_path=None, rubric=None):
         for s in json.loads(shots_path.read_text())["shots"]:
             shots[s["id"]] = shots_path.parent / s["file"]
     graded = [u for u in units_doc["units"] if not u.get("hidden")]
+    picks = [i for i, u in enumerate(graded) if select is None or u["id"] in select]
     if kind == "deck":
         # spec section 4: a deck packet holds the unit's screenshot; without it `visual` is a guess
-        missing = [u["id"] for u in graded if u["id"] not in shots]
+        need = [graded[j] for i in picks for j in (i - 1, i) if j >= 0]
+        missing = sorted({str(u["id"]) for u in need if u["id"] not in shots})
         if missing:
-            raise SystemExit(f"packet.py: no screenshot for deck unit(s): {', '.join(map(str, missing))}")
+            raise SystemExit(f"packet.py: no screenshot for deck unit(s): {', '.join(missing)}")
     outdir = Path(outdir).resolve()
     outdir.mkdir(parents=True, exist_ok=True)
     batches = []
-    for b in range(0, len(graded), BATCH):
+    for b in range(0, len(picks), BATCH):
         bdir = outdir / f"batch-{b // BATCH + 1:02d}"
         if bdir.exists():
             shutil.rmtree(bdir)
         bdir.mkdir()
         rows, pngs = [], []
-        for i in range(b, min(b + BATCH, len(graded))):
+        for n, i in enumerate(picks[b:b + BATCH], b):
             u, prev = graded[i], graded[i - 1] if i else None
             # the id is draft markup: keep it out of the path (no "/", no "..")
-            folder = f"{i + 1:02d}-" + re.sub(r"[^A-Za-z0-9_-]", "_", str(u["id"]))
+            folder = f"{n + 1:02d}-" + re.sub(r"[^A-Za-z0-9_-]", "_", str(u["id"]))
             udir = bdir / folder
             udir.mkdir()
             (udir / "text.txt").write_text(u.get("text", ""))
