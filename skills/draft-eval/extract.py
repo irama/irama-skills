@@ -10,9 +10,11 @@ data-state-primary (else the first) is the slide scored. A <section> is not a
 slide. Speaker notes are index-aligned with PHYSICAL sections, hidden ones
 included, so a unit's note is the note at its primary_index.
 
-hash_index is a placeholder (primary_index + 1). The render step resolves how
-the runtime's 1-based #N counts hidden sections and states, and records the
-rule here.
+hash_index is primary_index + 1. The runtime (deck-stage.js _collectSlides and
+_restoreIndex) counts EVERY slotted <section> for its 1-based #N: hidden
+sections and animation states each take a number, so #N is the physical
+section index plus one. Verified by render.mjs's id assertion on A3 (38
+sections, 30 units, 3 hidden, one 9-state group) and A4.
 
 Article: one unit per `##` section (text before the first `##` is section 0),
 split at paragraph boundaries into parts of at most 400 words. A top-level
@@ -108,7 +110,7 @@ def extract_deck(html):
             "ordinal": ordinal,
             "section_indices": idx,
             "primary_index": primary,
-            "hash_index": primary + 1,
+            "hash_index": primary + 1,  # every section counts, see the docstring
             "hidden": "data-hidden-src" in a or "hidden" in a,
             "role": role,
             "role_inferred": inferred,
