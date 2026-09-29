@@ -74,7 +74,13 @@ def schema_errors(value, schema, path="$"):
 
 
 def _norm(s):
-    s = s.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
+    # Graders swap quote marks when they nest a quote and drop markdown emphasis.
+    # Deck text can lose the space between sentences ("fill.That"), so a space is
+    # restored only after sentence punctuation; other word boundaries still count.
+    for ch in "’‘“”\"":
+        s = s.replace(ch, "'")
+    s = s.replace("*", "").replace("`", "")
+    s = re.sub(r"([.!?])(?=[^\W\d_])", r"\1 ", s)
     return " ".join(s.lower().split())
 
 
@@ -83,8 +89,18 @@ def quotes_unit(reason, unit):
     if not source:
         return True  # nothing to quote; the prompt asks for the screenshot instead
     for m in QUOTE.finditer(reason):
-        q = _norm(m.group(1) or m.group(2)).strip(" .,;:!?")
-        if len(q) >= 4 and q in source:
+        # an elided quote ("a ... b") counts when every piece is in the unit, in order
+        parts = [_norm(p).strip(" .,;:!?") for p in re.split(r"\.\.\.|…", m.group(1) or m.group(2))]
+        parts = [p for p in parts if p]
+        if not parts or len("".join(parts)) < 4:
+            continue
+        pos = 0
+        for p in parts:
+            i = source.find(p, pos)
+            if i < 0:
+                break
+            pos = i + len(p)
+        else:
             return True
     return False
 

@@ -113,6 +113,19 @@ class ValidateTest(unittest.TestCase):
         errs = self.errors(json.dumps({"model": "m", "records": self.records}))
         self.assertEqual(sorted(e.split(":")[0] for e in errs), ["u3 clear", "u3 flow"])
 
+    def test_quote_survives_swapped_marks_emphasis_and_lost_space(self):
+        unit = {"text": 'In *Bartz* the "AI label" is **a capability question**. It ends.That gap stays.', "notes": ""}
+        for reason in ['"In Bartz the"', "\"the 'AI label' is\"", '"a capability question"', '"It ends. That gap"']:
+            self.assertTrue(validate.quotes_unit(reason, unit), reason)
+        self.assertFalse(validate.quotes_unit('"a provenance question"', unit))
+        self.assertTrue(validate.quotes_unit('"In Bartz ... a capability question"', unit))
+        self.assertFalse(validate.quotes_unit('"In Bartz ... a provenance question"', unit))
+        # review fixes: word boundaries still count, elided pieces must keep their order
+        self.assertFalse(validate.quotes_unit('"therapist"', {"text": "The rapist was caught.", "notes": ""}))
+        self.assertTrue(validate.quotes_unit('"alpha ... omega"', {"text": "alpha then omega", "notes": ""}))
+        self.assertFalse(validate.quotes_unit('"omega ... alpha"', {"text": "alpha then omega", "notes": ""}))
+        self.assertTrue(validate.quotes_unit('"ends.That gap"', unit))
+
     def test_missing_unit_and_bad_json(self):
         errs = self.errors(json.dumps({"model": "m", "records": self.records[:2]}))
         self.assertTrue(any("u3" in e for e in errs), errs)

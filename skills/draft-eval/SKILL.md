@@ -65,4 +65,20 @@ Every record carries `grader`, the full `model` id, `rubric_version`, `round`,
 `prompt_sha256` (of `grader-prompt.md`) and `schema_sha256`. `python3 <skill-dir>/validate.py --selftest`
 proves a bad record is rejected.
 
+## Calibration step
+
+Run once, before the loop, to test both graders against a human scorer.
+
+    python3 <skill-dir>/calibrate.py -o <cal dir> \
+      --deck <name> <units.json> <shots.json> <n> [--deck ...] \
+      --article <name> <units.json> <n> [--article ...]
+
+It picks the units (spread across roles, layouts and position; no animation states where it can),
+builds their packets with `packet.build` (each unit keeps its real previous unit), and writes
+`units.json`, `sources/<name>.units.json`, `packets/<name>/batch-NN/`, `packets.sha256` and
+`score.html`. Grade every batch with both graders as in the grading step, validating against
+`sources/<name>.units.json`. Commit the grader records and `packets.sha256` before any human
+score exists. The scorer opens `score.html` from disk, scores with radio buttons (answers save in
+the browser), and downloads the scores JSON: one entry per unit and criterion.
+
 Tests: `python3 -m unittest discover -s skills/draft-eval/tests` from the repo root.
