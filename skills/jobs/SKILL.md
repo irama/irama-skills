@@ -88,8 +88,10 @@ the prompt, so run `$J get <id>` for each picked job before working it.
    one machine, because both read the same claim token from `claims.json` and the hub treats
    the second call as a retry. The conductor claim is what separates those two sessions.
    If the hub refuses after the conductor claim succeeded, sign off
-   `jobs:JOB-<id> --status incomplete` before you skip. The same applies when the hub claim
-   returns `UNREACHABLE` (status 0): the job is not yours, so release the conductor claim too.
+   `jobs:JOB-<id> --status incomplete` before you skip. When the hub claim returns
+   `UNREACHABLE` (status 0), the hub may already have committed it, so run `$J claim <id>`
+   again: a repeat is a safe retry. Release the conductor claim only when the hub refuses
+   outright, or stays unreachable after the retry (then say the claim may be held).
 2. **Size** it with the chain-sizing table in the global instructions (one-line fix → `quick`;
    single bounded change → `build`; unclear intent → `grill`; unproven design → `prototype`;
    multi-session feature → `to_driver`; huge and foggy → `wayfinder`). Record it:
