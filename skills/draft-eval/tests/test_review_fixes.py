@@ -43,6 +43,11 @@ class PrevQuoteTest(unittest.TestCase):
         self.assertIn("u2 flow: the reason quotes nothing from the unit", self.errs({"*": unit, "flow": prev_only}))
         self.assertIn("u2 clear: the reason quotes nothing from the unit", self.errs({"*": prev_only}))
 
+    def test_quote_may_restore_a_space_lost_between_blocks(self):
+        unit = {"text": "90 minutes Should we do AIto it? Seven acts", "notes": ""}
+        self.assertTrue(validate.quotes_unit('Asks "Should we do AI to it?" plainly.', unit))
+        self.assertFalse(validate.quotes_unit('Says "therapist" here.', {"text": "The rapist was caught"}))
+
     def test_previous_unit_sits_in_context_folder(self):
         with tempfile.TemporaryDirectory() as d:
             b = packet.build({"kind": "article", "units": UNITS["units"]}, Path(d))[0]

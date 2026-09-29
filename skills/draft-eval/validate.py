@@ -88,10 +88,12 @@ def _norm(s):
 def _found(parts, source):
     pos = 0
     for p in parts:
-        i = source.find(p, pos)
-        if i < 0:
+        # deck text loses the space between two blocks ("AIto it"), so a space in the quote may be
+        # missing from the source. Never the reverse: "therapist" must not match "the rapist".
+        m = re.compile(" ?".join(re.escape(w) for w in p.split(" "))).search(source, pos)
+        if not m:
             return False
-        pos = i + len(p)
+        pos = m.end()
     return True
 
 
