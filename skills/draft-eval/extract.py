@@ -124,13 +124,34 @@ def extract_deck(html):
     }
 
 
-def _paragraphs(lines):
-    """Blank-line separated paragraphs; a fenced block never splits."""
-    paras, cur, fenced = [], [], False
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def _outside_fences(lines):
+    """top[i] is True when line i sits outside any fenced block (CommonMark rules: a fence
+    opens with 3+ backticks or tildes and closes only on the same character, at least as long,
+    with nothing after it)."""
+    top, opener = [], None
     for line in lines:
-        if line.lstrip().startswith("```"):
-            fenced = not fenced
-        if not line.strip() and not fenced:
+        m = FENCE.match(line)
+        if opener is None:
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                opener = m.group(1)
+                top.append(False)
+            else:
+                top.append(True)
+        else:
+            top.append(False)
+            if m and m.group(1)[0] == opener[0] and len(m.group(1)) >= len(opener) and not m.group(2).strip():
+                opener = None
+    return top
+
+
+def _paragraphs(lines):
+    """Blank-line separated paragraphs; a blank line inside a fence does not split."""
+    paras, cur = [], []
+    for line, top in zip(lines, _outside_fences(lines)):
+        if not line.strip() and top:
             if cur:
                 paras.append("\n".join(cur))
             cur = []
@@ -141,16 +162,41 @@ def _paragraphs(lines):
     return paras
 
 
+def _pack(items, sep):
+    """Greedy-pack items (each at most MAX_WORDS words) into strings of at most MAX_WORDS words."""
+    parts, cur, n = [], [], 0
+    for it in items:
+        w = len(it.split())
+        if cur and n + w > MAX_WORDS:
+            parts.append(sep.join(cur))
+            cur, n = [], 0
+        cur.append(it)
+        n += w
+    if cur:
+        parts.append(sep.join(cur))
+    return parts
+
+
+def _fit(p):
+    """Split a paragraph over MAX_WORDS at sentence ends (lines, for a fence), then at words."""
+    if len(p.split()) <= MAX_WORDS:
+        return [p]
+    # ponytail: a split fence loses its closing marker in the first part; fine for scoring text.
+    fenced = bool(FENCE.match(p.splitlines()[0]))
+    bits = p.splitlines() if fenced else re.split(r"(?<=[.!?])\s+", p)
+    small = []
+    for b in bits:
+        w = b.split()
+        small += [" ".join(w[i:i + MAX_WORDS]) for i in range(0, len(w), MAX_WORDS)] if len(w) > MAX_WORDS else [b]
+    return _pack(small, "\n" if fenced else " ")
+
+
 def extract_article(md):
     lines = md.splitlines()
     if lines and lines[0].strip() == "---":  # front matter
         end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), 0)
         lines = lines[end + 1:]
-    top, fenced = [], False  # top[i]: line i sits outside any fence
-    for line in lines:
-        fence = line.lstrip().startswith("```")
-        top.append(not fenced and not fence)
-        fenced ^= fence
+    top = _outside_fences(lines)
     # A `---` rule is back matter only when no `##` heading follows it; mid-body rules stay.
     last_h2 = max([i for i, l in enumerate(lines) if top[i] and l.startswith("## ")], default=-1)
     title, sections, back = "", [["", []]], []
@@ -168,18 +214,8 @@ def extract_article(md):
         sections[-1][1].append(line)
     units = []
     for s, (heading, body) in enumerate(sections):
-        parts, cur, n = [], [], 0
-        for p in _paragraphs(body):
-            w = len(p.split())
-            if cur and n + w > MAX_WORDS:
-                parts.append(cur)
-                cur, n = [], 0
-            cur.append(p)
-            n += w
-        if cur:
-            parts.append(cur)
-        for k, part in enumerate(parts, 1):
-            text = "\n\n".join(part)
+        parts = _pack([q for p in _paragraphs(body) for q in _fit(p)], "\n\n")
+        for k, text in enumerate(parts, 1):
             label = heading or "Introduction"
             units.append({
                 "id": f"s{s}-p{k}",
