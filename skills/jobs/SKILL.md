@@ -60,9 +60,11 @@ Every mode first reports the sibling repos, so the operator's target picker stay
 $J repos                    # PUT /api/jobs/repos with every main checkout beside this one
 ```
 
-- **`/jobs` in a repo:** list this repo's Backlog jobs (`$J list --column backlog --target <t>`),
-  untagged Backlog jobs that you judge belong here (`--target none`), jobs awaiting you
-  (`--awaiting`, filter to this target), and ship-approved runs (`--ship-approved`). One line
+- **`/jobs` in a repo:** list this repo's Backlog jobs
+  (`$J list --all-pages --column backlog --target <t>`), untagged Backlog jobs that you judge
+  belong here (`--target none`), jobs awaiting you (`--awaiting`, filter to this target), and
+  ship-approved runs (`--ship-approved`). Pass `--all-pages` on every list call: one page is
+  50 jobs, and a job past it would never be offered. One line
   each: `JOB-<id> · <column> · <title> · <why it is listed>`.
 - **`/jobs all`, or `/jobs` where `$J here` says `"orchestrator": true`:** every job across
   targets (`$J list --all-pages`), grouped by column, each with its proposed targets and size.
@@ -73,8 +75,20 @@ the prompt, so run `$J get <id>` for each picked job before working it.
 
 ## Execution, for each picked job, in order
 
-1. **Claim** with `$J claim <id>`. On `ALREADY_CLAIMED` (409), say which agent holds it and
-   skip the job.
+1. **Claim**, conductor first, then the hub. Stop on either refusal: another session has
+   the job. Say who holds it and skip the job.
+
+   ```bash
+   reg=<skill-dir>/../threads/assets/register.py
+   [ -f "$reg" ] && python3 "$reg" claim jobs:JOB-<id> --note "<title>"   # exit 1 = held
+   $J claim <id>                                    # ALREADY_CLAIMED (409) = held
+   ```
+
+   The hub claim is exclusive across machines. It is not exclusive between two sessions on
+   one machine, because both read the same claim token from `claims.json` and the hub treats
+   the second call as a retry. The conductor claim is what separates those two sessions.
+   If the hub refuses after the conductor claim succeeded, sign off
+   `jobs:JOB-<id> --status incomplete` before you skip.
 2. **Size** it with the chain-sizing table in the global instructions (one-line fix → `quick`;
    single bounded change → `build`; unclear intent → `grill`; unproven design → `prototype`;
    multi-session feature → `to_driver`; huge and foggy → `wayfinder`). Record it:
@@ -94,13 +108,12 @@ the prompt, so run `$J get <id>` for each picked job before working it.
 5. **prototype, to_driver, wayfinder:** post the reason and the exact command to run in that
    repo (for example `/to-driver <one-line idea>`), then move the job to In review. These make
    multi-session artefacts that belong in that repo's own thread. Do not start them here.
-6. **Mirror each job in the conductor** (the cross-thread work register), so `/threads` shows it:
+6. **Close the conductor claim** from step 1 when the job leaves In progress (In review,
+   Done, or released). The key is machine-wide, not per repo, so `/jobs JOB-<id>` run from
+   two repos still collides:
 
    ```bash
-   reg=<skill-dir>/../threads/assets/register.py
-   [ -f "$reg" ] && python3 "$reg" claim --verb JOB-<id> --note "<title>"
-   # when the job leaves In progress (In review, Done, or released):
-   [ -f "$reg" ] && python3 "$reg" sign-off --verb JOB-<id> --status done
+   [ -f "$reg" ] && python3 "$reg" sign-off jobs:JOB-<id> --status done
    ```
 
    Sign off `--status incomplete` if you stop part-way. A claim left open blocks other threads.
@@ -145,10 +158,23 @@ the target repo.
 
    Held by another thread → say who holds it and stop.
 3. **From the job's worktree in the target repo** (`/merge` works on the current branch of the
-   current repo), run the `/merge` procedure, then the `/push` procedure from that repo. The
-   push skill keeps its own final check (tree unchanged, range exactly what was reviewed) and
-   still stops on extras. Then sign off both verbs.
-4. **Record the deploy:** `$J shipped <id> --target <t> --deployed-sha <sha>`. When every run is
+   current repo), run the `/merge` procedure.
+4. **Re-check the approval immediately before the push.** The operator can void it, or edit
+   the job, while the merge runs:
+
+   ```bash
+   $J preflight <id> --target <t> --repo <target repo main checkout> --recheck
+   ```
+
+   `--recheck` asks the hub again that the run is still `approved`, and that the job branch
+   head is still the `approved_sha`. It skips the unpushed-commits check, because the merge
+   just made that true. If it refuses, do not push. Undo the local merge
+   (`git reset --hard ORIG_HEAD` on the default branch, nothing is pushed yet), sign off both
+   verbs `--status incomplete`, and report the reasons. **Stop.**
+5. If the re-check passes, run the `/push` procedure from that repo. The push skill keeps its
+   own final check (tree unchanged, range exactly what was reviewed) and still stops on
+   extras. Then sign off both verbs.
+6. **Record the deploy:** `$J shipped <id> --target <t> --deployed-sha <sha>`. When every run is
    shipped, `$J patch <id> --column done`. A failed ship is `$J run <id> --target <t> --state
    failed` plus a comment, and the job stays in In review.
 
@@ -159,4 +185,5 @@ the target repo.
 - Pick up jobs on a timer. It runs only when invoked.
 
 `python3 <skill-dir>/assets/jobs.py --selftest` covers target parsing, the config template,
-claim-token reuse and the ship preflight against a local git origin.
+claim-token reuse and concurrent creation, a stalled body read, default-branch resolution,
+and the ship preflight and its re-check against a local git origin.

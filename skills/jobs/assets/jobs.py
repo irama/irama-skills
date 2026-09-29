@@ -11,7 +11,7 @@
     jobs.py shipped ID --target T --deployed-sha S
     jobs.py comment ID --kind message|event [--body TEXT | --body-file F | stdin] [--agent LABEL]
     jobs.py repos [--root DIR] [--dry-run]        report sibling git repos (PUT /api/jobs/repos)
-    jobs.py preflight ID --target T --repo PATH [--void]   ship preflight, before anything mutates
+    jobs.py preflight ID --target T --repo PATH [--void] [--recheck]   ship preflight; --recheck before the push
     jobs.py --selftest
 
 Config: JOBS_BASE_URL, JOBS_AGENT_TOKEN and JOBS_ORCHESTRATORS from ~/.config/jobs/env.
@@ -22,6 +22,7 @@ a usage or config error.
 """
 
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -33,6 +34,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+HTTP_TIMEOUT = 30  # seconds, per request; the selftest lowers it
 TARGET_RE = re.compile(r"^[a-z0-9._-]+/[a-z0-9._-]+$")
 TEMPLATE = """# /jobs skill config. Mode 600. Never commit or print this file.
 # JOBS_BASE_URL: the job board hub's base URL, no trailing slash.
@@ -91,20 +93,30 @@ def read_claims():
 def claim_token(job_id, create=False):
     """The token for a job. Created and persisted BEFORE the claim call, so a retry
     after a timeout reuses it and the hub answers 200 instead of already_claimed."""
-    claims = read_claims()
     key = str(job_id)
-    if key not in claims:
-        if not create:
-            die(f"no claim token for JOB-{job_id} on this machine; claim it first")
-        claims[key] = str(uuid.uuid4())
-        p = claims_path()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(claims, f, indent=1)
-        os.replace(tmp, p)
-    return claims[key]
+    claims = read_claims()
+    if key in claims:
+        return claims[key]
+    if not create:
+        die(f"no claim token for JOB-{job_id} on this machine; claim it first")
+    p = claims_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    # Two sessions can create tokens at once. The lock serialises the read-modify-write,
+    # and the re-read under it means the second writer keeps the first one's token.
+    lock_fd = os.open(p.with_suffix(".lock"), os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        claims = read_claims()
+        if key not in claims:
+            claims[key] = str(uuid.uuid4())
+            tmp = p.with_name(f"claims.{os.getpid()}.tmp")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump(claims, f, indent=1)
+            os.replace(tmp, p)
+        return claims[key]
+    finally:
+        os.close(lock_fd)
 
 
 # ── HTTP ────────────────────────────────────────────────────────────────────
@@ -123,16 +135,20 @@ def api(method, path, body=None):
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:
             return r.status, json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as e:
         try:
             payload = json.loads(e.read() or b"{}")
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, OSError):
             payload = {"error": e.reason}
         return e.code, payload
     except urllib.error.URLError as e:
         return 0, {"error": f"hub unreachable: {e.reason}", "code": "UNREACHABLE"}
+    except json.JSONDecodeError:
+        return 0, {"error": "hub sent a body that is not JSON", "code": "BAD_RESPONSE"}
+    except OSError as e:  # socket.timeout / TimeoutError / reset while reading the body
+        return 0, {"error": f"hub read failed: {e.__class__.__name__}: {e}", "code": "UNREACHABLE"}
 
 
 def emit(status, payload):
@@ -306,14 +322,37 @@ def cmd_comment(a):
 # ── Ship preflight ──────────────────────────────────────────────────────────
 
 
-def preflight_check(repo, branch, approved_sha, fetch=True):
+def default_branch(repo):
+    """origin/HEAD's branch; else main, then master, whichever exists locally."""
+    head_ref = git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD", check=False)
+    if head_ref:
+        return head_ref.split("/", 1)[1]
+    for b in ("main", "master"):
+        if git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{b}", check=False):
+            return b
+    return "main"
+
+
+def preflight_check(repo, branch, approved_sha, fetch=True, recheck=False):
     """Return a list of reasons the ship must not start; empty means go.
-    Checks: the default branch has nothing unpushed, and the job branch head is the approved SHA."""
+    Checks: the default branch has nothing unpushed, and the job branch head is the approved SHA.
+    recheck=True (just before the push) skips the unpushed check: the merge made it true."""
+    reasons = []
+    if not recheck:
+        reasons += unpushed_reasons(repo, fetch)
+    head = git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}^{{commit}}", check=False)
+    if not head:
+        reasons.append(f"branch {branch} not found in {repo}")
+    elif not approved_sha or not (head.startswith(approved_sha) or approved_sha.startswith(head)):
+        reasons.append(f"{branch} head {head[:12]} is not the approved SHA {(approved_sha or 'none')[:12]}")
+    return reasons
+
+
+def unpushed_reasons(repo, fetch):
     reasons = []
     if fetch and git(repo, "fetch", "--quiet", "origin", check=False) is None:
         reasons.append("git fetch failed")
-    head_ref = git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD", check=False)
-    default = head_ref.split("/", 1)[1] if head_ref else "main"
+    default = default_branch(repo)
     upstream = git(repo, "rev-parse", "--abbrev-ref", f"{default}@{{u}}", check=False) or f"origin/{default}"
     ahead = git(repo, "log", "--oneline", f"{upstream}..{default}", check=False)
     if ahead is None:
@@ -321,11 +360,6 @@ def preflight_check(repo, branch, approved_sha, fetch=True):
     elif ahead:
         n = len(ahead.splitlines())
         reasons.append(f"{default} is {n} commit(s) ahead of {upstream}: another thread's work would ship with this job")
-    head = git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}^{{commit}}", check=False)
-    if not head:
-        reasons.append(f"branch {branch} not found in {repo}")
-    elif not approved_sha or not (head.startswith(approved_sha) or approved_sha.startswith(head)):
-        reasons.append(f"{branch} head {head[:12]} is not the approved SHA {(approved_sha or 'none')[:12]}")
     return reasons
 
 
@@ -339,7 +373,7 @@ def cmd_preflight(a):
         die(f"JOB-{a.id} has no run for {a.target}", 1)
     reasons = [] if run["state"] == "approved" else [f"run state is {run['state']}, not approved"]
     if not reasons:
-        reasons = preflight_check(a.repo, run["branch"], run.get("approved_sha"))
+        reasons = preflight_check(a.repo, run["branch"], run.get("approved_sha"), recheck=a.recheck)
     result = {"ok": not reasons, "target": a.target, "branch": run["branch"], "reasons": reasons}
     if reasons and a.void:
         body = "Ship preflight refused, nothing was merged or pushed:\n- " + "\n- ".join(reasons) + \
@@ -383,6 +417,46 @@ def selftest():
         assert claim_token(7, create=True) == t1 and claim_token(7) == t1, "retries reuse the token"
         assert claim_token(8, create=True) != t1
         assert oct(claims_path().stat().st_mode & 0o777) == "0o600"
+        # Concurrent creators: every job keeps one token, and no job's token is lost.
+        pids = []
+        for i in range(8):
+            pid = os.fork()
+            if pid == 0:
+                claim_token(100 + i % 4, create=True)
+                os._exit(0)
+            pids.append(pid)
+        assert all(os.waitpid(p, 0)[1] == 0 for p in pids)
+        c = read_claims()
+        assert {"7", "8", "100", "101", "102", "103"} <= set(c) and c["7"] == t1, c
+
+        # A body read that times out is a JSON refusal, not a traceback.
+        import http.server
+        import threading
+        import time
+
+        class Stall(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", "100")
+                self.end_headers()
+                self.wfile.flush()
+                time.sleep(2)
+
+            def log_message(self, *_):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Stall)
+        threading.Thread(target=srv.handle_request, daemon=True).start()
+        global HTTP_TIMEOUT
+        HTTP_TIMEOUT, saved = 0.5, HTTP_TIMEOUT
+        os.environ["JOBS_BASE_URL"] = f"http://127.0.0.1:{srv.server_port}"
+        os.environ["JOBS_AGENT_TOKEN"] = "t"
+        status, payload = api("GET", "/api/jobs")
+        assert status == 0 and payload["code"] == "UNREACHABLE", payload
+        HTTP_TIMEOUT = saved
+        srv.server_close()
+        for k in ("JOBS_BASE_URL", "JOBS_AGENT_TOKEN"):
+            del os.environ[k]
 
         # Preflight against a local bare origin: no network.
         def sh(cwd, *args):
@@ -407,6 +481,23 @@ def selftest():
         sh(repo, "commit", "--quiet", "--allow-empty", "-m", "someone else's work")
         r = preflight_check(repo, "job/1-x", approved)
         assert len(r) == 1 and "1 commit(s) ahead" in r[0], r
+        assert preflight_check(repo, "job/1-x", approved, recheck=True) == [], "recheck skips unpushed"
+        assert "not the approved SHA" in preflight_check(repo, "job/1-x", "0" * 40, recheck=True)[0]
+
+        # Default branch: origin/HEAD wins, else main, else master.
+        assert default_branch(repo) == "main"
+        sh(repo, "remote", "set-head", "origin", "-d")
+        assert default_branch(repo) == "main"
+        m = tmp / "m"
+        sh(tmp, "init", "--quiet", "-b", "master", str(m))
+        sh(m, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "--quiet", "--allow-empty", "-m", "x")
+        assert default_branch(m) == "master"
+        sh(tmp, "init", "--quiet", "-b", "trunk", str(tmp / "t"))
+        assert default_branch(tmp / "t") == "main"
+        sh(repo, "remote", "set-head", "origin", "main")
+        import shutil
+        shutil.rmtree(m)
+        shutil.rmtree(tmp / "t")
 
         assert target_of(repo) == "local/repo"
         sh(repo, "remote", "set-url", "origin", "https://github.com/Acme/Widget.git")
@@ -476,6 +567,8 @@ def main():
     s.add_argument("--target", required=True)
     s.add_argument("--repo", required=True)
     s.add_argument("--void", action="store_true")
+    s.add_argument("--recheck", action="store_true",
+                   help="just before the push: approval and SHA only, skip the unpushed check")
     s.set_defaults(fn=cmd_preflight)
     a = p.parse_args()
     return a.fn(a)
