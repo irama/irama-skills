@@ -7,8 +7,9 @@
 
 Strips a code fence, parses the JSON, checks it against schema.json, then
 rejects: a unit missing from the batch or repeated, a missing criterion, a
-score out of range, N/A outside the rubric's allowed cases, and a reason with
-no double-quoted text taken from the unit's text or notes.
+score out of range, N/A outside the rubric's allowed cases, a reason with
+no double-quoted text taken from the unit's text or notes, and a reason that
+quotes the previous unit on any criterion but flow and guess_reveal.
 
 On success, appends one record per unit in the spec's shape, stamped with the
 grader, the full model id, rubric_version, round, prompt_sha256 (of
@@ -84,25 +85,35 @@ def _norm(s):
     return " ".join(s.lower().split())
 
 
-def quotes_unit(reason, unit):
+def _found(parts, source):
+    pos = 0
+    for p in parts:
+        i = source.find(p, pos)
+        if i < 0:
+            return False
+        pos = i + len(p)
+    return True
+
+
+def quote_sources(reason, unit, prev=None):
+    """Where each double-quoted piece of the reason comes from: "unit", "prev" or "other"."""
     source = _norm(unit.get("text", "") + "\n" + unit.get("notes", ""))
-    if not source:
-        return True  # nothing to quote; the prompt asks for the screenshot instead
+    before = _norm((prev or {}).get("text", ""))
+    out = []
     for m in QUOTE.finditer(reason):
         # an elided quote ("a ... b") counts when every piece is in the unit, in order
         parts = [_norm(p).strip(" .,;:!?") for p in re.split(r"\.\.\.|…", m.group(1) or m.group(2))]
         parts = [p for p in parts if p]
         if not parts or len("".join(parts)) < 4:
             continue
-        pos = 0
-        for p in parts:
-            i = source.find(p, pos)
-            if i < 0:
-                break
-            pos = i + len(p)
-        else:
-            return True
-    return False
+        out.append("unit" if _found(parts, source) else "prev" if before and _found(parts, before) else "other")
+    return out
+
+
+def quotes_unit(reason, unit):
+    if not _norm(unit.get("text", "") + "\n" + unit.get("notes", "")):
+        return True  # nothing to quote; the prompt asks for the screenshot instead
+    return "unit" in quote_sources(reason, unit)
 
 
 def na_allowed(crit, unit, first, has_number, rubric):
@@ -114,7 +125,11 @@ def na_allowed(crit, unit, first, has_number, rubric):
             or ("no_number" in conds and not has_number))
 
 
-def check_record(rec, unit, first, kind, rubric):
+# criteria judged against the previous unit: only these may also quote it
+PREV_OK = ("flow", "guess_reveal")
+
+
+def check_record(rec, unit, first, kind, rubric, prev=None):
     errs = []
     uid = rec["unit"]
     has_number = bool(NUMBER.search(unit.get("text", "") + " " + unit.get("notes", "")))
@@ -133,6 +148,8 @@ def check_record(rec, unit, first, kind, rubric):
             errs.append(f"{uid} {cid}: the unit has no number, so it must be N/A")
         if not quotes_unit(entry["reason"], unit):
             errs.append(f"{uid} {cid}: the reason quotes nothing from the unit")
+        elif cid not in PREV_OK and "prev" in quote_sources(entry["reason"], unit, prev):
+            errs.append(f"{uid} {cid}: the reason quotes the previous unit")
     return errs
 
 
@@ -167,7 +184,8 @@ def check(raw, units_doc, batch_ids, rubric=None, schema=None):
         if shape:
             errs += shape
             continue
-        errs += check_record(rec, by_id[uid], uid == first_id, kind, rubric)
+        idx = graded.index(by_id[uid])
+        errs += check_record(rec, by_id[uid], uid == first_id, kind, rubric, graded[idx - 1] if idx else None)
         scores = {c["id"]: rec["scores"][c["id"]] for c in rubric["criteria"] if kind in c["applies_to"]}
         out.append({"unit": uid, "model": doc["model"], "scores": scores})
     errs += [f"{u}: no record" for u in batch_ids if u not in seen]

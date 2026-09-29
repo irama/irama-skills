@@ -8,7 +8,10 @@ Reads, from <run>/rounds/r<n>/: units.json (the run's fixed unit list),
 grading/<grader>.jsonl, grading/<grader>.regrade.jsonl (optional), mechanical.json
 (decks) and arc.json (decks). Reads run.json for the calibration baseline gap,
 earlier rounds' score.json for the median history, and earlier rounds'
-rewrites.json for the set of rewritten units.
+rewrites.json for the set of rewritten units. The first round scored saves its
+unit ids as <run>/units.fixed.json; a later round with other ids is refused.
+A unit a grader did not score stays out of the median; `coverage` says how
+many units each grader scored.
 
 Per grader, never pooled: the mean per criterion and overall. A unit's score is
 the lower of the two graders' means over its applicable criteria. The round's
@@ -84,8 +87,12 @@ def score(units_doc, records, regrades=None, mechanical=None, arc=None, round_n=
                 crits = [c for c in a if c in b and lower[c] == 3 and other[c] >= 4]
                 if crits and (u, g) not in regraded:
                     regrade.append({"unit": u, "grader": g, "criteria": crits})
-    scored = [v["score"] for v in units.values() if v["score"] is not None]
+    # a unit a present grader did not score (its batch failed) stays out of the median: falling back
+    # to the other grader's mean alone would skew the median towards that grader
+    scored = [v["score"] for v in units.values()
+              if v["score"] is not None and all(g not in v["missing"] for g in present)]
     median = round(statistics.median(scored), 4) if scored else None
+    coverage = {g: {"scored": sum(u in by[g] for u in ids), "of": len(ids)} for g in GRADERS}
 
     mech_ok = True if mechanical is None and kind != "deck" else bool(mechanical and mechanical.get("pass"))
     arc_fail = []
@@ -153,6 +160,7 @@ def score(units_doc, records, regrades=None, mechanical=None, arc=None, round_n=
 
     return {"round": round_n, "kind": kind, "graders": present, "per_grader": per_grader,
             "units": units, "median": median, "units_scored": len(scored), "units_total": len(ids),
+            "coverage": coverage, "median_over": len(scored),
             "history": list(history),
             "bar": {"met": status == "met", "status": status, "mechanical_pass": mech_ok,
                     "arc_failing": arc_fail, "units_below": [u for u, v in units.items() if v["failing"]]},
@@ -174,13 +182,21 @@ def from_run(run, n):
     history, rewritten = [], []
     for k in range(1, n):
         prev = _json(run / "rounds" / f"r{k}" / "score.json")
-        if prev:
-            history.append(prev["median"])
+        # one entry per round, so a round with no score.json cannot shift the plateau window
+        history.append(prev["median"] if prev else None)
         rw = _json(run / "rounds" / f"r{k}" / "rewrites.json") or {}
         rewritten += [r["unit"] for r in rw.get("rewrites", [])]
+    units_doc = json.loads((rd / "units.json").read_text())
+    ids = [u["id"] for u in units_doc["units"] if not u.get("hidden")]
+    fixed = run / "units.fixed.json"
+    if not fixed.exists():
+        fixed.write_text(json.dumps({"round": n, "units": ids}, indent=1) + "\n")
+    elif json.loads(fixed.read_text())["units"] != ids:
+        # the unit list is fixed for the run: a round whose extraction moved it is refused
+        raise SystemExit(f"score_round.py: round {n} units differ from the fixed list in {fixed}")
     arc = _json(rd / "arc.json") or {}
     rubric = _json(run / "rubric.json") or json.loads((HERE / "rubric.json").read_text())
-    return score(json.loads((rd / "units.json").read_text()),
+    return score(units_doc,
                  {g: _jsonl(rd / "grading" / f"{g}.jsonl") for g in GRADERS},
                  regrades={g: _jsonl(rd / "grading" / f"{g}.regrade.jsonl") for g in GRADERS},
                  mechanical=_json(rd / "mechanical.json"), arc=arc.get("graders"), round_n=n,

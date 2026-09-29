@@ -9,8 +9,8 @@ table (per grader, never pooled), the gate table with each margin, the units
 still under the bar with their quoted reasons, the stop reason, the
 self-preference line, the preference line, the model ids and the Recommended
 tag on Q1. Q1 carries "Recommended" only when the bar is met by both graders,
-no self-preference flag stands, and no gate the recommendation rests on passed
-at a tie or failed. With --figures, copies each rewritten slide's before and
+no self-preference flag stands, no gate the recommendation rests on passed
+at a tie or failed, and (decks) a --prefer result is given. With --figures, copies each rewritten slide's before and
 after screenshot into that folder (beside the brief) and embeds them. Before is
 round 1; after is the last round, or --after when the run ended on a rewrite.
 
@@ -19,6 +19,7 @@ call and its price, the answers, the Q1 assumption and crux, proposals,
 failures, limitations). --check exits 1 while any placeholder is open.
 """
 import argparse
+import html
 import json
 import re
 import shutil
@@ -60,8 +61,10 @@ def gate_rows(sc, arc, prefer):
         rows.append(("Self-preference", f"excess under {sp['threshold']}", _fmt(ex), res))
     if prefer:
         res = "passed at a tie" if prefer["at_threshold"] else ("passed" if prefer["pass"] else "failed")
+        rate = prefer["after_rate"]
         rows.append(("Blind preference test", "after wins 70% of sided pairs",
-                     f"{prefer['after']} of {prefer['sided']} ({prefer['after_rate']:.0%})", res))
+                     f"{prefer['after']} of {prefer['sided']} ({rate:.0%})" if rate is not None
+                     else "no sided pairs", res))
     return rows
 
 
@@ -85,7 +88,10 @@ def fill(run, prefer=None, figures=None, after=None):
     gates = gate_rows(sc, arc, prefer)
     tie = any("tie" in r[3] for r in gates)
     failed = any(r[3] in ("failed", "flagged") for r in gates)
-    rec_a = "(Recommended)" if sc["bar"]["status"] == "met" and not tie and not failed else ""
+    # a deck's rewrites are recommended only after the blind preference test has passed
+    needs_prefer = sc.get("kind", "deck") == "deck"
+    rec_a = ("(Recommended)" if sc["bar"]["status"] == "met" and not tie and not failed
+             and (prefer or not needs_prefer) else "")
 
     under = []
     for u in sc["bar"]["units_below"]:
@@ -111,12 +117,15 @@ def fill(run, prefer=None, figures=None, after=None):
         now = _json(now_path, {"shots": []})
         for u in rewritten:
             pair = []
+            # the id is draft markup: keep it out of the path and escape it in the html
+            safe, esc = re.sub(r"[^A-Za-z0-9_-]", "_", str(u)), html.escape(str(u))
             for label, doc, base in (("before", first, rounds[0] / "shots"), ("after", now, now_path.parent)):
                 s = next((s for s in doc["shots"] if s["id"] == u), None)
                 if s:
-                    shutil.copyfile(base / s["file"], figures / f"{u}-{label}.png")
-                    pair.append(f'<figure><img src="{figures.name}/{u}-{label}.png" alt="{u}, {label}">'
-                                f"<figcaption>{u}, {label}</figcaption></figure>")
+                    shutil.copyfile(base / s["file"], figures / f"{safe}-{label}.png")
+                    src = html.escape(f"{figures.name}/{safe}-{label}.png")
+                    pair.append(f'<figure><img src="{src}" alt="{esc}, {label}">'
+                                f"<figcaption>{esc}, {label}</figcaption></figure>")
             figs.append(":::html\n<div class=\"pair\">" + "".join(pair) + "</div>\n:::")
 
     sp = sc["self_preference"]

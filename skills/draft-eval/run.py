@@ -17,11 +17,13 @@ start   refuses unless `git status --porcelain <folder>` is empty and no
 record  writes rounds/r<n>/record.json: the source commit being graded, the
         screenshot sha256 values, the grader prompt and schema sha256, the full
         model ids and the tool versions.
-commit  stages and commits only the given paths, all inside the target folder,
+commit  stages and commits only the given paths (relative ones are taken from the
+        target folder), all inside it,
         as `draft-eval(<target>): round <n>`, and stores the sha in record.json.
 check   lists every run-record field from spec section 9 that is missing.
 release removes the lock and stamps run.json with the end time and reason.
-Exit 0 on success, 1 on a failed check, 2 on a refused start or commit.
+Exit 0 on success, 1 on a failed check, 2 on a refused start or commit, or a git
+failure (which releases the lock).
 """
 import argparse
 import datetime as dt
@@ -74,22 +76,33 @@ def _write(p, obj):
 def start(folder, target, session, baseline_gap=None, versions=None):
     folder = Path(folder).resolve()
     lock = folder / LOCK
-    if lock.exists():
-        raise SystemExit(f"run.py: refused, {lock} exists: {lock.read_text().strip()}")
     dirty = git(folder, "status", "--porcelain", "--", ".")
     if dirty:
         raise SystemExit(f"run.py: refused, {folder} is not clean in git:\n{dirty}")
-    exclude = Path(git(folder, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"))
-    exclude.parent.mkdir(parents=True, exist_ok=True)
-    have = exclude.read_text().splitlines() if exclude.exists() else []
-    add = [p for p in ("eval-runs/", LOCK) if p not in have]
-    if add:
-        with exclude.open("a") as f:
-            f.write("\n".join(["# draft-eval run records and lock"] + add) + "\n")
-    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run = folder / "eval-runs" / stamp
-    run.mkdir(parents=True)
-    lock.write_text(json.dumps({"session": session, "run": str(run), "started": stamp}) + "\n")
+    try:
+        # O_EXCL: two sessions starting at once cannot both take the lock
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise SystemExit(f"run.py: refused, {lock} exists: {lock.read_text().strip()}")
+    try:
+        # anchored to this folder, so the patterns ignore nothing elsewhere in the repo
+        rel = Path(os.path.relpath(folder, git(folder, "rev-parse", "--show-toplevel"))).as_posix()
+        base = "/" if rel == "." else f"/{rel}/"
+        exclude = Path(git(folder, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"))
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        have = exclude.read_text().splitlines() if exclude.exists() else []
+        add = [p for p in (base + "eval-runs/", base + LOCK) if p not in have]
+        if add:
+            with exclude.open("a") as f:
+                f.write("\n".join(["# draft-eval run records and lock"] + add) + "\n")
+        stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run = folder / "eval-runs" / stamp
+        run.mkdir(parents=True)
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps({"session": session, "run": str(run), "started": stamp}) + "\n")
+    except BaseException:
+        lock.unlink(missing_ok=True)
+        raise
     shutil.copyfile(HERE / "rubric.json", run / "rubric.json")
     if versions is None:
         chrome = _chrome()
@@ -136,10 +149,12 @@ def commit(run, n, paths):
     run = Path(run)
     meta = _json(run / "run.json")
     folder = Path(meta["folder"])
-    outside = [p for p in paths if not Path(p).resolve().is_relative_to(folder)]
+    # a relative path is taken from the target folder, not from wherever the caller stands
+    paths = [str((folder / p).resolve()) for p in paths]
+    outside = [p for p in paths if not Path(p).is_relative_to(folder)]
     if outside or not paths:
         raise SystemExit(f"run.py: refused, paths outside {folder} (or none given): {outside}")
-    if any("eval-runs" in Path(p).resolve().relative_to(folder).parts for p in paths):
+    if any("eval-runs" in Path(p).relative_to(folder).parts for p in paths):
         raise SystemExit("run.py: refused, the run record is never committed")
     git(folder, "add", "--", *paths)
     # `commit -- <paths>` commits only these paths, whatever else another thread has staged
@@ -251,6 +266,13 @@ def main(argv=None):
             print(e.code, file=sys.stderr)
             return 2
         raise
+    except subprocess.CalledProcessError as e:
+        # a git failure mid-run still releases the lock, as every exit must
+        print(f"run.py: git failed: {' '.join(e.cmd[3:])}\n{e.stderr or ''}".rstrip(), file=sys.stderr)
+        if a.cmd in ("record", "commit"):
+            release((_json(Path(a.run) / "run.json", {}) or {}).get("folder", a.run),
+                    f"failed: git {' '.join(e.cmd[3:4])}")
+        return 2
     return 0
 
 

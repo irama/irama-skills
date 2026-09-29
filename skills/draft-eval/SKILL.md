@@ -49,7 +49,8 @@ report). Until then, score only: run one round with no rewrite.
 2. **From here, every exit releases the lock**, on success, on a stop, on an error and when the
    user interrupts: `python3 <skill-dir>/run.py release <folder> --reason "<why>"`.
 3. The unit list is fixed for the run. Add or delete no units: an article unit that grows is still
-   one unit. `score_round.py` refuses records for a unit outside the list. Deleting a slide is a
+   one unit. `score_round.py` saves round 1's unit ids as `$RUN/units.fixed.json` and refuses a
+   later round whose ids differ, and refuses records for a unit outside the list. Deleting a slide is a
    proposal in the review brief, never a loop action.
 4. Decks: after the round 1 build and render, write the floors once with
    `check.py ... --baseline --floors $RUN/floors.json`. Later rounds use `--floors $RUN/floors.json`.
@@ -78,9 +79,10 @@ report). Until then, score only: run one round with no rewrite.
 6. **Record**: `python3 <skill-dir>/run.py record $RUN <n>`.
 7. **Stop check**: `python3 <skill-dir>/score_round.py $RUN <n>`, which writes `$R/score.json`.
    - If `regrade` lists units (one grader gave 3 where the other gave 4 or more), re-grade each
-     listed unit once with the listed grader: build a one-unit units doc, `packet.build()` it,
-     grade, validate with `-o $R/grading/<grader>.regrade.jsonl`, and run `score_round.py` again.
-     The second score stands.
+     listed unit once with the listed grader. Pack it from the round's full unit list, so it keeps
+     its real previous unit: `python3 <skill-dir>/packet.py $R/units.json $R/regrade/<grader> --shots
+     $R/shots/shots.json --select <ids>`. Grade, validate against `$R/units.json` with
+     `-o $R/grading/<grader>.regrade.jsonl`, and run `score_round.py` again. The second score stands.
    - If `stop.stop` is true, write `$R/rewrites.json` as `{"rewrites": []}`, release the lock
      and go to the review brief. The stop check comes after grading and before any rewrite, so
      the run always ends on a graded state.
@@ -139,7 +141,7 @@ in place of its parsed file.
    `prefer.py --score prefer-answers.json prefer-key.json` applies the 70% rule. If after wins
    fewer than 70% of the pairs where a side was chosen, the result goes back to calibration, not
    to the user as a finished deck.
-2. **Review brief** (a `peakstate-brief`), at `XCOACH/docs/plans/draft-eval/runs/<target>-<date>.md`:
+2. **Review brief** (a `peakstate-brief`), at `<brief folder>/<target>-<date>.md`:
 
        python3 <skill-dir>/brief.py $RUN -o <brief>.md --figures <brief folder>/<target>-<date>-figures [--prefer <score json>]
 
@@ -157,13 +159,14 @@ in place of its parsed file.
 ## Grading step
 
 Two graders, reported per grader and never pooled. No script calls a model: this session
-runs Codex through Bash and dispatches the Claude grader with the Agent tool. `<run>` is the
-run folder, `<n>` the round number.
+runs Codex through Bash and dispatches the Claude grader with the Agent tool. In the loop,
+`$R` is `$RUN/rounds/r<n>`. For calibration, `$R/grading` is the calibration folder's `packets/<set>`
+and `graders/`, as the calibration step says.
 
 1. Build the packets. Decks pass the screenshots from `render.mjs`; articles have none.
 
-       mkdir -p <run>/grading/r<n>
-       python3 <skill-dir>/packet.py <run>/units.json <run>/grading/r<n> --shots <run>/shots/shots.json > <run>/grading/r<n>/batches.json
+       mkdir -p $R/grading
+       python3 <skill-dir>/packet.py $R/units.json $R/grading --shots $R/shots/shots.json > $R/grading/batches.json
 
    Each batch is a directory of up to 8 unit folders, and the rendered prompt sits beside it
    as `batch-NN.prompt.md`. Nothing but packets goes in the batch directory.
@@ -173,7 +176,7 @@ run folder, `<n>` the round number.
    Read the model id from the `model =` line of `${CODEX_HOME:-$HOME/.codex}/config.toml`.
 
        codex exec --ephemeral -s read-only --skip-git-repo-check -C <batch dir> \
-         --output-schema <skill-dir>/schema.json -o <run>/grading/r<n>/<batch>.codex.json \
+         --output-schema <skill-dir>/schema.json -o $R/grading/<batch>.codex.json \
          - -i <png 1> -i <png 2> ... < <batch prompt>
 
    Give each PNG in the batch's `pngs` its own `-i`, and put the `-` (prompt from stdin) before
@@ -186,19 +189,20 @@ run folder, `<n>` the round number.
        Agent(subagent_type="draft-grader",
              prompt="Packet directory: <batch dir>. Grader prompt: <batch prompt>. Return the JSON only.")
 
-   Write its reply verbatim to `<run>/grading/r<n>/<batch>.claude.json`. Send it nothing else:
+   Write its reply verbatim to `$R/grading/<batch>.claude.json`. Send it nothing else:
    no earlier scores, no author reasoning, no list of rewritten units.
 
 4. Validate each reply and append the stamped records:
 
-       python3 <skill-dir>/validate.py <reply> --units <run>/units.json --batch <ids,comma,separated> \
-         --grader codex|claude --round <n> [--model <codex model id>] -o <run>/grading/r<n>/<grader>.jsonl
+       python3 <skill-dir>/validate.py <reply> --units $R/units.json --batch <ids,comma,separated> \
+         --grader codex|claude --round <n> [--model <codex model id>] -o $R/grading/<grader>.jsonl
 
    For Claude, leave out `--model`; the record keeps the model id the agent reported.
 
 5. If a batch fails validation, run that grader on that batch once more. If it fails again,
-   log the batch as failed in `<run>/grading/r<n>/failed.json` (grader, batch, errors) and
-   carry on. A failed batch leaves its units unscored for that grader.
+   log the batch as failed in `$R/grading/failed.json` as `{"failed": [{grader, batch, errors}]}`
+   and carry on. A failed batch leaves its units unscored for that grader, and `score_round.py`
+   leaves those units out of the median and reports each grader's coverage.
 
 Every record carries `grader`, the full `model` id, `rubric_version`, `round`,
 `prompt_sha256` (of `grader-prompt.md`) and `schema_sha256`. `python3 <skill-dir>/validate.py --selftest`

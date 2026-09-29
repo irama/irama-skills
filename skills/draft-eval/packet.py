@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Build grading packets: one directory per batch of up to 8 units.
 
-    packet.py <units.json> <outdir> [--shots shots.json]
+    packet.py <units.json> <outdir> [--shots shots.json] [--select id,id]
 
 Each batch directory holds, per unit, a folder `<nn>-<id>/` with:
   slide.png  the unit's screenshot (decks)
   text.txt   the unit's visible text
   notes.txt  the unit's notes, when it has any
-  prev.png   the previous unit's screenshot (decks, not on the first unit)
-  prev.txt   the previous unit's text (not on the first unit)
+  context/prev.png  the previous unit's screenshot (decks, not on the first unit)
+  context/prev.txt  the previous unit's text (not on the first unit)
+The previous unit sits in `context/` so a grader cannot mistake it for the unit:
+when two neighbours share a batch, unit k's prev.txt is unit k-1's text.txt.
 Articles also get `references.md` at the batch root. Nothing else goes in the
 directory: the rendered prompt is written beside it as `batch-NN.prompt.md`,
 so a grader running inside the directory can read the packets and nothing else.
@@ -97,13 +99,14 @@ def build(units_doc, outdir, shots_path=None, rubric=None, select=None):
             if u.get("notes"):
                 (udir / "notes.txt").write_text(u["notes"])
             if prev:
-                (udir / "prev.txt").write_text(prev.get("text", ""))
-            for name, src in (("slide.png", u), ("prev.png", prev)):
+                (udir / "context").mkdir()
+                (udir / "context" / "prev.txt").write_text(prev.get("text", ""))
+            for name, src in (("slide.png", u), ("context/prev.png", prev)):
                 if src and src["id"] in shots:
                     shutil.copyfile(shots[src["id"]], udir / name)
                     pngs.append(str(udir / name))
             rows.append({"folder": folder, "id": u["id"], "role": u.get("role", "content"),
-                         "first": i == 0, "files": sorted(p.name for p in udir.iterdir())})
+                         "first": i == 0, "files": sorted(p.relative_to(udir).as_posix() for p in udir.rglob("*") if p.is_file())})
         if kind == "article" and units_doc.get("references"):
             (bdir / "references.md").write_text(units_doc["references"])
         prompt = outdir / f"{bdir.name}.prompt.md"
@@ -118,8 +121,10 @@ def main(argv=None):
     ap.add_argument("units")
     ap.add_argument("outdir")
     ap.add_argument("--shots")
+    ap.add_argument("--select", help="comma-separated unit ids: pack only these, each with its real previous unit")
     a = ap.parse_args(argv)
-    batches = build(json.loads(Path(a.units).read_text()), a.outdir, a.shots)
+    batches = build(json.loads(Path(a.units).read_text()), a.outdir, a.shots,
+                    select=set(a.select.split(",")) if a.select else None)
     json.dump({"prompt_sha256": template_sha256(), "batches": batches}, sys.stdout, indent=1)
     print()
 
