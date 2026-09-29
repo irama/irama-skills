@@ -7,13 +7,15 @@
 // bar, waits for deck-stage, fonts, images and finite animations, then asserts
 // that the active slide's data-slide-id equals the unit id. A mismatch fails
 // the whole render; it never falls back. Writes <ordinal>-<id>.png (ordinal
-// zero-padded to two digits so the files sort) and shots.json of sha256 values.
+// zero-padded to two digits so the files sort), contact.png (every shot on one
+// numbered sheet, for the arc pass) and shots.json of sha256 values plus the
+// Playwright and Chromium versions for the run record.
 //
 // Playwright: resolved normally, else from $PLAYWRIGHT_NODE_MODULES, else from
 // ~/LOCAL-DEV/peakstate-deck/tests/node_modules.
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -25,7 +27,10 @@ function loadPlaywright() {
     join(homedir(), 'LOCAL-DEV/peakstate-deck/tests/node_modules'),
   ].filter(Boolean);
   for (const d of dirs) {
-    try { return createRequire(join(d, 'noop.js'))('playwright'); } catch (e) { /* next */ }
+    try {
+      const req = createRequire(join(d, 'noop.js'));
+      return { ...req('playwright'), version: req('playwright/package.json').version };
+    } catch (e) { /* next */ }
   }
   throw new Error('playwright not found; set PLAYWRIGHT_NODE_MODULES');
 }
@@ -50,14 +55,32 @@ async function settle(page) {
   }, ANIM_TIMEOUT_MS);
 }
 
+// ponytail: six thumbnails a row at 320x180, one sheet; split it if a deck outgrows one image.
+async function contactSheet(browser, outdir, shots) {
+  const cells = shots.map((s, i) => `<figure><img src="${s.file}"><figcaption>${i + 1}</figcaption></figure>`);
+  const html = `<!doctype html><style>body{margin:0;background:#fff;display:grid;
+    grid-template-columns:repeat(6,320px);gap:8px;padding:8px;font:16px sans-serif}
+    figure{margin:0}img{width:320px;height:180px;display:block;border:1px solid #ccc}
+    figcaption{text-align:center}</style>${cells.join('')}`;
+  const file = join(outdir, 'contact.html');
+  writeFileSync(file, html);
+  const page = await browser.newPage({ viewport: { width: 6 * 328 + 8, height: 400 } });
+  await page.goto(pathToFileURL(resolve(file)).href, { waitUntil: 'load' });
+  await page.screenshot({ path: join(outdir, 'contact.png'), fullPage: true });
+  await page.close();
+  unlinkSync(file);
+}
+
 export async function render(indexPath, unitsPath, outdir) {
-  const { chromium } = loadPlaywright();
+  const { chromium, version } = loadPlaywright();
   const units = JSON.parse(readFileSync(unitsPath, 'utf8')).units;
   mkdirSync(outdir, { recursive: true });
   const base = pathToFileURL(resolve(indexPath)).href + '?_snthumb=1';
   const browser = await chromium.launch();
   const shots = [];
+  let chromiumVersion = null;
   try {
+    chromiumVersion = browser.version();
     const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
     for (const u of units) {
       if (u.hidden) continue;
@@ -81,10 +104,12 @@ export async function render(indexPath, unitsPath, outdir) {
       shots.push({ id: u.id, ordinal: u.ordinal, hash_index: u.hash_index, file,
                    sha256: createHash('sha256').update(png).digest('hex') });
     }
+    await contactSheet(browser, outdir, shots);
   } finally {
     await browser.close();
   }
-  writeFileSync(join(outdir, 'shots.json'), JSON.stringify({ shots }, null, 2) + '\n');
+  writeFileSync(join(outdir, 'shots.json'), JSON.stringify(
+    { playwright: version, chromium: chromiumVersion, contact: 'contact.png', shots }, null, 2) + '\n');
   return shots;
 }
 

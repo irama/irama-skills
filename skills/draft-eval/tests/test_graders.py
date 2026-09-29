@@ -46,11 +46,11 @@ class PacketTest(unittest.TestCase):
             first = Path(batches[0]["dir"])
             u4 = first / "04-u4"
             self.assertEqual(sorted(p.name for p in first.iterdir())[0], "01-u1")
-            self.assertEqual((u4 / "prev.txt").read_text(), units["units"][2]["text"])
+            self.assertEqual((u4 / "context" / "prev.txt").read_text(), units["units"][2]["text"])
             self.assertEqual((u4 / "slide.png").read_bytes(), b"pngu4")
             # the hidden unit is skipped, so u6 follows u4
-            self.assertEqual((first / "05-u6" / "prev.png").read_bytes(), b"pngu4")
-            self.assertFalse((first / "01-u1" / "prev.txt").exists())
+            self.assertEqual((first / "05-u6" / "context" / "prev.png").read_bytes(), b"pngu4")
+            self.assertFalse((first / "01-u1" / "context" / "prev.txt").exists())
             prompt = Path(batches[0]["prompt"]).read_text()
             self.assertNotEqual(Path(batches[0]["prompt"]).parent, first)
             self.assertIn("04-u4", prompt)
@@ -64,7 +64,7 @@ class PacketTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             b = packet.build(art, Path(d) / "out")[0]
             files = sorted(str(p.relative_to(b["dir"])) for p in Path(b["dir"]).rglob("*") if p.is_file())
-            self.assertEqual(files, ["01-s0-p1/text.txt", "02-s1-p1/prev.txt", "02-s1-p1/text.txt",
+            self.assertEqual(files, ["01-s0-p1/text.txt", "02-s1-p1/context/prev.txt", "02-s1-p1/text.txt",
                                      "references.md"])
             self.assertEqual(b["pngs"], [])
 

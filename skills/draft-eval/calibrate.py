@@ -31,7 +31,7 @@ import packet
 import validate
 
 HERE = Path(__file__).resolve().parent
-FILES = ("text.txt", "notes.txt", "prev.txt")
+FILES = ("text.txt", "notes.txt", "context/prev.txt")
 
 
 def pick_deck(units, n, avoid_roles=()):
@@ -100,8 +100,8 @@ def page_data(outdir):
                     "key": f"{s['name']}/{uid}", "set": s["name"], "kind": s["kind"], "id": uid,
                     "role": u.get("role"), "ordinal": u.get("ordinal"),
                     "folder": str(folder.relative_to(outdir)),
-                    "slide": (folder / "slide.png").exists(), "prev": (folder / "prev.png").exists(),
-                    "text": read["text.txt"], "notes": read["notes.txt"], "prev_text": read["prev.txt"],
+                    "slide": (folder / "slide.png").exists(), "prev": (folder / "context" / "prev.png").exists(),
+                    "text": read["text.txt"], "notes": read["notes.txt"], "prev_text": read["context/prev.txt"],
                     "criteria": criteria_for(u, uid == graded[0]["id"], s["kind"], rubric)})
     return {"rubric_version": rubric["rubric_version"],
             "packets_sha256": sha256_file(outdir / "packets.sha256"), "sets": sets, "units": units}
@@ -251,7 +251,7 @@ D.units.forEach((u, i) => {
   card.append(el('h3', {text: (i + 1) + '. ' + u.id + ' '},
     el('small', {text: '(' + u.set + (u.role ? ', ' + u.role : '') + ')'})));
   const prev = el('div', {}, el('h4', {text: 'Previous unit'}));
-  if (u.prev) prev.append(el('img', {src: u.folder + '/prev.png', alt: 'Previous slide', loading: 'lazy'}));
+  if (u.prev) prev.append(el('img', {src: u.folder + '/context/prev.png', alt: 'Previous slide', loading: 'lazy'}));
   if (u.prev_text) prev.append(el('details', {}, el('summary', {text: 'Previous text'}), el('div', {class: 'txt', text: u.prev_text})));
   if (!u.prev && !u.prev_text) prev.append(el('p', {text: 'None: this is the first unit of the draft.'}));
   const cur = el('div', {}, el('h4', {text: 'This unit'}));

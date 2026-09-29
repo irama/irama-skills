@@ -46,9 +46,9 @@ class PacketSelectTest(unittest.TestCase):
             folders = sorted(p.name for p in Path(batches[0]["dir"]).iterdir())
             self.assertEqual(folders, ["01-u1", "02-u4"])
             u4 = Path(batches[0]["dir"]) / "02-u4"
-            self.assertEqual((u4 / "prev.txt").read_text(), doc["units"][2]["text"])
-            self.assertEqual((u4 / "prev.png").read_bytes(), b"png u3")
-            self.assertFalse((Path(batches[0]["dir"]) / "01-u1" / "prev.txt").exists())
+            self.assertEqual((u4 / "context" / "prev.txt").read_text(), doc["units"][2]["text"])
+            self.assertEqual((u4 / "context" / "prev.png").read_bytes(), b"png u3")
+            self.assertFalse((Path(batches[0]["dir"]) / "01-u1" / "context" / "prev.txt").exists())
             prompt = Path(batches[0]["prompt"]).read_text()
             self.assertIn('"first_unit_of_draft": true', prompt)
             self.assertEqual(prompt.count('"first_unit_of_draft": true'), 1)
