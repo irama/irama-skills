@@ -74,8 +74,12 @@ def schema_errors(value, schema, path="$"):
 
 
 def _norm(s):
-    s = s.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
-    return " ".join(s.lower().split())
+    # Graders swap quote marks when they nest a quote, drop markdown emphasis,
+    # and deck text can lose the space between sentences. Compare with whitespace removed.
+    for ch in "’‘“”\"":
+        s = s.replace(ch, "'")
+    s = s.replace("*", "").replace("`", "")
+    return "".join(s.lower().split())
 
 
 def quotes_unit(reason, unit):
@@ -83,8 +87,10 @@ def quotes_unit(reason, unit):
     if not source:
         return True  # nothing to quote; the prompt asks for the screenshot instead
     for m in QUOTE.finditer(reason):
-        q = _norm(m.group(1) or m.group(2)).strip(" .,;:!?")
-        if len(q) >= 4 and q in source:
+        # an elided quote ("a ... b") counts when every piece is in the unit
+        parts = [_norm(p).strip(" .,;:!?") for p in re.split(r"\.\.\.|…", m.group(1) or m.group(2))]
+        parts = [p for p in parts if p]
+        if parts and len("".join(parts)) >= 4 and all(p in source for p in parts):
             return True
     return False
 

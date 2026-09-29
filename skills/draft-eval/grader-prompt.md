@@ -46,6 +46,8 @@ between the 3 and 5 anchors.
 - A unit with no number in its text or notes is N/A for `honest_numbers`. It never scores 5, and
   it never scores at all.
 - A unit with any number (digits or number words) must be scored on `honest_numbers`.
+- Ordinals ("first", "second"), the word "one" and vague amounts ("years", "most", "millions of")
+  are not numbers. A unit whose only such words are these is N/A for `honest_numbers`.
 - A criterion that does not apply to a {{KIND}} (it is not listed above) is `null`.
 
 ## Reasons
