@@ -60,6 +60,13 @@ Every mode first reports the sibling repos, so the operator's target picker stay
 $J repos                    # PUT /api/jobs/repos with every main checkout beside this one
 ```
 
+The scan also finds repos one level inside a plain folder, such as
+`tools/travel-app`, and skips `Archive`, `_*` and `.*` folders.
+To place an untagged job, or to find the checkout for a target, match the prompt's app name
+against `$J repos --dry-run`: each entry gives `target`, `display` and the local `path`.
+Match an app name against all three, because a repo's directory, remote and product name
+can differ (an app called Foo can be `owner/foo` checked out as `tools/foo-site`).
+
 - **`/jobs` in a repo:** list this repo's Backlog jobs
   (`$J list --all-pages --column backlog --target <t>`), untagged Backlog jobs that you judge
   belong here (`--target none`), jobs awaiting you (`--awaiting`, filter to this target), and

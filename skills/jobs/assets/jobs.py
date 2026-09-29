@@ -217,11 +217,19 @@ def cmd_here(_a):
 
 
 def sibling_repos(root):
-    """Main checkouts directly under root. Worktrees (.git is a file) are skipped."""
+    """Main checkouts under root, plus those one level inside a plain (non-git) folder
+    such as tools/travel-app. Worktrees (.git is a file) are
+    skipped, and so are folders named archive or starting with '_' or '.', which hold
+    retired copies. Each entry carries its local path so a target maps to a checkout."""
     out = []
     for d in sorted(Path(root).iterdir()):
+        if not d.is_dir() or d.name.startswith(("_", ".")) or d.name.lower() == "archive":
+            continue
         if (d / ".git").is_dir():
-            out.append({"target": target_of(d), "display": d.name[:100]})
+            out.append({"target": target_of(d), "display": d.name[:100], "path": str(d)})
+        elif not (d / ".git").exists():
+            for s in sorted(p for p in d.iterdir() if p.is_dir() and (p / ".git").is_dir()):
+                out.append({"target": target_of(s), "display": s.name[:100], "path": str(s)})
     seen = {}
     for r in out:
         seen[r["target"]] = r
@@ -237,7 +245,9 @@ def cmd_repos(a):
     if a.dry_run:
         print(json.dumps({"repos": repos}, indent=1))
         return 0
-    return emit(*api("PUT", "/api/jobs/repos", {"repos": repos}))
+    # The hub stores target and display only; a local path means nothing to it.
+    return emit(*api("PUT", "/api/jobs/repos",
+                     {"repos": [{k: r[k] for k in ("target", "display")} for r in repos]}))
 
 
 # ── API commands ────────────────────────────────────────────────────────────
@@ -546,6 +556,11 @@ def selftest():
         sh(repo, "worktree", "add", "--quiet", str(tmp / "repo-wt"), "job/1-x")
         assert repo_root(tmp / "repo-wt") == repo.resolve() or repo_root(tmp / "repo-wt") == repo
         assert [r["display"] for r in sibling_repos(tmp)] == ["repo"], "bare and worktree dirs skipped"
+        for parent in ("group", "Archive", "_old"):
+            sh(tmp, "init", "--quiet", str(tmp / parent / "inner"))
+        found = sibling_repos(tmp)
+        assert [r["display"] for r in found] == ["inner", "repo"], "nested found, retired skipped"
+        assert found[0]["path"] == str(tmp / "group" / "inner")
     print("jobs.py selftest: ok")
     return 0
 
