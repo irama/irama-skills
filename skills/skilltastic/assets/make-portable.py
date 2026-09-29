@@ -43,6 +43,7 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
+from urllib.parse import unquote
 
 # Copilot Cowork, the tightest of the four hosts. A skill inside these fits
 # claude.ai, Claude Cowork and Claude Code as well, so this is the only bar.
@@ -126,6 +127,8 @@ def anchor(heading: str) -> str:
     return re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
 
 
+# Any relative link target, of any file type: not an anchor, a scheme or a root.
+REL_LINK = re.compile(r"\]\(<?(?![a-z][a-z0-9+.-]*:|/)([^)\s#<>]+)", re.I)
 LINK = re.compile(r"\]\((?!#|[a-z][a-z0-9+.-]*:)([^)\s#]+\.md)(#[^)\s]*)?\)", re.I)
 
 
@@ -237,6 +240,19 @@ def self_check(skill: Path, md_only=False, one_file=False) -> int:
             rel = p.relative_to(out).as_posix()
             if rel != "SKILL.md":
                 need(rel in text, f"{rel} is never mentioned in SKILL.md")
+        # A mention is not a working link: a legacy cut flattens references/x.md
+        # to x.md, so a link written against the source tree breaks in the cut.
+        # Every relative link in every packed .md must land on a packed file.
+        packed = {p.relative_to(out).as_posix() for p in files}
+        for p in files:
+            rel = p.relative_to(out).as_posix()
+            if not rel.lower().endswith(".md"):
+                continue
+            for m in REL_LINK.finditer(p.read_text(errors="ignore")):
+                target = posixpath.normpath(posixpath.join(posixpath.dirname(rel),
+                                                           unquote(m.group(1))))
+                need(target in packed,
+                     f"{rel} links to {m.group(1)!r}, which is not in the cut")
         print(f"self-check passed — {len(files)} files, {total // 1024}KB")
     return 0
 
@@ -304,6 +320,15 @@ def selftest() -> int:
         build(s, T / "empty")  # an empty destination folder is fine
         ran += 1
         refuses(lambda: build(s, T / "a-out2", md_only=True), "--md-only refuses t.html")
+        # A link written against the source tree breaks once the cut is flat.
+        s = skill(T / "bl", {
+            "SKILL.md": "full\n", "references/x.md": "# X\n",
+            "portable/SKILL.md": fm + "Read [x](references/x.md), then x.md.\n",
+            "portable/FILES": "portable/SKILL.md -> SKILL.md\nreferences/x.md\n"})
+        refuses(lambda: self_check(s), "links to 'references/x.md', which is not in the cut")
+        (s / "portable/SKILL.md").write_text(fm + "Read [x](x.md) and [w](https://e.org/a.md).\n")
+        self_check(s)
+        ran += 1
 
         # Folder mode: recursive, relative paths kept, checks and zip recurse.
         body = fm + "Read [lib](references/lib.md) and [src](SOURCES.md).\n"
