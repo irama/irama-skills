@@ -326,7 +326,7 @@ def selftest() -> int:
             "portable/SKILL.md": fm + "Read [x](references/x.md), then x.md.\n",
             "portable/FILES": "portable/SKILL.md -> SKILL.md\nreferences/x.md\n"})
         refuses(lambda: self_check(s), "links to 'references/x.md', which is not in the cut")
-        (s / "portable/SKILL.md").write_text(fm + "Read [x](x.md) and [w](https://e.org/a.md).\n")
+        (s / "portable/SKILL.md").write_text(fm + "Read [x](x.md) and [w](https://example.org/a.md).\n")
         self_check(s)
         ran += 1
 
