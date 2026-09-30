@@ -116,6 +116,12 @@ main { max-width:1400px; margin:0 auto; padding:16px 24px 80px; }
 .pick { margin-top:10px; display:flex; gap:24px; }
 .pick label { cursor:pointer; }
 .pick input { cursor:pointer; }
+.sides img { cursor:zoom-in; }
+#lb { position:fixed; inset:0; z-index:20; background:rgba(15,18,25,.92); display:none; flex-direction:column;
+  align-items:center; justify-content:center; padding:16px; cursor:zoom-out; }
+#lb.open { display:flex; }
+#lb img { max-width:100%; max-height:calc(100vh - 70px); object-fit:contain; background:#fff; }
+#lb p { color:#fff; margin:10px 0 0; font-size:14px; }
 @media (max-width:800px) { .sides { grid-template-columns:1fr; } }
 </style></head>
 <body>
@@ -128,6 +134,7 @@ browser. When every pair is answered, press <b>Download JSON</b> and file it as
 <code>prefer-answers.json</code> beside this page.</p></div>
 <div id="pairs"></div>
 </main>
+<div id="lb" role="dialog" aria-modal="true" aria-label="Enlarged slide"><img alt=""><p></p></div>
 <script type="application/json" id="data">__DATA__</script>
 <script>
 const D = JSON.parse(document.getElementById('data').textContent);
@@ -158,6 +165,25 @@ D.pairs.forEach((p, i) => {
   root.append(sec);
 });
 progress();
+// Lightbox: click a slide to enlarge it; the arrow keys switch between the pair's two sides, Esc closes.
+const lb = document.getElementById('lb'), lbImg = lb.querySelector('img'), lbCap = lb.querySelector('p');
+let lbPair = null, lbSide = 0;
+function lbShow() {
+  lbImg.src = lbSide ? lbPair.right : lbPair.left;
+  lbCap.textContent = (lbSide ? 'Right' : 'Left') + ' slide. Arrow keys switch sides, Esc closes.';
+}
+root.addEventListener('click', e => {
+  if (e.target.tagName !== 'IMG') return;
+  lbPair = D.pairs.find(p => p.pair === e.target.closest('.pair').id);
+  lbSide = e.target === e.target.parentNode.lastElementChild ? 1 : 0;
+  lbShow(); lb.classList.add('open');
+});
+lb.addEventListener('click', () => lb.classList.remove('open'));
+document.addEventListener('keydown', e => {
+  if (!lb.classList.contains('open')) return;
+  if (e.key === 'Escape') lb.classList.remove('open');
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { lbSide = e.key === 'ArrowRight' ? 1 : 0; lbShow(); }
+});
 document.getElementById('download').addEventListener('click', () => {
   const out = {kind: 'draft-eval-preference', key_id: D.key_id, saved_at: new Date().toISOString(), answers: S};
   const a = document.createElement('a');
