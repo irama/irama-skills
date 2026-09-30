@@ -2,11 +2,28 @@
   "rubric_version": "0.2",
   "phase": "experimental",
   "changelog": [
-    {"version": "0.1", "note": "First version, before calibration."},
-    {"version": "0.2", "note": "Fitted to the 24 calibration units, so those units are not a fair test of it; the blind preference test is the hold-out. Session counts are not numbers for honest_numbers; a [planted] tag makes honest_numbers N/A; a concrete case must be one you can picture and may sit in the notes; evidence slides skip visual, delight, concrete_first and guess_reveal; a detail slide scores on what it adds to an overview; several findings behind one claim are one idea."}
+    {
+      "version": "0.1",
+      "note": "First version, before calibration."
+    },
+    {
+      "version": "0.2",
+      "note": "Fitted to the 24 calibration units, so those units are not a fair test of it; the blind preference test is the hold-out. Session counts are not numbers for honest_numbers; a [planted] tag makes honest_numbers N/A; a concrete case must be one you can picture and may sit in the notes; evidence slides skip visual, delight, concrete_first and guess_reveal; a detail slide scores on what it adds to an overview; several findings behind one claim are one idea. Clear wording allows playful language, short punchy lines and images in words that have a reasonable reading; undefined jargon still counts against it."
+    }
   ],
-  "scale": {"min": 1, "max": 5, "na": "N/A needs a reason, like a score does. N/A outside na_allowed fails schema validation."},
-  "roles": ["title", "divider", "content", "exercise", "evidence", "close"],
+  "scale": {
+    "min": 1,
+    "max": 5,
+    "na": "N/A needs a reason, like a score does. N/A outside na_allowed fails schema validation."
+  },
+  "roles": [
+    "title",
+    "divider",
+    "content",
+    "exercise",
+    "evidence",
+    "close"
+  ],
   "na_conditions": {
     "first_unit": "The unit is the first unit of the draft.",
     "reveals_nothing": "The unit reveals no answer, result or conclusion.",
@@ -18,126 +35,208 @@
       "id": "visual",
       "name": "Highly visual",
       "kind": "judged",
-      "applies_to": ["deck"],
+      "applies_to": [
+        "deck"
+      ],
       "question": "Does a chart, infographic, cartoon or shape carry the idea, and does the slide look different from the one before it?",
       "anchors": {
         "1": "Text only, or the only image is a logo or a small icon. The slide looks the same as the one before it.",
         "3": "A visual is present but decorates the words rather than carrying the idea, or the slide repeats the previous slide's look.",
         "5": "A chart, infographic, cartoon or shape carries the idea, and the slide looks different from the one before it. A logo or a small icon does not count."
       },
-      "na_allowed": {"roles": ["evidence"], "conditions": []}
+      "na_allowed": {
+        "roles": [
+          "evidence"
+        ],
+        "conditions": []
+      }
     },
     {
       "id": "clear",
       "name": "Clear wording",
       "kind": "judged",
-      "applies_to": ["deck", "article"],
+      "applies_to": [
+        "deck",
+        "article"
+      ],
       "question": "Does the wording stand alone in full sentences and plain words?",
       "anchors": {
-        "1": "Fragments, trendy compressions or coined jargon. A reader cannot follow it without the speaker or the author.",
-        "3": "Mostly full sentences in plain words, with one fragment, one compression or one undefined term.",
-        "5": "Stands alone. Full sentences, plain words, no fragments, no trendy compressions, no coined jargon."
+        "1": "A reader cannot work out the meaning without the speaker or the author: undefined jargon, or a compression or image that has no reasonable reading.",
+        "3": "The meaning can be worked out, but one undefined technical term or one unclear phrase slows the reader down.",
+        "5": "A reader can work out every line alone. Playful language, a short punchy line or an image in words is fine when it has a reasonable reading; only undefined jargon or an unreadable compression counts against it."
       },
-      "na_allowed": {"roles": [], "conditions": []}
+      "na_allowed": {
+        "roles": [],
+        "conditions": []
+      }
     },
     {
       "id": "flow",
       "name": "Flow",
       "kind": "judged",
-      "applies_to": ["deck", "article"],
+      "applies_to": [
+        "deck",
+        "article"
+      ],
       "question": "Is the logic step from the previous unit to this one obvious without the speaker?",
       "anchors": {
         "1": "No visible link to the previous unit. The step needs the speaker, or the unit is out of order.",
         "3": "The link exists but the reader has to work it out, or it depends on a line only the speaker says.",
         "5": "A logic step from the previous unit to this one is obvious without the speaker."
       },
-      "na_allowed": {"roles": [], "conditions": ["first_unit"]}
+      "na_allowed": {
+        "roles": [],
+        "conditions": [
+          "first_unit"
+        ]
+      }
     },
     {
       "id": "delight",
       "name": "Surprise and delight",
       "kind": "judged",
-      "applies_to": ["deck", "article"],
+      "applies_to": [
+        "deck",
+        "article"
+      ],
       "question": "Is this unit part of a journey that involves, teases or tricks the audience, without giving away an answer before its moment?",
       "anchors": {
         "1": "A preview that gives away an answer before its moment, or a flat statement with nothing for the audience to do or feel. A recurring character appears as decoration.",
         "3": "Some tension or involvement, but the payoff is predictable, or a small spoiler lands early.",
         "5": "A journey, not a preview. A map of the session's shape is fine; giving away an answer before its moment is not, except a tagged hook paid off later. The audience is involved, teased or tricked. A recurring character returns as a callback where it helps, never as decoration."
       },
-      "na_allowed": {"roles": ["title", "divider", "evidence"], "conditions": []}
+      "na_allowed": {
+        "roles": [
+          "title",
+          "divider",
+          "evidence"
+        ],
+        "conditions": []
+      }
     },
     {
       "id": "one_idea",
       "name": "One idea per unit",
       "kind": "judged",
-      "applies_to": ["deck", "article"],
+      "applies_to": [
+        "deck",
+        "article"
+      ],
       "question": "Does the unit carry exactly one idea?",
       "anchors": {
         "1": "Three or more ideas compete, or there is no idea at all.",
         "3": "One main idea with a second idea that pulls attention away from it, such as a finding that points somewhere the main claim does not.",
         "5": "One idea per slide, or per section part. Several studies or findings that all support one claim are one idea."
       },
-      "na_allowed": {"roles": [], "conditions": []}
+      "na_allowed": {
+        "roles": [],
+        "conditions": []
+      }
     },
     {
       "id": "concrete_first",
       "name": "Concrete before abstract",
       "kind": "judged",
-      "applies_to": ["deck", "article"],
+      "applies_to": [
+        "deck",
+        "article"
+      ],
       "question": "Does an example or case come before the principle?",
       "anchors": {
         "1": "The principle comes alone, with no case you can picture anywhere. A rule, a test or a thesis sentence is still the principle, never the example.",
         "3": "A case is present but comes after the principle, or is too general to picture: no named organisation, event, person or figure.",
         "5": "A case you can picture (a named organisation, event, person or figure) comes before the principle. The case may sit in the speaker notes, so a slide needs no forced story moment."
       },
-      "na_allowed": {"roles": ["title", "divider", "close", "evidence"], "conditions": []}
+      "na_allowed": {
+        "roles": [
+          "title",
+          "divider",
+          "close",
+          "evidence"
+        ],
+        "conditions": []
+      }
     },
     {
       "id": "guess_reveal",
       "name": "Guess before reveal",
       "kind": "judged",
-      "applies_to": ["deck"],
+      "applies_to": [
+        "deck"
+      ],
       "question": "Judged on this slide with the one before it, does the audience get to predict before the answer lands?",
       "anchors": {
         "1": "The answer lands with no chance to predict it.",
         "3": "A prediction is possible but not invited, or the previous slide half gives the answer away.",
         "5": "The audience predicts before the answer lands, judged on this slide with the one before."
       },
-      "na_allowed": {"roles": ["evidence"], "conditions": ["reveals_nothing"]}
+      "na_allowed": {
+        "roles": [
+          "evidence"
+        ],
+        "conditions": [
+          "reveals_nothing"
+        ]
+      }
     },
     {
       "id": "earns_place",
       "name": "Earns its place",
       "kind": "judged",
-      "applies_to": ["deck", "article"],
+      "applies_to": [
+        "deck",
+        "article"
+      ],
       "question": "Would cutting this unit lose something?",
       "anchors": {
         "1": "A unit that repeats a neighbour. Cutting it loses nothing.",
         "3": "It adds something, but a neighbour could absorb it with one sentence. Repeating an earlier overview's items is not by itself a reason for 3.",
         "5": "Cutting it would lose something the draft needs. A detail slide scores on what it adds that an earlier overview lacks: a test, a condition or an action."
       },
-      "na_allowed": {"roles": [], "conditions": []}
+      "na_allowed": {
+        "roles": [],
+        "conditions": []
+      }
     },
     {
       "id": "honest_numbers",
       "name": "Honest numbers",
       "kind": "judged",
-      "applies_to": ["deck", "article"],
+      "applies_to": [
+        "deck",
+        "article"
+      ],
       "question": "Does every number carry its source and its limit?",
       "anchors": {
         "1": "A number with no source and no limit. Counts that describe the session itself (timings, exercise positions, counts of acts or clusters, labels like C1 to C9) are not numbers here.",
         "3": "Every number has a source, but a limit is missing, or the source is vague.",
         "5": "Every number has its source and its limit, on the slide, in the notes, or in the article's references. A unit whose only numbers describe the session is N/A, never 5."
       },
-      "na_allowed": {"roles": [], "conditions": ["no_number", "planted"]}
+      "na_allowed": {
+        "roles": [],
+        "conditions": [
+          "no_number",
+          "planted"
+        ]
+      }
     }
   ],
   "arc": {
-    "applies_to": ["deck"],
+    "applies_to": [
+      "deck"
+    ],
     "inputs": "Every unit's text and notes in order, the run sheet, and a contact sheet of all screenshots. One call per round per grader.",
     "criteria": [
-      {"id": "flow", "name": "Flow", "question": "Does each unit follow from the one before, across the whole draft?"},
-      {"id": "delight", "name": "Surprise and delight", "question": "Is the whole draft a journey that involves, teases or tricks the audience?"},
+      {
+        "id": "flow",
+        "name": "Flow",
+        "question": "Does each unit follow from the one before, across the whole draft?"
+      },
+      {
+        "id": "delight",
+        "name": "Surprise and delight",
+        "question": "Is the whole draft a journey that involves, teases or tricks the audience?"
+      },
       {
         "id": "participation",
         "name": "Participation",
@@ -152,20 +251,60 @@
     "hook_payoff": "Every [hook:<name>] tag in the notes has a matching [payoff:<name>] tag later."
   },
   "banned_terms": [
-    {"term": "—", "case_sensitive": true, "why": "Em dash."},
-    {"term": "&mdash;", "case_sensitive": true, "why": "Em dash entity."},
-    {"term": "defeater", "case_sensitive": false, "why": "Jargon. Say condition."},
-    {"term": "defeasible", "case_sensitive": false, "why": "Jargon, stays out of the room."},
-    {"term": "PROV-O", "case_sensitive": false, "why": "Ontology jargon, stays out of the room."},
-    {"term": "nanopublication", "case_sensitive": false, "why": "Ontology jargon, stays out of the room."},
-    {"term": "Bayesian updating", "case_sensitive": false, "why": "Jargon, stays out of the room."},
-    {"term": "GRADE", "case_sensitive": true, "why": "Evidence-grading jargon, stays out of the room."},
-    {"term": "call to action", "case_sensitive": false, "why": "No call to action anywhere in a deck."}
+    {
+      "term": "—",
+      "case_sensitive": true,
+      "why": "Em dash."
+    },
+    {
+      "term": "&mdash;",
+      "case_sensitive": true,
+      "why": "Em dash entity."
+    },
+    {
+      "term": "defeater",
+      "case_sensitive": false,
+      "why": "Jargon. Say condition."
+    },
+    {
+      "term": "defeasible",
+      "case_sensitive": false,
+      "why": "Jargon, stays out of the room."
+    },
+    {
+      "term": "PROV-O",
+      "case_sensitive": false,
+      "why": "Ontology jargon, stays out of the room."
+    },
+    {
+      "term": "nanopublication",
+      "case_sensitive": false,
+      "why": "Ontology jargon, stays out of the room."
+    },
+    {
+      "term": "Bayesian updating",
+      "case_sensitive": false,
+      "why": "Jargon, stays out of the room."
+    },
+    {
+      "term": "GRADE",
+      "case_sensitive": true,
+      "why": "Evidence-grading jargon, stays out of the room."
+    },
+    {
+      "term": "call to action",
+      "case_sensitive": false,
+      "why": "No call to action anywhere in a deck."
+    }
   ],
   "bars": {
     "judged_min": 4,
     "arc_min": 4,
-    "arc_criteria": ["flow", "delight", "participation"],
+    "arc_criteria": [
+      "flow",
+      "delight",
+      "participation"
+    ],
     "mechanical_gates_must_pass": true,
     "both_graders_required": true,
     "split_regrade": "Where one grader gives 3 and the other 4 or more, the lower grader re-grades that unit once and the second score stands.",
