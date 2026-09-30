@@ -43,6 +43,25 @@ def _numeric(rec):
     return {c: s["score"] for c, s in rec["scores"].items() if isinstance(s.get("score"), int)}
 
 
+def device_variety(ids, records):
+    """From one grader's device types: consecutive units that share a type, and the most common type's
+    share of the units with a device. A cross-check on the arc pass's variety score, not a gate."""
+    types = {}
+    for r in records:
+        t = (r["scores"].get("device") or {}).get("type")
+        if t and t != "none":
+            types[r["unit"]] = t
+    seq = [u for u in ids if u in types]
+    repeats = [[a, b] for a, b in zip(ids, ids[1:]) if a in types and types.get(b) == types[a]]
+    counts = {}
+    for u in seq:
+        counts[types[u]] = counts.get(types[u], 0) + 1
+    top = max(counts, key=counts.get) if counts else None
+    return {"types": {u: types[u] for u in seq}, "consecutive_repeats": repeats,
+            "dominant": top, "dominant_share": round(counts[top] / len(seq), 4) if top else None,
+            "dominates": bool(top) and counts[top] * 2 > len(seq)}
+
+
 def score(units_doc, records, regrades=None, mechanical=None, arc=None, round_n=1, history=(),
           rewritten=(), baseline_gap=None, rubric=None):
     rubric = rubric or json.loads((HERE / "rubric.json").read_text())
@@ -165,6 +184,7 @@ def score(units_doc, records, regrades=None, mechanical=None, arc=None, round_n=
             "bar": {"met": status == "met", "status": status, "mechanical_pass": mech_ok,
                     "arc_failing": arc_fail, "units_below": [u for u, v in units.items() if v["failing"]]},
             "regrade": regrade, "self_preference": self_pref,
+            "device_variety": {g: device_variety(ids, records.get(g, [])) for g in present},
             "stop": {"stop": reason is not None, "reason": reason}, "rewrite": rewrite}
 
 

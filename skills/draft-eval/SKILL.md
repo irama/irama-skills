@@ -39,9 +39,26 @@ report). Until then, score only: run one round with no rewrite.
   `extract.py` sets `planted: true` on the unit, the packet shows it, and `validate.py` requires
   `honest_numbers` to be N/A on it. Without the tag the loop may "fix" the trick.
 - **The `evidence` role** is for reference and evidence appendix slides. They skip `visual`,
-  `delight`, `concrete_first` and `guess_reveal`; `clear`, `earns_place` and `honest_numbers` still
+  `device` and `concrete_first`; `clear`, `economy`, `earns_place` and `honest_numbers` still
   apply. Set `data-role="evidence"`, or `extract.py` infers it from a slide id that starts with
   `evidence`, `references`, `provenance` or `sources`, or a class of the same name.
+
+### One device per unit (rubric 0.3)
+
+Each unit carries the base criteria plus ONE device, and the devices vary across the deck.
+
+- **`device`** scores the one trick or twist on the unit and names its `type`: `guess_reveal`,
+  `surprise`, `tease_payoff`, `callback`, `live_challenge`, `overturn` or `plain_rule`. A score of 1
+  or N/A has type `none`. Title and evidence units may be N/A. An exercise with no fixed answer
+  scores on its own device, usually a live challenge.
+- **`economy`** counts filler on the unit's visible text: meta-commentary, instructions on how to
+  read the slide, the "not X, but Y" pattern, lines added for completeness. `check.py` gates the
+  rubric's `filler_patterns` (for example "do not read", "on this slide") on slide text, never on notes.
+- **`notes_actionable`** (decks) asks that every instruction in the notes names the exact move and
+  defines what it refers to. N/A only on a unit with no notes.
+- **The arc's `variety`** scores whether the device types vary. `score_round.py` writes
+  `device_variety` per grader (consecutive units that share a type, and the most common type's
+  share) as a cross-check.
 
 The rubric's `changelog` says what each version changed and what it was fitted to.
 
@@ -117,8 +134,8 @@ The rubric's `changelog` says what each version changed and what it was fitted t
 
 ### The bar and the stop rules
 
-- **The bar**: every mechanical gate passes; the arc pass scores at least 4 on flow, delight and
-  participation from both graders; every applicable criterion on every unit scores at least 4
+- **The bar**: every mechanical gate passes; the arc pass scores at least 4 on flow, delight,
+  participation and variety from both graders; every applicable criterion on every unit scores at least 4
   from both graders.
 - **A unit's score** is the lower of the two graders' means. The round's **median** is the median
   unit score. Sums change when units change, so the loop compares medians only.

@@ -22,23 +22,27 @@ UNITS = {"kind": "deck", "units": [
 
 
 def record(uid, reasons):
-    return {"unit": uid, "scores": {c: {"score": 4, "reason": reasons.get(c, reasons["*"])} for c in CRITS}}
+    s = {c: {"score": 4, "reason": reasons.get(c, reasons["*"])} for c in CRITS}
+    s["device"]["type"] = "surprise"
+    return {"unit": uid, "scores": s}
 
 
 class PrevQuoteTest(unittest.TestCase):
-    """P1: a reason may quote the previous unit only for flow and guess_reveal, beside a unit quote."""
+    """P1: a reason may quote the previous unit only for flow and device, beside a unit quote."""
 
     def errs(self, reasons):
         raw = json.dumps({"model": "m", "records": [record("u1", {"*": 'Says "Robots learn slowly".'}),
                                                     record("u2", reasons)]})
         # these units hold no number, so honest_numbers must be N/A; that rule is tested elsewhere
-        return [e for e in validate.check(raw, UNITS, ["u1", "u2"], RUBRIC)[1] if "honest_numbers" not in e]
+        # nor notes, so notes_actionable must be N/A too
+        return [e for e in validate.check(raw, UNITS, ["u1", "u2"], RUBRIC)[1]
+                if "honest_numbers" not in e and "notes_actionable" not in e]
 
     def test_prev_quote_rules(self):
         unit = 'Says "the apprentices take over".'
         both = 'After "Robots learn slowly" it says "the apprentices take over".'
         prev_only = 'Says "Robots learn slowly".'
-        self.assertEqual(self.errs({"*": unit, "flow": both, "guess_reveal": both}), [])
+        self.assertEqual(self.errs({"*": unit, "flow": both, "device": both}), [])
         self.assertIn("u2 clear: the reason quotes the previous unit", self.errs({"*": unit, "clear": both}))
         self.assertIn("u2 flow: the reason quotes nothing from the unit", self.errs({"*": unit, "flow": prev_only}))
         self.assertIn("u2 clear: the reason quotes nothing from the unit", self.errs({"*": prev_only}))

@@ -12,7 +12,7 @@ RUBRIC = json.loads((HERE / "rubric.json").read_text())
 CRITS = [c["id"] for c in RUBRIC["criteria"]]
 UNITS = {"kind": "deck", "units": [{"id": i, "hidden": False} for i in "abcd"]}
 PASS_MECH = {"pass": True, "gates": {}, "floors": {"breaches": []}}
-ARC_OK = {g: {"scores": {c: {"score": 4, "reason": "r"} for c in ("flow", "delight", "participation")}}
+ARC_OK = {g: {"scores": {c: {"score": 4, "reason": "r"} for c in ("flow", "delight", "participation", "variety")}}
           for g in ("codex", "claude")}
 
 

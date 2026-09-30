@@ -21,10 +21,12 @@ def units(**extra):
 
 def records(text2):
     def rec(uid, quote):
-        return {"unit": uid, "scores": {c["id"]: {"score": 4, "reason": f'It says "{quote}".'}
-                                        for c in RUBRIC["criteria"]}}
+        s = {c["id"]: {"score": 4, "reason": f'It says "{quote}".'} for c in RUBRIC["criteria"]}
+        s["device"]["type"] = "surprise"
+        return {"unit": uid, "scores": s}
     r = [rec("u1", "Welcome to the session"), rec("u2", text2)]
     r[0]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'Only "Welcome to the session".'}
+    r[0]["scores"]["notes_actionable"] = {"score": "n/a", "reason": 'No notes: "Welcome to the session".'}
     return r
 
 
@@ -34,7 +36,7 @@ def errors(doc, recs):
 
 class Rubric02Test(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(RUBRIC["rubric_version"], "0.2")
+        self.assertIn(RUBRIC["rubric_version"], ("0.2", "0.3"))  # 0.3 keeps every 0.2 ruling tested here
 
     def test_planted_forces_na_on_honest_numbers(self):
         doc = units(text="A meta-analysis of 34 studies found 41 per cent", planted=True)
@@ -46,8 +48,9 @@ class Rubric02Test(unittest.TestCase):
     def test_evidence_role_allows_na_on_four_criteria_not_clear(self):
         doc = units(role="evidence", text="Sources: Smith 2024 and Jones 2025")
         recs = records("Sources: Smith 2024")
-        for cid in ("visual", "delight", "concrete_first", "guess_reveal"):
+        for cid in ("visual", "device", "concrete_first"):
             recs[1]["scores"][cid] = {"score": "n/a", "reason": 'A references slide: "Sources".'}
+        recs[1]["scores"]["device"]["type"] = "none"
         self.assertEqual(errors(doc, recs), [])
         recs[1]["scores"]["clear"] = {"score": "n/a", "reason": 'A references slide: "Sources".'}
         self.assertEqual(errors(doc, recs), ["u2 clear: N/A not allowed here"])
@@ -85,7 +88,7 @@ class Rubric02Test(unittest.TestCase):
 
 
     def test_short_label_quote_only_on_honest_numbers_na(self):
-        doc = units(text="Route D1: machine learning", notes="")
+        doc = units(text="Route D1: machine learning")
         recs = records("machine learning")
         recs[1]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'The only number is the label "D1".'}
         self.assertEqual(errors(doc, recs), [])
@@ -98,7 +101,7 @@ class Rubric02Test(unittest.TestCase):
         self.assertEqual(errors(doc, recs), ["u2 clear: the reason quotes nothing from the unit"])
 
     def test_short_label_quote_must_be_a_whole_token(self):
-        doc = units(text="Route D12: machine learning", notes="")
+        doc = units(text="Route D12: machine learning")
         recs = records("machine learning")
         recs[1]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'The only number is "D1".'}
         self.assertEqual(errors(doc, recs), ["u2 honest_numbers: the reason quotes nothing from the unit"])

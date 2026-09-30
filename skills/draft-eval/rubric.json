@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.2",
+  "rubric_version": "0.3",
   "phase": "experimental",
   "changelog": [
     {
@@ -9,6 +9,10 @@
     {
       "version": "0.2",
       "note": "Fitted to the 24 calibration units, so those units are not a fair test of it; the blind preference test is the hold-out. Session counts are not numbers for honest_numbers; a [planted] tag makes honest_numbers N/A; a concrete case must be one you can picture and may sit in the notes; evidence slides skip visual, delight, concrete_first and guess_reveal; a detail slide scores on what it adds to an overview; several findings behind one claim are one idea. Clear wording allows playful language, short punchy lines and images in words that have a reasonable reading; undefined jargon still counts against it."
+    },
+    {
+      "version": "0.3",
+      "note": "Fitted to the 24 calibration units and Andrew's round-two rulings, so those units are not a fair test of it; the blind preference test is the hold-out. Each unit now carries the base criteria plus one device: guess_reveal and delight are retired as per-unit criteria and replaced by device, which names the device type, and the arc gains variety, which checks that the types vary across the deck. New base criterion economy (no filler on the unit) with a short list of filler patterns check.py gates on slide text. New deck criterion notes_actionable (every instruction in the notes names the exact move and defines what it refers to). Flow gains a 4 anchor: a topic change the narrative supports. An exercise with no fixed answer is not a failed guess before reveal; it scores on its own device. The arc keeps flow, delight and participation; arc flow now accepts a supported topic change."
     }
   ],
   "scale": {
@@ -26,9 +30,9 @@
   ],
   "na_conditions": {
     "first_unit": "The unit is the first unit of the draft.",
-    "reveals_nothing": "The unit reveals no answer, result or conclusion.",
     "no_number": "The unit contains no number, or its only numbers describe the session or the draft itself: timings such as \"90 minutes\", positions such as \"Exercise 3 of 4\", counts of its own acts, parts, questions or clusters, and labels such as C1 to C9 or D1. A unit with digits may be N/A on this ground; the reason says the numbers describe the session.",
-    "planted": "The unit is marked planted: its speaker notes carry a [planted] tag because it holds a deliberately fabricated figure, planted as a teaching trick. It must be N/A."
+    "planted": "The unit is marked planted: its speaker notes carry a [planted] tag because it holds a deliberately fabricated figure, planted as a teaching trick. It must be N/A.",
+    "no_notes": "The unit has no speaker notes. It must be N/A."
   },
   "criteria": [
     {
@@ -82,6 +86,7 @@
       "anchors": {
         "1": "No visible link to the previous unit. The step needs the speaker, or the unit is out of order.",
         "3": "The link exists but the reader has to work it out, or it depends on a line only the speaker says.",
+        "4": "A change of topic that the narrative supports: the reader sees why the draft moves on, though the step is not the obvious next one.",
         "5": "A logic step from the previous unit to this one is obvious without the speaker."
       },
       "na_allowed": {
@@ -92,23 +97,32 @@
       }
     },
     {
-      "id": "delight",
-      "name": "Surprise and delight",
+      "id": "device",
+      "name": "One device",
       "kind": "judged",
       "applies_to": [
         "deck",
         "article"
       ],
-      "question": "Is this unit part of a journey that involves, teases or tricks the audience, without giving away an answer before its moment?",
+      "question": "Besides the base criteria, does the unit carry exactly one device, a trick or twist that involves the audience, without giving an answer away before its moment? Name the device type.",
       "anchors": {
-        "1": "A preview that gives away an answer before its moment, or a flat statement with nothing for the audience to do or feel. A recurring character appears as decoration.",
-        "3": "Some tension or involvement, but the payoff is predictable, or a small spoiler lands early.",
-        "5": "A journey, not a preview. A map of the session's shape is fine; giving away an answer before its moment is not, except a tagged hook paid off later. The audience is involved, teased or tricked. A recurring character returns as a callback where it helps, never as decoration."
+        "1": "No device: a flat statement with nothing for the audience to predict, do or feel, or a preview that gives an answer away before its moment. A recurring character used as decoration is not a device.",
+        "3": "A device is present but weak (a predictable payoff, a small spoiler), or two devices compete for the same unit.",
+        "5": "One clear device carries the unit. A surprising, insightful rule stated plainly counts. An exercise with no fixed answer is not a failed guess before reveal: it scores on its own device, usually a live challenge."
+      },
+      "types": {
+        "guess_reveal": "Guess before reveal: the audience predicts before the answer lands, judged on this unit with the one before. A prediction that is possible but not invited, or a previous unit that half gives the answer away, is weak.",
+        "surprise": "A surprise: the audience is teased or tricked, and the unit is part of a journey rather than a preview. A map of the session's shape is fine; giving an answer away before its moment is not.",
+        "tease_payoff": "A tease paid off later: a tagged hook ([hook:x]) that a later unit pays off ([payoff:x]), or the payoff of an earlier hook.",
+        "callback": "A callback: an earlier idea or a recurring character returns where it helps, never as decoration.",
+        "live_challenge": "A live challenge: the audience does something now, such as placing their own work, answering out loud or arguing a case.",
+        "overturn": "An insight that overturns an assumption the audience holds.",
+        "plain_rule": "A surprising, insightful rule stated plainly.",
+        "none": "No device. Use it with a score of 1 and with N/A."
       },
       "na_allowed": {
         "roles": [
           "title",
-          "divider",
           "evidence"
         ],
         "conditions": []
@@ -158,25 +172,22 @@
       }
     },
     {
-      "id": "guess_reveal",
-      "name": "Guess before reveal",
+      "id": "economy",
+      "name": "Economy",
       "kind": "judged",
       "applies_to": [
-        "deck"
+        "deck",
+        "article"
       ],
-      "question": "Judged on this slide with the one before it, does the audience get to predict before the answer lands?",
+      "question": "Does every word, sentence and element on the unit serve its core message? Judge the slide's visible text and elements, or the article text; speaker notes are not judged here. A piece of filler is one sentence, phrase or element that does not serve the core message: meta-commentary that counts or describes what is visible (\"nine rules on the page\", \"all nine\"), an instruction on how to consume the unit (\"Do not read all nine out\"), the \"not X, but Y\" or \"it's this, not that\" pattern, or a line added for completeness rather than meaning.",
       "anchors": {
-        "1": "The answer lands with no chance to predict it.",
-        "3": "A prediction is possible but not invited, or the previous slide half gives the answer away.",
-        "5": "The audience predicts before the answer lands, judged on this slide with the one before."
+        "1": "Two or more pieces of filler.",
+        "3": "One piece of filler.",
+        "5": "No filler: cutting any word, sentence or element would weaken the core message."
       },
       "na_allowed": {
-        "roles": [
-          "evidence"
-        ],
-        "conditions": [
-          "reveals_nothing"
-        ]
+        "roles": [],
+        "conditions": []
       }
     },
     {
@@ -219,6 +230,26 @@
           "planted"
         ]
       }
+    },
+    {
+      "id": "notes_actionable",
+      "name": "Actionable notes",
+      "kind": "judged",
+      "applies_to": [
+        "deck"
+      ],
+      "question": "Does every instruction in the speaker notes name the exact move and define what it refers to? \"Ask them for the forbidden list out loud\" fails, because the notes never say which list; \"Ask the room for an agentic opportunity, then ask what is forbidden in that example\" passes. Notes with no instruction score on whether every reference they make is defined.",
+      "anchors": {
+        "1": "Two or more instructions a presenter could not carry out as written: the move is vague, or it refers to something the notes never define.",
+        "3": "One instruction is vague or refers to something undefined; the rest name the exact move.",
+        "5": "Every instruction names the exact move and defines what it refers to."
+      },
+      "na_allowed": {
+        "roles": [],
+        "conditions": [
+          "no_notes"
+        ]
+      }
     }
   ],
   "arc": {
@@ -230,7 +261,7 @@
       {
         "id": "flow",
         "name": "Flow",
-        "question": "Does each unit follow from the one before, across the whole draft?"
+        "question": "Does each unit follow from the one before, across the whole draft? A change of topic that the narrative supports counts as following."
       },
       {
         "id": "delight",
@@ -245,6 +276,16 @@
           "1": "Long stretches with nothing for the audience to do, against the run sheet's own windows.",
           "3": "Involvement exists but clusters, leaving at least one act window passive.",
           "5": "Every act window involves the audience, at the timings the run sheet sets."
+        }
+      },
+      {
+        "id": "variety",
+        "name": "Device variety",
+        "question": "Do the devices vary across the deck? Name each unit's device type (guess before reveal, surprise, tease paid off later, callback, live challenge, insight that overturns an assumption, surprising rule stated plainly).",
+        "anchors": {
+          "1": "One device type dominates the deck, or the same type repeats on consecutive units throughout.",
+          "3": "Mostly varied, but the same type sits on two consecutive units, or one type covers more than half the units with a device.",
+          "5": "The types vary: no two consecutive units share a type and no type covers more than half the units with a device."
         }
       }
     ],
@@ -303,7 +344,8 @@
     "arc_criteria": [
       "flow",
       "delight",
-      "participation"
+      "participation",
+      "variety"
     ],
     "mechanical_gates_must_pass": true,
     "both_graders_required": true,
@@ -311,5 +353,27 @@
     "max_rounds": 5,
     "plateau_rounds": 2,
     "max_rewrites_per_round": 8
-  }
+  },
+  "filler_patterns": [
+    {
+      "pattern": "\\bdo not read\\b",
+      "why": "An instruction on how to consume the slide."
+    },
+    {
+      "pattern": "\\bdon[’']?t read\\b",
+      "why": "An instruction on how to consume the slide."
+    },
+    {
+      "pattern": "\\bon this slide\\b",
+      "why": "Meta-commentary about the slide."
+    },
+    {
+      "pattern": "\\bon the page\\b",
+      "why": "Meta-commentary about what is visible."
+    },
+    {
+      "pattern": "\\bread them together\\b",
+      "why": "An instruction on how to consume the slide."
+    }
+  ]
 }

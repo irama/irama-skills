@@ -5,7 +5,8 @@
 
 Gates: ?audit reports every slide clean; no em dash and no banned term (rubric
 banned_terms) in any unit's text or notes; every [hook:x] has a later
-[payoff:x]; every `content` unit has an img, svg, canvas or figure.
+[payoff:x]; no filler pattern (rubric filler_patterns) in any unit's visible
+text, notes excluded; every `content` unit has an img, svg, canvas or figure.
 Floors (no worse than round 0): words on screen and minimum font size, both
 from ?export. Warnings: two adjacent units with the same layout; Flesch reading
 ease below round 0. Hidden units are skipped, except that ?audit covers the
@@ -40,6 +41,18 @@ def banned_hits(units, banned):
             found = b["term"] in blob if b["case_sensitive"] else b["term"].lower() in blob.lower()
             if found:
                 hits.append({"id": u["id"], "term": b["term"]})
+    return hits
+
+
+def filler_hits(units, patterns):
+    """Filler patterns in a unit's visible text. Notes are exempt: "do not read the axes as
+    precise" is a fair thing to tell the presenter."""
+    hits = []
+    for u in units:
+        for f in patterns:
+            m = re.search(f["pattern"], u.get("text", ""), re.I)
+            if m:
+                hits.append({"id": u["id"], "term": m.group(0)})
     return hits
 
 
@@ -190,11 +203,13 @@ def run(index, units_path, floors_path=None, baseline=False):
     floors = json.loads(floors_path.read_text()) if floors_path.exists() else None
 
     hits = banned_hits(units, rubric["banned_terms"])
+    filler = filler_hits(units, rubric.get("filler_patterns", []))
     unpaid = unpaid_hooks(units)
     missing = missing_visual(units, visual_tags(html))
     gates = {
         "audit": audit(index),
         "banned": {"pass": not hits, "hits": hits},
+        "filler": {"pass": not filler, "hits": filler},
         "hook_payoff": {"pass": not unpaid, "unpaid": unpaid},
         "visual": {"pass": not missing, "missing": missing},
     }

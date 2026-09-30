@@ -48,7 +48,10 @@ def render_criteria(rubric, kind):
         allowed = [f"role {r}" for r in na["roles"]]
         allowed += [rubric["na_conditions"][k] for k in na["conditions"]]
         out.append(f"### `{c['id']}`: {c['name']}\n\n{c['question']}\n")
-        out += [f"- {k}: {c['anchors'][k]}" for k in ("1", "3", "5")]
+        out += [f"- {k}: {c['anchors'][k]}" for k in sorted(c["anchors"])]
+        if c.get("types"):
+            out.append("- Device types, named in the `type` field:")
+            out += [f"  - `{t}`: {d}" for t, d in c["types"].items()]
         out.append(f"- N/A allowed: {'; or '.join(allowed) if allowed else 'never'}\n")
     return "\n".join(out)
 
@@ -60,6 +63,10 @@ def load_examples(path, rubric):
         if not line.strip():
             continue
         e = json.loads(line)
+        if isinstance(e.get("criterion"), str) and e["criterion"] not in crits:
+            # a ruling on a criterion this rubric retired (guess_reveal, delight in 0.3) stays in the file
+            print(f"packet.py: {path} line {n}: skipped, {e['criterion']} is not in this rubric", file=sys.stderr)
+            continue
         ok = (e.get("criterion") in crits and isinstance(e.get("excerpt"), str) and isinstance(e.get("reason"), str)
               and (e.get("score") == "n/a" or (type(e.get("score")) is int and 1 <= e["score"] <= 5)))
         if not ok:

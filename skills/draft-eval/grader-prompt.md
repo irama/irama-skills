@@ -21,7 +21,7 @@ The working directory holds one folder per unit, named `<nn>-<unit id>`. Each fo
   unit of the draft has none.
 
 **The `context/` folder is not the unit.** It is the unit before, shown only so you can judge `flow`
-and `guess_reveal`. Never score it and never quote it as the unit. When two neighbouring units share
+and `device` (a guess before a reveal is judged with the unit before). Never score it and never quote it as the unit. When two neighbouring units share
 this batch, one unit's `context/prev.txt` is the text of the folder before it, so check which folder
 you are in before you quote.
 
@@ -29,7 +29,7 @@ An article batch also holds `references.md`, the article's references section. A
 there counts as sourced for `honest_numbers`.
 
 Work through the unit folders in order. For each one, read `text.txt` and `notes.txt`, look at
-`slide.png`, and read `context/` only for `flow` and `guess_reveal`.
+`slide.png`, and read `context/` only for `flow` and `device`.
 
 ## The units in this batch
 
@@ -60,6 +60,8 @@ between the 3 and 5 anchors.
   for `honest_numbers`, whatever its numbers look like.
 - Ordinals ("first", "second"), the word "one" and vague amounts ("years", "most", "millions of")
   are not numbers. A unit whose only such words are these is N/A for `honest_numbers`.
+- A deck unit with no `notes.txt` is N/A for `notes_actionable`. A unit with notes must be scored on it.
+- `economy` judges the visible text and elements only, never the notes.
 - A criterion that does not apply to a {{KIND}} (it is not listed above) is `null`.
 
 ## Reasons
@@ -67,7 +69,7 @@ between the 3 and 5 anchors.
 Every reason is one sentence that quotes the unit, word for word, inside double quotes. The quote
 comes from that unit's `text.txt` or `notes.txt`, never paraphrased. A reason with no exact quote
 from the unit is rejected. A reason may also quote `context/prev.txt` only for `flow` and
-`guess_reveal`, and only beside a quote from the unit. A quote from `context/` anywhere else is
+`device`, and only beside a quote from the unit. A quote from `context/` anywhere else is
 rejected. For a unit whose text and notes are both empty, describe
 the screenshot instead.
 
@@ -92,6 +94,9 @@ Return one JSON object and nothing else:
 
 - One record per unit in the batch, each unit exactly once, with its unit id (not the folder name),
   in unit-folder order.
-- `scores` holds every criterion id: `visual`, `clear`, `flow`, `delight`, `one_idea`,
-  `concrete_first`, `guess_reveal`, `earns_place`, `honest_numbers`.
+- `scores` holds every criterion id: `visual`, `clear`, `flow`, `device`, `one_idea`,
+  `concrete_first`, `economy`, `earns_place`, `honest_numbers`, `notes_actionable`.
+- `device` also holds `type`, one of the device types listed under `device`:
+  `{"score": 5, "type": "live_challenge", "reason": "..."}`. A score of 1 or `"n/a"` has type
+  `"none"`; any other score names the one device that carries the unit.
 - `score` is an integer from 1 to 5, or the string `"n/a"`.

@@ -109,13 +109,13 @@ class BuildTest(unittest.TestCase):
             data = calibrate.page_data(out)
             self.assertEqual(len(data["units"]), 8)
             deck_crits = {c["id"] for c in data["units"][0]["criteria"]}
-            self.assertEqual(len(deck_crits), 9)
+            self.assertEqual(len(deck_crits), 10)
             art_unit = [u for u in data["units"] if u["set"] == "art-y"][0]
             self.assertNotIn("visual", {c["id"] for c in art_unit["criteria"]})
             first = data["units"][0]
             na = {c["id"]: c["na"] for c in first["criteria"]}
             self.assertTrue(na["flow"])      # the draft's first unit
-            self.assertTrue(na["delight"])   # title role
+            self.assertTrue(na["device"])    # title role
             self.assertFalse(na["clear"])
             self.assertTrue(na["honest_numbers"])  # a number may describe the session (rubric 0.2)
 
@@ -126,4 +126,5 @@ class BuildTest(unittest.TestCase):
         by = {c["id"]: c for c in crits}
         self.assertTrue(by["honest_numbers"]["forced"] and by["honest_numbers"]["na"])
         self.assertFalse(by["clear"]["na"])
-        self.assertTrue(by["guess_reveal"]["na"])  # reveals_nothing is always allowed
+        self.assertTrue(by["notes_actionable"]["forced"])  # no speaker notes (rubric 0.3)
+        self.assertFalse(by["device"]["na"])  # a content unit must carry a device

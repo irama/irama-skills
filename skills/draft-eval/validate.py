@@ -9,7 +9,8 @@ Strips a code fence, parses the JSON, checks it against schema.json, then
 rejects: a unit missing from the batch or repeated, a missing criterion, a
 score out of range, N/A outside the rubric's allowed cases, a reason with
 no double-quoted text taken from the unit's text or notes, and a reason that
-quotes the previous unit on any criterion but flow and guess_reveal.
+quotes the previous unit on any criterion but flow and device. The device entry
+also names its type: "none" with a score of 1 or N/A, a real type otherwise.
 
 On success, appends one record per unit in the spec's shape, stamped with the
 grader, the full model id, rubric_version, round, prompt_sha256 (of
@@ -142,8 +143,9 @@ def na_allowed(crit, unit, first, has_number, rubric):
     conds = na["conditions"]
     # no_number is allowed even with digits present: numbers that only describe the session
     # ("90 minutes", "Exercise 3 of 4", C1 to C9) are the grader's call (rubric 0.2).
-    return (("first_unit" in conds and first) or ("reveals_nothing" in conds) or ("no_number" in conds)
-            or ("planted" in conds and bool(unit.get("planted"))))
+    return (("first_unit" in conds and first) or ("no_number" in conds)
+            or ("planted" in conds and bool(unit.get("planted")))
+            or ("no_notes" in conds and not unit.get("notes", "").strip()))
 
 
 def na_forced(crit, unit, has_number):
@@ -153,11 +155,13 @@ def na_forced(crit, unit, has_number):
         return "the unit is marked planted"
     if "no_number" in conds and not has_number:
         return "the unit has no number"
+    if "no_notes" in conds and not unit.get("notes", "").strip():
+        return "the unit has no speaker notes"
     return None
 
 
 # criteria judged against the previous unit: only these may also quote it
-PREV_OK = ("flow", "guess_reveal")
+PREV_OK = ("flow", "device")
 
 
 def check_record(rec, unit, first, kind, rubric, prev=None):
@@ -177,6 +181,12 @@ def check_record(rec, unit, first, kind, rubric, prev=None):
         forced = na_forced(c, unit, has_number)
         if score != "n/a" and forced:
             errs.append(f"{uid} {cid}: {forced}, so it must be N/A")
+        if cid == "device":
+            none = score == "n/a" or score == 1
+            if none and entry.get("type") != "none":
+                errs.append(f"{uid} device: a score of 1 or N/A has type none")
+            elif not none and entry.get("type") == "none":
+                errs.append(f"{uid} device: a score above 1 names its device type")
         if not quotes_unit(entry["reason"], unit, short_ok=(cid == "honest_numbers" and score == "n/a")):
             errs.append(f"{uid} {cid}: the reason quotes nothing from the unit")
         elif cid not in PREV_OK and "prev" in quote_sources(entry["reason"], unit, prev):
@@ -230,14 +240,17 @@ def selftest():
     rubric = json.loads((HERE / "rubric.json").read_text())
 
     def rec(uid, quote):
-        return {"unit": uid, "scores": {c["id"]: {"score": 4, "reason": f'It says "{quote}".'}
-                                        for c in rubric["criteria"]}}
+        s = {c["id"]: {"score": 4, "reason": f'It says "{quote}".'} for c in rubric["criteria"]}
+        s["device"]["type"] = "surprise"
+        return {"unit": uid, "scores": s}
     good = [rec("a", "Welcome to the session"), rec("b", "Nine in ten")]
     good[0]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'Only "Welcome to the session".'}
+    good[0]["scores"]["notes_actionable"] = {"score": "n/a", "reason": 'No notes: "Welcome to the session".'}
     ok, errs = check(json.dumps({"model": "m", "records": good}), units, ["a", "b"], rubric)
     assert not errs and len(ok) == 2, errs
     bad = [rec("a", "Welcome to the session"), rec("b", "Nine in ten")]
     bad[0]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'Only "Welcome to the session".'}
+    bad[0]["scores"]["notes_actionable"] = {"score": "n/a", "reason": 'No notes: "Welcome to the session".'}
     bad[1]["scores"]["visual"] = {"score": "n/a", "reason": "No picture on it."}
     ok, errs = check("```json\n" + json.dumps({"model": "m", "records": bad}) + "\n```", units, ["a", "b"], rubric)
     assert ok == [] and "b visual: N/A not allowed here" in errs \

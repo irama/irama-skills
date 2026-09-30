@@ -17,7 +17,8 @@
    "required": [
     "flow",
     "delight",
-    "participation"
+    "participation",
+    "variety"
    ],
    "properties": {
     "flow": {
@@ -69,6 +70,30 @@
      }
     },
     "participation": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "score",
+      "reason"
+     ],
+     "properties": {
+      "score": {
+       "type": "integer",
+       "enum": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "variety": {
      "type": "object",
      "additionalProperties": false,
      "required": [

@@ -25,6 +25,7 @@ def good_record(uid, text):
     scores = {}
     for c in RUBRIC["criteria"]:
         scores[c["id"]] = {"score": 4, "reason": f"The unit says {quote}."}
+    scores["device"]["type"] = "surprise"
     return {"unit": uid, "scores": scores}
 
 
@@ -94,7 +95,7 @@ class ValidateTest(unittest.TestCase):
         s["visual"] = {"score": "n/a", "reason": 'It says "the cat sat".'}
         s["honest_numbers"] = {"score": "n/a", "reason": 'It says "the cat sat".'}
         self.records[0]["scores"]["flow"] = {"score": "n/a", "reason": 'It says "the cat sat".'}
-        self.records[0]["scores"]["delight"] = {"score": "n/a", "reason": 'It says "the cat sat".'}
+        self.records[0]["scores"]["device"] = {"score": "n/a", "type": "none", "reason": 'It says "the cat sat".'}
         errs = self.errors(json.dumps({"model": "m", "records": self.records}))
         # visual never allows N/A; u2's digit may describe the session, so honest_numbers N/A is the grader's call
         self.assertEqual(sorted(e.split(":")[0] for e in errs), ["u2 visual"])
@@ -135,7 +136,7 @@ class ValidateTest(unittest.TestCase):
         art = {"kind": "article", "units": [{"id": "s0-p1", "text": "A plain opening line here", "notes": ""}]}
         rec = good_record("s0-p1", "A plain opening line here")
         rec["scores"]["visual"] = None
-        rec["scores"]["guess_reveal"] = None
+        rec["scores"]["notes_actionable"] = None
         rec["scores"]["flow"] = {"score": "n/a", "reason": 'It opens "A plain opening".'}
         rec["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'It opens "A plain opening".'}
         records, errs = validate.check(json.dumps({"model": "m", "records": [rec]}), art, ["s0-p1"], RUBRIC)

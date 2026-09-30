@@ -41,7 +41,8 @@ Return one JSON object and nothing else:
       "scores": {
         "flow": {"score": 1, "reason": "..."},
         "delight": {"score": 1, "reason": "..."},
-        "participation": {"score": 1, "reason": "..."}
+        "participation": {"score": 1, "reason": "..."},
+        "variety": {"score": 1, "reason": "..."}
       }
     }
 
