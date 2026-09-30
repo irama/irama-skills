@@ -18,6 +18,7 @@ are dropped. Exit 0 on success, 1 with the errors on stderr.
 """
 import argparse
 import hashlib
+import html
 import json
 import re
 import sys
@@ -74,10 +75,18 @@ def schema_errors(value, schema, path="$"):
     return errs
 
 
+def _unescape(s):
+    # notes can carry entities, sometimes escaped twice ("&amp;rsquo;"): decode until stable
+    while (u := html.unescape(s)) != s:
+        s = u
+    return s
+
+
 def _norm(s):
     # Graders swap quote marks when they nest a quote and drop markdown emphasis.
     # Deck text can lose the space between sentences ("fill.That"), so a space is
     # restored only after sentence punctuation; other word boundaries still count.
+    s = _unescape(s)
     for ch in "’‘“”\"":
         s = s.replace(ch, "'")
     s = s.replace("*", "").replace("`", "")

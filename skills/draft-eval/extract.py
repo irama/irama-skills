@@ -22,6 +22,7 @@ split at paragraph boundaries into parts of at most 400 words. A top-level
 returned as `references` and never scored. Ids are s<section>-p<part>.
 """
 import argparse
+import html
 import json
 import re
 import subprocess
@@ -66,7 +67,14 @@ def _notes(html):
     if not m:
         return []
     raw = json.loads(m.group(1))
-    return [n["note"] if isinstance(n, dict) else n for n in raw]
+    return [_unescape(n["note"] if isinstance(n, dict) else n) for n in raw]
+
+
+def _unescape(s):
+    # the notes JSON sits raw in a <script>, so entities survive, sometimes escaped twice
+    while (u := html.unescape(s)) != s:
+        s = u
+    return s
 
 
 # reference and evidence appendix slides: checked, not presented (rubric 0.2)

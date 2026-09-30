@@ -48,6 +48,17 @@ class PrevQuoteTest(unittest.TestCase):
         self.assertTrue(validate.quotes_unit('Asks "Should we do AI to it?" plainly.', unit))
         self.assertFalse(validate.quotes_unit('Says "therapist" here.', {"text": "The rapist was caught"}))
 
+    def test_entities_decode_on_both_sides(self):
+        # A4 notes kept "&amp;rsquo;": an accurate quote with an apostrophe must still match
+        unit = {"text": "Slide", "notes": "that person&amp;rsquo;s capacity sets the ceiling"}
+        self.assertTrue(validate.quotes_unit('Notes say "that person’s capacity sets the ceiling".', unit))
+        self.assertTrue(validate.quotes_unit('Notes say "that person&rsquo;s capacity".', unit))
+
+    def test_extract_decodes_double_escaped_notes(self):
+        import extract
+        page = '<script id="speaker-notes" type="application/json">["that person&amp;rsquo;s turn"]</script>'
+        self.assertEqual(extract._notes(page), ["that person’s turn"])
+
     def test_previous_unit_sits_in_context_folder(self):
         with tempfile.TemporaryDirectory() as d:
             b = packet.build({"kind": "article", "units": UNITS["units"]}, Path(d))[0]
