@@ -123,7 +123,10 @@ def quote_sources(reason, unit, prev=None, short_ok=False):
         if not parts:
             continue
         if len("".join(parts)) < 4:
-            if short_ok and len(parts) == 1 and re.search(r"(?<!\w)" + re.escape(parts[0]) + r"(?!\w)", source):
+            # a label ending in a digit may run into the next block's word ("D1Machine learning"),
+            # so only a digit may follow it; "D1" still never matches "D12"
+            end = r"(?![0-9_])" if parts[0][-1].isdigit() else r"(?!\w)"
+            if short_ok and len(parts) == 1 and re.search(r"(?<!\w)" + re.escape(parts[0]) + end, source):
                 out.append("unit")
             continue
         out.append("unit" if _found(parts, source) else "prev" if before and _found(parts, before) else "other")

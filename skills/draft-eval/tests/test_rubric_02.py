@@ -100,6 +100,12 @@ class Rubric02Test(unittest.TestCase):
         recs[1]["scores"]["clear"] = {"score": 4, "reason": 'The label "D1" reads plainly.'}
         self.assertEqual(errors(doc, recs), ["u2 clear: the reason quotes nothing from the unit"])
 
+    def test_short_label_quote_survives_a_lost_block_space(self):
+        doc = units(text="What AI is now Machine learning D1Machine learning")
+        recs = records("machine learning")
+        recs[1]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'The only number is the label "D1".'}
+        self.assertEqual(errors(doc, recs), [])
+
     def test_short_label_quote_must_be_a_whole_token(self):
         doc = units(text="Route D12: machine learning")
         recs = records("machine learning")
