@@ -10,6 +10,13 @@ data-state-primary (else the first) is the slide scored. A <section> is not a
 slide. Speaker notes are index-aligned with PHYSICAL sections, hidden ones
 included, so a unit's note is the note at its primary_index.
 
+Terms (rubric 0.4.1): a hidden section with data-role="terms" holds the deck's
+glossary as <dt>term</dt><dd>definition</dd> pairs. It becomes the doc's `terms`
+list and a hidden unit that is never graded. A visible slide that introduces a
+term carries data-introduces="term" (several terms separated by commas); each
+term records the id and ordinal of the first such slide as introduced_by and
+introduced_at, or null when no slide introduces it.
+
 hash_index is primary_index + 1. The runtime (deck-stage.js _collectSlides and
 _restoreIndex) counts EVERY slotted <section> for its 1-based #N: hidden
 sections and animation states each take a number, so #N is the physical
@@ -38,25 +45,33 @@ class _Sections(HTMLParser):
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.sections, self.depth, self.skip = [], 0, 0
+        self.sections, self.depth, self.skip, self.dl = [], 0, 0, None
 
     def handle_starttag(self, tag, attrs):
         if tag == "section":
             if self.depth == 0:
-                self.sections.append({"attrs": dict(attrs), "text": []})
+                self.sections.append({"attrs": dict(attrs), "text": [], "dl": []})
             self.depth += 1
         elif tag in ("style", "script") and self.depth:
             self.skip += 1
+        elif tag in ("dt", "dd") and self.depth:
+            # glossary entries, read only from the terms section
+            self.dl = [tag, []]
+            self.sections[-1]["dl"].append(self.dl)
 
     def handle_endtag(self, tag):
         if tag == "section" and self.depth:
             self.depth -= 1
         elif tag in ("style", "script") and self.skip:
             self.skip -= 1
+        elif tag in ("dt", "dd"):
+            self.dl = None
 
     def handle_data(self, data):
         if self.depth and not self.skip:
             self.sections[-1]["text"].append(data)
+            if self.dl:
+                self.dl[1].append(data)
 
 
 PLANTED = "[planted]"  # in a slide's speaker notes: a deliberate fake, honest_numbers is N/A
@@ -100,6 +115,25 @@ def _role(attrs, sid, cls, note, ordinal):
     return role, True
 
 
+def _terms(secs, units):
+    """The glossary from the terms section, each term with the first visible slide that introduces it."""
+    terms = []
+    for s in secs:
+        if s["attrs"].get("data-role") != "terms":
+            continue
+        for tag, text in s["dl"]:
+            text = " ".join("".join(text).split())
+            if tag == "dt":
+                terms.append({"term": text, "definition": ""})
+            elif terms:
+                terms[-1]["definition"] = text
+    for t in terms:
+        first = next((u for u in units if not u["hidden"] and t["term"].lower() in
+                      [x.lower() for x in u["introduces"]]), None)
+        t["introduced_by"], t["introduced_at"] = (first["id"], first["ordinal"]) if first else (None, None)
+    return terms
+
+
 def extract_deck(html):
     parser = _Sections()
     parser.feed(html.split("<deck-stage", 1)[-1])
@@ -126,16 +160,18 @@ def extract_deck(html):
             "section_indices": idx,
             "primary_index": primary,
             "hash_index": primary + 1,  # every section counts, see the docstring
-            "hidden": "data-hidden-src" in a or "hidden" in a,
+            "hidden": "data-hidden-src" in a or "hidden" in a or role == "terms",
             "role": role,
             "role_inferred": inferred,
             "layout": a.get("data-layout") or cls,
             "text": " ".join("".join(secs[primary]["text"]).split()),
             "notes": note,
             "planted": PLANTED in note,
+            "introduces": [x.strip() for x in a.get("data-introduces", "").split(",") if x.strip()],
         })
     return {
         "kind": "deck",
+        "terms": _terms(secs, units),
         "counts": {"sections": len(secs), "notes": len(notes), "units": len(units),
                    "hidden": sum(u["hidden"] for u in units)},
         "units": units,

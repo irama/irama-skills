@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.4",
+  "rubric_version": "0.4.1",
   "phase": "experimental",
   "changelog": [
     {
@@ -21,6 +21,10 @@
     {
       "version": "0.4",
       "note": "Fitted to the 17 notes from the A4 blind preference test, where both graders scored clear and visual 4 or 5 on slides the reader faulted, so those slides are not a fair test of it. Clear becomes a cold-reader test: the grader first writes the point a first-time audience member would take and lists every word, name, label, title or question that person would have to guess at; 5 needs an empty list and a title that states the point, one guess caps it at 3, two or more give 1. Visual judges whether the visual works: every colour, position, order and grouping must mean something the slide or its notes make clear, and the visual must be complete; an unexplained colour, a broken encoding, an incomplete visual, a decorative mascot or an unclear metaphor caps it at 3. Economy: a text-heavy slide whose narrative could live in the speaker notes scores at most 3, and a list longer than the idea needs counts as filler. prefer_rulings.py turns every preference test's notes into rulings."
+    },
+    {
+      "version": "0.4.1",
+      "note": "Fitted to Andrew's fair-or-harsh calls on 8 slides from the A4 deck that he did not flag in the preference test and Claude marked down under 0.4 (7 fair or partly fair, 1 harsh), so those slides are not a fair test of it. Clear: loaded wording such as \"kill\" is a guess only when its object is not clear on the slide, nearby or before it; a term the deck's hidden terms slide defines is not a guess from the slide that introduces it onwards, and still is before it. Arc gains terms_introduced (every non-plain term is introduced visually, with a metaphor or example, before its first use) and taxonomy_ids (an id such as D1 uses a letter that means something and is reused wherever its item appears). Visual: findings and recommendations on one slide need visibly different treatment; mixing them caps visual at 3. Codex no longer sets the bar: Claude does, and Codex audits each round's rewritten units for self-preference."
     }
   ],
   "scale": {
@@ -50,11 +54,11 @@
       "applies_to": [
         "deck"
       ],
-      "question": "Does the visual work: does a chart, infographic, cartoon or shape carry the idea, does every colour, position, order and grouping in it mean something the slide or its notes make clear, is it complete, and does the slide look different from the one before it?",
+      "question": "Does the visual work: does a chart, infographic, cartoon or shape carry the idea, does every colour, position, order and grouping in it mean something the slide or its notes make clear, is it complete, do findings and recommendations look different, and does the slide look different from the one before it?",
       "anchors": {
         "1": "Text only, or the only image is a logo or a small icon. The slide looks the same as the one before it.",
-        "3": "A visual is present but does not fully work. Any one of these caps visual at 3: it decorates the words rather than carrying the idea; a colour difference the slide and notes never explain (two regions coloured red among neutral ones, with no reason given); a broken encoding (a funnel whose stages do not narrow, an arrow where a tick is meant); an incomplete visual (part of a ladder, list or diagram the idea needs is cut off or missing, such as three of four rungs); items that belong together not grouped visibly; a recurring character or mascot used as decoration; an image whose metaphor is unclear or does not fit the slide; or the slide repeats the previous slide's look.",
-        "5": "A chart, infographic, cartoon or shape carries the idea, every colour, position, order and grouping means something the slide or its notes make clear, nothing the idea needs is cut off or missing, items that belong together are grouped visibly, and the slide looks different from the one before it. A logo or a small icon does not count. A mascot counts only when it acts out the slide's idea and its metaphor is clear."
+        "3": "A visual is present but does not fully work. Any one of these caps visual at 3: it decorates the words rather than carrying the idea; a colour difference the slide and notes never explain (two regions coloured red among neutral ones, with no reason given); a broken encoding (a funnel whose stages do not narrow, an arrow where a tick is meant); an incomplete visual (part of a ladder, list or diagram the idea needs is cut off or missing, such as three of four rungs); items that belong together not grouped visibly; a recurring character or mascot used as decoration; an image whose metaphor is unclear or does not fit the slide; findings and recommendations on one slide with the same visual treatment, so a recommendation reads as a finding; or the slide repeats the previous slide's look.",
+        "5": "A chart, infographic, cartoon or shape carries the idea, every colour, position, order and grouping means something the slide or its notes make clear, nothing the idea needs is cut off or missing, items that belong together are grouped visibly, findings and recommendations on one slide look visibly different, and the slide looks different from the one before it. A logo or a small icon does not count. A mascot counts only when it acts out the slide's idea and its metaphor is clear."
       },
       "na_allowed": {
         "roles": [
@@ -71,10 +75,10 @@
         "deck",
         "article"
       ],
-      "question": "Would a first-time audience member take the slide's point without guessing? Before scoring, write in \"point\" the one sentence that person would take from the unit, and list in \"guesses\" every word, name, label, title or question they would have to guess at: a step name that does not say what the step is, a subtitle whose purpose is unclear, a question the audience cannot parse, quadrant or axis labels the unit never explains, an ordering label that does not fit the order, undefined jargon. Playful language, a short punchy line or an image in words is not a guess when it has a reasonable reading.",
+      "question": "Would a first-time audience member take the slide's point without guessing? Before scoring, write in \"point\" the one sentence that person would take from the unit, and list in \"guesses\" every word, name, label, title or question they would have to guess at: a step name that does not say what the step is, a subtitle whose purpose is unclear, a question the audience cannot parse, quadrant or axis labels the unit never explains, an ordering label that does not fit the order, undefined jargon. A term the deck's terms slide defines is not a guess on the slide that introduces it or any slide after; used before that slide, it still is. Playful language, a short punchy line or an image in words is not a guess when it has a reasonable reading.",
       "anchors": {
         "1": "Two or more guesses, or the point cannot be paraphrased (\"point\" is empty).",
-        "3": "Exactly one guess. Violent wording about an idea, such as \"kill\" or \"die\", counts as one guess: it reads as violent or about people, so say what happens to the idea (it stops, it is dropped).",
+        "3": "Exactly one guess. Violent or loaded wording, such as \"kill\" or \"die\", counts as one guess only when its object is not clear on the same slide, a neighbour or an earlier slide; \"kill the idea\" right after the slide names the idea is fine.",
         "5": "No guesses, and the title states the point plainly. Playful language, a short punchy line or an image in words is fine when it has a reasonable reading."
       },
       "na_allowed": {
@@ -264,7 +268,7 @@
     "applies_to": [
       "deck"
     ],
-    "inputs": "Every unit's text and notes in order, the run sheet, and a contact sheet of all screenshots. One call per round per grader.",
+    "inputs": "Every unit's text and notes in order, the deck's terms list, the run sheet, and a contact sheet of all screenshots. One call per round by Claude; Codex joins only in a calibration round.",
     "criteria": [
       {
         "id": "flow",
@@ -294,6 +298,26 @@
           "1": "One device type dominates the deck, or the same type repeats on consecutive units throughout.",
           "3": "Mostly varied, but the same type sits on two consecutive units, or one type covers more than half the units with a device.",
           "5": "The types vary: no two consecutive units share a type and no type covers more than half the units with a device."
+        }
+      },
+      {
+        "id": "terms_introduced",
+        "name": "Terms introduced before use",
+        "question": "Is every non-plain term (jargon, a coined name, a term from the deck's terms list) introduced visually, with a metaphor or an example, on or before the first slide that uses it? Name the first slide that uses each term and the slide that introduces it.",
+        "anchors": {
+          "1": "Two or more non-plain terms are used before any slide introduces them, or are never introduced.",
+          "3": "One non-plain term is used before it is introduced, or is introduced only in words, with no metaphor or example.",
+          "5": "Every non-plain term is introduced visually, with a metaphor or example, on or before its first use."
+        }
+      },
+      {
+        "id": "taxonomy_ids",
+        "name": "Taxonomy ids mean something",
+        "question": "Where the deck labels items with ids (such as D1 to D4), does the letter stand for something the audience can tell, and is each id reused wherever its item appears? A deck with no ids scores 5.",
+        "anchors": {
+          "1": "The ids use a letter that means nothing to the audience, and an item appears later without its id or under another one.",
+          "3": "The letter means something, but an item appears later without its id, or the id's letter is never explained.",
+          "5": "Every id's letter means something the deck makes clear, and each id is reused wherever its item appears."
         }
       }
     ],
@@ -353,11 +377,16 @@
       "flow",
       "delight",
       "participation",
-      "variety"
+      "variety",
+      "terms_introduced",
+      "taxonomy_ids"
     ],
     "mechanical_gates_must_pass": true,
-    "both_graders_required": true,
-    "split_regrade": "Where one grader gives 3 and the other 4 or more, the lower grader re-grades that unit once and the second score stands.",
+    "bar_grader": "claude",
+    "audit_grader": "codex",
+    "audit": "Claude sets the bar and the median. Each round Codex grades only the units rewritten in the round before, plus as many untouched units as a baseline picked by a hash of the round and unit id; a Claude-minus-Codex gap on the rewritten units 0.5 or more above the gap on the baseline, or a rewritten unit Codex did not grade, blocks finished. --graders both runs a calibration round: both graders grade every unit and both set the bar.",
+    "self_preference_threshold": 0.5,
+    "split_regrade": "Calibration rounds only (--graders both): where one grader gives 3 and the other 4 or more, the lower grader re-grades that unit once and the second score stands. A Claude-bar round has one full grading, so nothing splits.",
     "max_rounds": 5,
     "plateau_rounds": 2,
     "max_rewrites_per_round": 8

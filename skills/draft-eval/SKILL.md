@@ -25,7 +25,7 @@ report). Until then, score only: run one round with no rewrite.
 | `packet.py`, `validate.py` | Grading packets per batch; validation and stamping of each grader reply. |
 | `arc.py` | The arc pass packet and the validation of its replies. |
 | `run.py` | The lock, the run folder, the per-round record, the round commit, the record check. |
-| `score_round.py` | Unit scores, the median, the bar, the stop decision, the self-preference check, the split re-grade list and the rewrite list. |
+| `score_round.py` | Unit scores, the median, the bar, the stop decision, Codex's audit set, the self-preference check, the split re-grade list (calibration rounds) and the rewrite list. |
 | `prefer.py` | The blind preference page, and `--score` for the 70% rule. |
 | `prefer_rulings.py` | The reader's preference notes as rulings, with each grader's score on the faulted criterion and a grader-missed count. |
 | `brief.py`, `review-brief.md` | The review brief: data placeholders filled from the run record. |
@@ -43,6 +43,24 @@ report). Until then, score only: run one round with no rewrite.
   `device` and `concrete_first`; `clear`, `economy`, `earns_place` and `honest_numbers` still
   apply. Set `data-role="evidence"`, or `extract.py` infers it from a slide id that starts with
   `evidence`, `references`, `provenance` or `sources`, or a class of the same name.
+- **The terms slide** (rubric 0.4.1) is the deck's glossary: one hidden section early in the deck,
+  `<section data-role="terms" data-hidden ...>`, holding each term as `<dt>term</dt><dd>definition</dd>`.
+  A visible slide that introduces a term carries `data-introduces="term"` (commas separate several).
+  `extract.py` writes the `terms` list (term, definition, `introduced_by`, `introduced_at` as the
+  slide's ordinal) and keeps the terms slide as a hidden unit, so it is never graded. `packet.py`
+  gives graders the list as data: a listed term is not a `clear` guess from its introducing slide
+  onwards, and still is before it. `arc.py` writes it as `terms.md`, and `check.py` warns
+  (`terms_before_intro`) on a term that appears before its introducing slide or has none.
+
+### Rubric 0.4.1
+
+- **`clear`**: loaded wording such as "kill" is a guess only when its object is not clear on the
+  slide, a neighbour or an earlier slide. A term from the terms slide is not a guess once introduced.
+- **`visual`**: findings and recommendations on one slide need visibly different treatment; mixing
+  them caps visual at 3.
+- **Two arc criteria**, both in the bar: `terms_introduced` (every non-plain term is introduced
+  visually, with a metaphor or example, on or before its first use) and `taxonomy_ids` (an id such
+  as D1 uses a letter that means something and is reused wherever its item appears).
 
 ### One device per unit (rubric 0.3)
 
@@ -95,8 +113,12 @@ The rubric's `changelog` says what each version changed and what it was fitted t
    (exit 1 only means a gate failed; the JSON is the result). `?audit` runs inside `check.py`.
    Articles: extract to `$R/units.json` and skip `mechanical.json`.
 3. **Render** (decks): `node <skill-dir>/render.mjs <index.html> $R/units.json $R/shots`.
-4. **Grade, both graders, per unit**: the grading step below, into `$R/grading/`.
-5. **Arc pass** (decks), one call per grader:
+4. **Grade** into `$R/grading/`, the grading step below. Claude grades every unit. Codex grades only
+   the audit set: `python3 <skill-dir>/score_round.py audit $RUN <n>` prints the units rewritten in
+   the round before plus as many untouched units as a baseline, and its `select` value goes to
+   `packet.py --select` for Codex's packets. Round 1 has no rewrites, so Codex grades nothing.
+   A calibration round (`--graders both`) has both graders grade every unit.
+5. **Arc pass** (decks), Claude only; Codex runs it too only in a calibration round:
 
        python3 <skill-dir>/arc.py build $R/units.json $R --shots $R/shots/shots.json --run-sheet <run sheet> > $R/arc.build.json
        codex exec --ephemeral -s read-only --skip-git-repo-check -C $R/arc --output-schema <skill-dir>/arc-schema.json \
@@ -107,8 +129,9 @@ The rubric's `changelog` says what each version changed and what it was fitted t
    write its reply to `$R/arc/arc.claude.json`, and validate with `--grader claude`. Retry a
    failed reply once, as for batches.
 6. **Record**: `python3 <skill-dir>/run.py record $RUN <n>`.
-7. **Stop check**: `python3 <skill-dir>/score_round.py $RUN <n>`, which writes `$R/score.json`.
-   - If `regrade` lists units (one grader gave 3 where the other gave 4 or more), re-grade each
+7. **Stop check**: `python3 <skill-dir>/score_round.py $RUN <n> [--graders both]`, which writes
+   `$R/score.json`.
+   - Calibration rounds only: if `regrade` lists units (one grader gave 3 where the other gave 4 or more), re-grade each
      listed unit once with the listed grader. Pack it from the round's full unit list, so it keeps
      its real previous unit: `python3 <skill-dir>/packet.py $R/units.json $R/regrade/<grader> --shots
      $R/shots/shots.json --select <ids>`. Grade, validate against `$R/units.json` with
@@ -135,20 +158,26 @@ The rubric's `changelog` says what each version changed and what it was fitted t
 
 ### The bar and the stop rules
 
-- **The bar**: every mechanical gate passes; the arc pass scores at least 4 on flow, delight,
-  participation and variety from both graders; every applicable criterion on every unit scores at least 4
-  from both graders.
-- **A unit's score** is the lower of the two graders' means. The round's **median** is the median
-  unit score. Sums change when units change, so the loop compares medians only.
-- **Stop** on the first of: the bar is met; 5 rounds done; or two rounds in a row where the median
-  did not rise. One non-improving round is noise and does not stop the run.
-- **Both graders are needed for "bar met".** If `codex-available -q` fails, the round runs on
-  Claude alone. `score_round.py` then reports at best "met by Claude only", and the review brief
-  lists the rewrites as suggestions not yet passed.
-- **Self-preference.** `score_round.py` computes the Claude-minus-Codex gap on rewritten units and
-  on untouched units, beside the calibration baseline gap. An excess of 0.5 or more on rewritten
-  units turns "met" into "met by Claude only, possible self-preference", and the brief shows both
-  graders' scores for those units.
+- **Claude sets the bar; Codex audits.** Codex's role is to catch Claude marking its own rewrites
+  up, so its scores never set the bar or the median in a loop round.
+- **The bar**: every mechanical gate passes; Claude's arc pass scores at least 4 on every arc
+  criterion in the rubric's `bars.arc_criteria`; every applicable criterion on every unit scores at
+  least 4 from Claude.
+- **A unit's score** is Claude's mean. The round's **median** is the median unit score. Sums change
+  when units change, so the loop compares medians only.
+- **Stop** on the first of: the bar is met (or met but blocked); 5 rounds done; or two rounds in a
+  row where the median did not rise. One non-improving round is noise and does not stop the run.
+- **Self-preference audit.** `score_round.py` computes the Claude-minus-Codex gap on the audited
+  rewritten units and on the baseline units (the calibration baseline gap when there are none). An
+  excess of 0.5 or more turns the bar into "blocked: possible self-preference". A rewritten unit
+  Codex did not grade (`codex-available -q` failed, or its batch failed) turns it into "blocked:
+  rewrites not audited by Codex". Either way the run is not finished: it stops as
+  `bar_met_blocked`, and the review brief shows both graders' scores for those units and lists the
+  rewrites as suggestions not yet passed.
+- **`--graders both`** runs a calibration round: both graders grade every unit and run the arc pass,
+  a unit's score is the lower of the two means, the bar needs both graders, the split re-grade
+  applies, and the gap covers every unit rewritten so far. Use it to measure the graders against
+  each other, never as the loop's default.
 
 ### The run record
 
@@ -204,7 +233,8 @@ in place of its parsed file.
 
 ## Grading step
 
-Two graders, reported per grader and never pooled. No script calls a model: this session
+Two graders, reported per grader and never pooled. In a loop round Claude grades every unit and
+Codex grades only the audit set (step 4 of the round); in a calibration round both grade every unit. No script calls a model: this session
 runs Codex through Bash and dispatches the Claude grader with the Agent tool. In the loop,
 `$R` is `$RUN/rounds/r<n>`. For calibration, `$R/grading` is the calibration folder's `packets/<set>`
 and `graders/`, as the calibration step says.
@@ -217,8 +247,10 @@ and `graders/`, as the calibration step says.
    Each batch is a directory of up to 8 unit folders, and the rendered prompt sits beside it
    as `batch-NN.prompt.md`. Nothing but packets goes in the batch directory.
 
-2. Codex, per batch. Run `codex-available -q` first. If it exits non-zero, skip Codex for the
-   round and say so in the report: the round is Claude only and cannot meet the bar.
+2. Codex, per batch of its own packets (the audit set, built with `--select` into
+   `$R/grading/codex-audit`, or every unit in a calibration round). Run `codex-available -q`
+   first. If it exits non-zero, skip Codex for the round and say so in the report: the rewrites are
+   unaudited and the run cannot finish.
    Read the model id from the `model =` line of `${CODEX_HOME:-$HOME/.codex}/config.toml`.
 
        codex exec --ephemeral -s read-only --skip-git-repo-check -C <batch dir> \
@@ -269,7 +301,8 @@ Run once, before the loop, to test both graders against a human scorer.
 It picks the units (spread across roles, layouts and position; no animation states where it can),
 builds their packets with `packet.build` (each unit keeps its real previous unit), and writes
 `units.json`, `sources/<name>.units.json`, `packets/<name>/batch-NN/`, `packets.sha256` and
-`score.html`. Grade every batch with both graders as in the grading step, validating against
+`score.html`. Grade every batch with both graders as in the grading step (a calibration round, so
+`--graders both` applies), validating against
 `sources/<name>.units.json`. Commit the grader records and `packets.sha256` before any human
 score exists. The scorer opens `score.html` from disk, scores with radio buttons (answers save in
 the browser), and downloads the scores JSON: one entry per unit and criterion.

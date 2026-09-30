@@ -198,7 +198,9 @@ def check(run):
                 missing.append(f"{r}/grading/{g}.jsonl (parsed)")
             if not list((rd / "grading").glob(f"*.{g}.json")):
                 missing.append(f"{r}/grading/*.{g}.json (raw)")
-            if deck and not list((rd / "arc").glob(f"*.{g}.json")):
+            # Codex runs the arc pass only in a calibration round (--graders both); Claude always does
+            arc_graders = set((_json(rd / "arc.json", {}) or {}).get("graders") or {}) | {"claude"}
+            if deck and g in arc_graders and not list((rd / "arc").glob(f"*.{g}.json")):
                 missing.append(f"{r}/arc/*.{g}.json (raw arc)")
         for k in ("source_commit", "prompt_sha256", "schema_sha256", "rubric_version"):
             if not rec.get(k):

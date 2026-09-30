@@ -9,7 +9,7 @@ sys.path.insert(0, str(HERE))
 import arc  # noqa: E402
 
 GOOD = {"model": "m", "scores": {c: {"score": 4, "reason": 'Slide 2 says "x".'}
-                                 for c in ("flow", "delight", "participation", "variety")}}
+                                 for c in ("flow", "delight", "participation", "variety", "terms_introduced", "taxonomy_ids")}}
 
 
 class ArcTest(unittest.TestCase):

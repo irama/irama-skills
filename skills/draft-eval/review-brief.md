@@ -41,7 +41,7 @@ What is left for you to do?
 <p class="defs-h">Used here</p>
 <div class="defs-in">
 <div class="term"><h4>Unit</h4><ul><li><span class="k">In this brief</span> The thing one score is about. In a deck, one logical slide: a group of animation states counts as one slide.</li></ul></div>
-<div class="term"><h4>Bar</h4><ul><li><span class="k">In this brief</span> The pass line. Every mechanical gate passes, and the arc pass and every judged score reach at least 4 from both graders.</li></ul></div>
+<div class="term"><h4>Bar</h4><ul><li><span class="k">In this brief</span> The pass line. Every mechanical gate passes, and the Claude grader's arc pass and every judged score reach at least 4. The Codex grader audits the rewritten units for self-preference; a gap blocks the pass.</li></ul></div>
 <div class="term"><h4>Median unit score</h4><ul><li><span class="k">In this brief</span> Each unit's score is the lower of the two graders' mean scores for it. The median of those is the number the stop rule watches.</li></ul></div>
 <div class="term"><h4>Arc pass</h4><ul><li><span class="k">In this brief</span> One grading call per round per grader over the whole deck, for flow, surprise and delight, and audience participation.</li></ul></div>
 <div class="term"><h4>Self-preference gap</h4><ul><li><span class="k">In this brief</span> The Claude grader's mean minus the Codex grader's mean. The run compares it on rewritten units with untouched units, because the author and the Claude grader are the same model family.</li></ul></div>

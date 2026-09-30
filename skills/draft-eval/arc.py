@@ -4,7 +4,8 @@
     arc.py build <units.json> <outdir> --shots shots.json [--run-sheet run-sheet.md]
     arc.py validate <raw> --grader codex|claude --round N [--model <full id>] -o arc.json
 
-build writes <outdir>/arc/ (units.md, contact.png from render.mjs, run-sheet.md)
+build writes <outdir>/arc/ (units.md, contact.png from render.mjs, terms.md when the
+deck has a terms list, run-sheet.md)
 and the rendered prompt beside it as <outdir>/arc.prompt.md, then prints
 {dir, prompt, pngs}. The grader runs inside <outdir>/arc/ and can read nothing else.
 
@@ -52,6 +53,12 @@ def build(units_doc, outdir, shots_path, run_sheet=None, rubric=None):
             lines.append("\nNotes:\n\n" + "\n".join("    " + x for x in u["notes"].splitlines()))
         lines.append("")
     (adir / "units.md").write_text("\n".join(lines))
+    if units_doc.get("terms"):
+        # the slide number in units.md, so the grader can compare first use with introduction
+        num = {u["id"]: n for n, u in enumerate(graded, 1)}
+        (adir / "terms.md").write_text("\n".join(
+            f"- {json.dumps(t['term'], ensure_ascii=False)}: {json.dumps(t.get('definition', ''), ensure_ascii=False)}"
+            f" (introduced on slide {num.get(t.get('introduced_by'), 'none')})" for t in units_doc["terms"]) + "\n")
     shutil.copyfile(shots_path.parent / shots["contact"], adir / "contact.png")
     if run_sheet:
         shutil.copyfile(run_sheet, adir / "run-sheet.md")

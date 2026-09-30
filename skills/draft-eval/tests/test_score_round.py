@@ -12,7 +12,7 @@ RUBRIC = json.loads((HERE / "rubric.json").read_text())
 CRITS = [c["id"] for c in RUBRIC["criteria"]]
 UNITS = {"kind": "deck", "units": [{"id": i, "hidden": False} for i in "abcd"]}
 PASS_MECH = {"pass": True, "gates": {}, "floors": {"breaches": []}}
-ARC_OK = {g: {"scores": {c: {"score": 4, "reason": "r"} for c in ("flow", "delight", "participation", "variety")}}
+ARC_OK = {g: {"scores": {c: {"score": 4, "reason": "r"} for c in RUBRIC["bars"]["arc_criteria"]}}
           for g in ("codex", "claude")}
 
 
@@ -26,6 +26,7 @@ def recs(grader, scores):
 
 
 def score(codex, claude, **kw):
+    kw.setdefault("graders", "both")
     kw.setdefault("mechanical", PASS_MECH)
     kw.setdefault("arc", ARC_OK)
     return sr.score(UNITS, {"codex": recs("codex", codex) if codex else [], "claude": recs("claude", claude)},
@@ -61,9 +62,43 @@ class ScoreRoundTest(unittest.TestCase):
         again = sr.score(UNITS, {"codex": recs("codex", {"a": 3, "b": 4, "c": 4, "d": 4}),
                                  "claude": recs("claude", {u: 4 for u in "abcd"})},
                          regrades={"codex": recs("codex", {"a": 4})}, rubric=RUBRIC,
-                         mechanical=PASS_MECH, arc=ARC_OK)
+                         mechanical=PASS_MECH, arc=ARC_OK, graders="both")
         self.assertEqual(again["regrade"], [])
         self.assertTrue(again["bar"]["met"])
+
+    def test_claude_sets_the_bar_and_codex_only_audits(self):
+        # Codex's low score on an untouched unit and a missing Codex arc do not hold the bar back
+        claude_arc = {"claude": ARC_OK["claude"]}
+        r = score({"a": 2}, {u: 4 for u in "abcd"}, graders="claude", arc=claude_arc)
+        self.assertTrue(r["bar"]["met"], r["bar"])
+        self.assertEqual((r["bar_graders"], r["regrade"]), (["claude"], []))
+        self.assertEqual(r["units"]["a"]["score"], 4)
+        # the median follows Claude alone
+        self.assertEqual(score({u: 1 for u in "abcd"}, {u: 5 for u in "abcd"}, graders="claude")["median"], 5)
+
+    def test_audit_set_is_rewritten_plus_as_many_untouched_and_repeatable(self):
+        ids = list("abcdefgh")
+        a = sr.audit_set(ids, ["c", "f"], 3)
+        self.assertEqual(a["rewritten"], ["c", "f"])
+        self.assertEqual(len(a["baseline"]), 2)
+        self.assertFalse(set(a["baseline"]) & {"c", "f"})
+        self.assertEqual(a, sr.audit_set(ids, ["f", "c"], 3))
+        self.assertEqual(sr.audit_set(ids, [], 1), {"rewritten": [], "baseline": []})
+
+    def test_self_preference_on_audited_units_blocks_finished(self):
+        # Claude rates rewritten unit a a point over Codex; baseline unit b level
+        r = score({"a": 4, "b": 4}, {u: 4 for u in "bcd"} | {"a": 5}, graders="claude", rewritten=["a"])
+        self.assertEqual(r["self_preference"]["excess_vs_untouched"], 1.0)
+        self.assertFalse(r["bar"]["met"])
+        self.assertEqual(r["bar"]["status"], "blocked: possible self-preference")
+        self.assertEqual(r["stop"]["reason"], "bar_met_blocked")
+        # under the threshold the audited run finishes
+        ok = score({"a": 4, "b": 4}, {u: 4 for u in "abcd"}, graders="claude", rewritten=["a"])
+        self.assertTrue(ok["bar"]["met"])
+        # a rewritten unit Codex never graded blocks it too
+        miss = score({"b": 4}, {u: 4 for u in "abcd"}, graders="claude", rewritten=["a"])
+        self.assertEqual(miss["self_preference"]["unaudited"], ["a"])
+        self.assertEqual(miss["bar"]["status"], "blocked: rewrites not audited by Codex")
 
     def test_stop_rules(self):
         low = ({u: 3 for u in "abcd"}, {u: 3 for u in "abcd"})
@@ -102,7 +137,14 @@ class ScoreRoundTest(unittest.TestCase):
             out = json.loads((run / "rounds" / "r2" / "score.json").read_text())
             self.assertEqual(out["history"], [3.0])
             self.assertEqual(out["self_preference"]["rewritten"], ["a"])
+            self.assertEqual(out["mode"], "claude")
             self.assertEqual(out["stop"]["reason"], "bar_met")
+            self.assertEqual(sr.main([str(run), "2", "--graders", "both"]), 0)
+            self.assertEqual(json.loads((run / "rounds" / "r2" / "score.json").read_text())["mode"], "both")
+            audit = sr.audit_for(run, 2)
+            self.assertEqual(audit["rewritten"], ["a"])
+            self.assertEqual(audit["select"].split(",")[0], "a")
+            self.assertEqual(len(audit["select"].split(",")), 2)
 
 
 if __name__ == "__main__":

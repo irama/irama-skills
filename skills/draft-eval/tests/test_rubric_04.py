@@ -34,8 +34,10 @@ def errors(r):
 
 class Rubric04Test(unittest.TestCase):
     def test_version_phase_and_changelog_disclose_the_fit(self):
-        self.assertEqual((RUBRIC["rubric_version"], RUBRIC["phase"]), ("0.4", "experimental"))
-        self.assertIn("Fitted to the 17 notes", RUBRIC["changelog"][-1]["note"])
+        self.assertIn(RUBRIC["rubric_version"], ("0.4", "0.4.1"))  # 0.4.1 keeps these anchors
+        self.assertEqual(RUBRIC["phase"], "experimental")
+        note = {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.4"]
+        self.assertIn("Fitted to the 17 notes", note)
 
     def test_clear_score_follows_the_guesses(self):
         self.assertEqual(errors(recs(5)), [])

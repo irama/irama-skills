@@ -38,7 +38,7 @@ def errors(d, r):
 class DeviceTest(unittest.TestCase):
     def test_version_and_retired_criteria(self):
         ids = [c["id"] for c in RUBRIC["criteria"]]
-        self.assertIn(RUBRIC["rubric_version"], ("0.3.1", "0.4"))  # 0.4 keeps these lessons
+        self.assertIn(RUBRIC["rubric_version"], ("0.3.1", "0.4", "0.4.1"))  # 0.4 keeps these lessons
         self.assertNotIn("guess_reveal", ids)
         self.assertNotIn("delight", ids)
         self.assertIn("variety", [c["id"] for c in RUBRIC["arc"]["criteria"]])

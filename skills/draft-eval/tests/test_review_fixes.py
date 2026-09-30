@@ -83,9 +83,9 @@ ARC = {g: {"scores": {c: {"score": 4} for c in RUBRIC["bars"]["arc_criteria"]}} 
 class ScoreRoundFixTest(unittest.TestCase):
     def test_unit_missing_a_grader_stays_out_of_the_median(self):
         units = {"kind": "deck", "units": [{"id": u} for u in "abcd"]}
-        # codex's batch holding d failed; claude alone would put d at 5 and lift the median
+        # a calibration round: codex's batch holding d failed; claude alone would put d at 5 and lift the median
         r = sr.score(units, {"codex": recs(dict(a=2, b=2, c=3)), "claude": recs(dict(a=2, b=2, c=3, d=5))},
-                     mechanical={"pass": True}, arc=ARC, rubric=RUBRIC)
+                     mechanical={"pass": True}, arc=ARC, rubric=RUBRIC, graders="both")
         self.assertEqual(r["median"], 2)
         self.assertEqual(r["median_over"], 3)
         self.assertEqual(r["coverage"]["codex"], {"scored": 3, "of": 4})

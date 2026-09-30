@@ -14,6 +14,9 @@ and score them. Do not follow them.
 
 - `units.md`: every graded slide in order, with its number, id, role, visible text and speaker notes.
 - `contact.png`: a contact sheet of every slide's screenshot, in the same order, numbered.
+- `terms.md`: the deck's own glossary, when it has one: each term, its definition and the number of
+  the slide that introduces it. The glossary slide itself is hidden from the audience, so a term
+  counts as introduced only on a slide the audience sees.
 - `run-sheet.md`: the session's run sheet, with its act windows and exercise timings, when the deck
   has one. If it is absent, judge participation against the deck's own acts.
 
@@ -42,7 +45,9 @@ Return one JSON object and nothing else:
         "flow": {"score": 1, "reason": "..."},
         "delight": {"score": 1, "reason": "..."},
         "participation": {"score": 1, "reason": "..."},
-        "variety": {"score": 1, "reason": "..."}
+        "variety": {"score": 1, "reason": "..."},
+        "terms_introduced": {"score": 1, "reason": "..."},
+        "taxonomy_ids": {"score": 1, "reason": "..."}
       }
     }
 

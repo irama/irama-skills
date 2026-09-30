@@ -9,7 +9,9 @@ banned_terms) in any unit's text or notes; every [hook:x] has a later
 text, notes excluded; every `content` unit has an img, svg, canvas or figure.
 Floors (no worse than round 0): words on screen and minimum font size, both
 from ?export. Warnings: two adjacent units with the same layout; Flesch reading
-ease below round 0. Hidden units are skipped, except that ?audit covers the
+ease below round 0; a term from the deck's terms list on a visible slide before
+the slide that introduces it, or with no introducing slide (a cross-check on the
+arc pass's terms_introduced, rubric 0.4.1). Hidden units are skipped, except that ?audit covers the
 whole deck. --baseline writes the floors file (default floors.json beside
 units.json) from the current deck. Exit 1 when a gate or a floor fails.
 
@@ -106,6 +108,17 @@ def missing_visual(units, tags):
     return [u["id"] for u in units if u["role"] == "content" and not tags[u["primary_index"]]]
 
 
+def terms_before_intro(units, terms):
+    out = []
+    for t in terms or []:
+        at = t.get("introduced_at")
+        pat = re.compile(r"(?<!\w)" + re.escape(t["term"]) + r"(?!\w)", re.I)
+        early = [u["id"] for u in units if (at is None or u["ordinal"] < at) and pat.search(u.get("text", ""))]
+        if early or at is None:
+            out.append({"term": t["term"], "introduced_by": t.get("introduced_by"), "used_before": early})
+    return out
+
+
 def same_layout(units):
     return [[a["id"], b["id"]] for a, b in zip(units, units[1:]) if a["layout"] and a["layout"] == b["layout"]]
 
@@ -193,7 +206,8 @@ def screen_metrics(index, units):
 # ---- main ------------------------------------------------------------------
 
 def run(index, units_path, floors_path=None, baseline=False):
-    units = [u for u in json.loads(Path(units_path).read_text())["units"] if not u["hidden"]]
+    doc = json.loads(Path(units_path).read_text())
+    units = [u for u in doc["units"] if not u["hidden"]]
     rubric = json.loads((Path(__file__).parent / "rubric.json").read_text())
     html = Path(index).read_text(encoding="utf-8")
     metrics = screen_metrics(index, units)
@@ -224,7 +238,8 @@ def run(index, units_path, floors_path=None, baseline=False):
         "gates": gates,
         "floors": {"file": floors_path.name if floors else None, "pass": not breaches,
                    "breaches": breaches, "metrics": metrics},
-        "warnings": {"same_layout": same_layout(units), "flesch_below_floor": flesch_drops},
+        "warnings": {"same_layout": same_layout(units), "flesch_below_floor": flesch_drops,
+                     "terms_before_intro": terms_before_intro(units, doc.get("terms"))},
     }
 
 
