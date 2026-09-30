@@ -1,12 +1,17 @@
 {
-  "rubric_version": "0.1",
+  "rubric_version": "0.2",
   "phase": "experimental",
+  "changelog": [
+    {"version": "0.1", "note": "First version, before calibration."},
+    {"version": "0.2", "note": "Fitted to the 24 calibration units, so those units are not a fair test of it; the blind preference test is the hold-out. Session counts are not numbers for honest_numbers; a [planted] tag makes honest_numbers N/A; a concrete case must be one you can picture and may sit in the notes; evidence slides skip visual, delight, concrete_first and guess_reveal; a detail slide scores on what it adds to an overview; several findings behind one claim are one idea."}
+  ],
   "scale": {"min": 1, "max": 5, "na": "N/A needs a reason, like a score does. N/A outside na_allowed fails schema validation."},
   "roles": ["title", "divider", "content", "exercise", "evidence", "close"],
   "na_conditions": {
     "first_unit": "The unit is the first unit of the draft.",
     "reveals_nothing": "The unit reveals no answer, result or conclusion.",
-    "no_number": "The unit contains no number."
+    "no_number": "The unit contains no number, or its only numbers describe the session or the draft itself: timings such as \"90 minutes\", positions such as \"Exercise 3 of 4\", counts of its own acts, parts, questions or clusters, and labels such as C1 to C9 or D1. A unit with digits may be N/A on this ground; the reason says the numbers describe the session.",
+    "planted": "The unit is marked planted: its speaker notes carry a [planted] tag because it holds a deliberately fabricated figure, planted as a teaching trick. It must be N/A."
   },
   "criteria": [
     {
@@ -20,7 +25,7 @@
         "3": "A visual is present but decorates the words rather than carrying the idea, or the slide repeats the previous slide's look.",
         "5": "A chart, infographic, cartoon or shape carries the idea, and the slide looks different from the one before it. A logo or a small icon does not count."
       },
-      "na_allowed": {"roles": [], "conditions": []}
+      "na_allowed": {"roles": ["evidence"], "conditions": []}
     },
     {
       "id": "clear",
@@ -59,7 +64,7 @@
         "3": "Some tension or involvement, but the payoff is predictable, or a small spoiler lands early.",
         "5": "A journey, not a preview. A map of the session's shape is fine; giving away an answer before its moment is not, except a tagged hook paid off later. The audience is involved, teased or tricked. A recurring character returns as a callback where it helps, never as decoration."
       },
-      "na_allowed": {"roles": ["title", "divider"], "conditions": []}
+      "na_allowed": {"roles": ["title", "divider", "evidence"], "conditions": []}
     },
     {
       "id": "one_idea",
@@ -69,8 +74,8 @@
       "question": "Does the unit carry exactly one idea?",
       "anchors": {
         "1": "Three or more ideas compete, or there is no idea at all.",
-        "3": "One main idea with a second idea that pulls attention away from it.",
-        "5": "One idea per slide, or per section part."
+        "3": "One main idea with a second idea that pulls attention away from it, such as a finding that points somewhere the main claim does not.",
+        "5": "One idea per slide, or per section part. Several studies or findings that all support one claim are one idea."
       },
       "na_allowed": {"roles": [], "conditions": []}
     },
@@ -81,11 +86,11 @@
       "applies_to": ["deck", "article"],
       "question": "Does an example or case come before the principle?",
       "anchors": {
-        "1": "The principle comes alone, with no example or case anywhere.",
-        "3": "An example is present but comes after the principle, or is too general to picture.",
-        "5": "An example or case comes before the principle."
+        "1": "The principle comes alone, with no case you can picture anywhere. A rule, a test or a thesis sentence is still the principle, never the example.",
+        "3": "A case is present but comes after the principle, or is too general to picture: no named organisation, event, person or figure.",
+        "5": "A case you can picture (a named organisation, event, person or figure) comes before the principle. The case may sit in the speaker notes, so a slide needs no forced story moment."
       },
-      "na_allowed": {"roles": ["title", "divider", "close"], "conditions": []}
+      "na_allowed": {"roles": ["title", "divider", "close", "evidence"], "conditions": []}
     },
     {
       "id": "guess_reveal",
@@ -98,7 +103,7 @@
         "3": "A prediction is possible but not invited, or the previous slide half gives the answer away.",
         "5": "The audience predicts before the answer lands, judged on this slide with the one before."
       },
-      "na_allowed": {"roles": [], "conditions": ["reveals_nothing"]}
+      "na_allowed": {"roles": ["evidence"], "conditions": ["reveals_nothing"]}
     },
     {
       "id": "earns_place",
@@ -108,8 +113,8 @@
       "question": "Would cutting this unit lose something?",
       "anchors": {
         "1": "A unit that repeats a neighbour. Cutting it loses nothing.",
-        "3": "It adds something, but a neighbour could absorb it with one sentence.",
-        "5": "Cutting it would lose something the draft needs."
+        "3": "It adds something, but a neighbour could absorb it with one sentence. Repeating an earlier overview's items is not by itself a reason for 3.",
+        "5": "Cutting it would lose something the draft needs. A detail slide scores on what it adds that an earlier overview lacks: a test, a condition or an action."
       },
       "na_allowed": {"roles": [], "conditions": []}
     },
@@ -120,11 +125,11 @@
       "applies_to": ["deck", "article"],
       "question": "Does every number carry its source and its limit?",
       "anchors": {
-        "1": "A number with no source and no limit.",
+        "1": "A number with no source and no limit. Counts that describe the session itself (timings, exercise positions, counts of acts or clusters, labels like C1 to C9) are not numbers here.",
         "3": "Every number has a source, but a limit is missing, or the source is vague.",
-        "5": "Every number has its source and its limit, on the slide, in the notes, or in the article's references."
+        "5": "Every number has its source and its limit, on the slide, in the notes, or in the article's references. A unit whose only numbers describe the session is N/A, never 5."
       },
-      "na_allowed": {"roles": [], "conditions": ["no_number"]}
+      "na_allowed": {"roles": [], "conditions": ["no_number", "planted"]}
     }
   ],
   "arc": {

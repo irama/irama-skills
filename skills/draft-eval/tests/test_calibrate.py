@@ -117,7 +117,7 @@ class BuildTest(unittest.TestCase):
             self.assertTrue(na["flow"])      # the draft's first unit
             self.assertTrue(na["delight"])   # title role
             self.assertFalse(na["clear"])
-            self.assertFalse(na["honest_numbers"])  # the unit has a number
+            self.assertTrue(na["honest_numbers"])  # a number may describe the session (rubric 0.2)
 
     def test_a_unit_with_no_number_is_forced_to_na_on_honest_numbers(self):
         rubric = json.loads((Path(calibrate.__file__).parent / "rubric.json").read_text())

@@ -33,6 +33,18 @@ report). Until then, score only: run one round with no rewrite.
 `python3 <skill-dir>/extract.py <index.html | article.md> [--at <git-rev>] -o units.json` and
 `python3 <skill-dir>/extract.py --selftest` as before.
 
+### Deck markers the rubric reads
+
+- **`[planted]`** in a slide's speaker notes marks a deliberate fake, planted as a teaching trick.
+  `extract.py` sets `planted: true` on the unit, the packet shows it, and `validate.py` requires
+  `honest_numbers` to be N/A on it. Without the tag the loop may "fix" the trick.
+- **The `evidence` role** is for reference and evidence appendix slides. They skip `visual`,
+  `delight`, `concrete_first` and `guess_reveal`; `clear`, `earns_place` and `honest_numbers` still
+  apply. Set `data-role="evidence"`, or `extract.py` infers it from a slide id that starts with
+  `evidence`, `references`, `provenance` or `sources`, or a class of the same name.
+
+The rubric's `changelog` says what each version changed and what it was fitted to.
+
 ## The loop
 
 ### Before round 1
@@ -223,5 +235,18 @@ builds their packets with `packet.build` (each unit keeps its real previous unit
 `sources/<name>.units.json`. Commit the grader records and `packets.sha256` before any human
 score exists. The scorer opens `score.html` from disk, scores with radio buttons (answers save in
 the browser), and downloads the scores JSON: one entry per unit and criterion.
+
+### Rulings: the graders learn from corrections
+
+When the human scorer rules on a contested score or corrects one, file it as a worked example in
+`<run-or-calibration-dir>/rulings.jsonl`, one JSON object per line:
+
+    {"criterion": "honest_numbers", "excerpt": "<the unit text the score turns on>", "score": "n/a", "reason": "<the ruling>"}
+
+`score` is 1 to 5 or `"n/a"`. Extra fields (set, unit, ruling id) are kept in the file and not
+shown to graders. Pass the file to `packet.py --examples <file>`: each batch prompt gains the
+examples whose criterion applies to the draft's kind, labelled as calibration examples in a fenced
+data block, and the batch list gains `examples_sha256`. The file holds draft text, so it lives with
+the draft's private repo, never in this skill.
 
 Tests: `python3 -m unittest discover -s skills/draft-eval/tests` from the repo root.

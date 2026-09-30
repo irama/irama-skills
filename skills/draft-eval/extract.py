@@ -58,12 +58,19 @@ class _Sections(HTMLParser):
             self.sections[-1]["text"].append(data)
 
 
+PLANTED = "[planted]"  # in a slide's speaker notes: a deliberate fake, honest_numbers is N/A
+
+
 def _notes(html):
     m = re.search(r'<script[^>]*id="speaker-notes"[^>]*>(.*?)</script>', html, re.S)
     if not m:
         return []
     raw = json.loads(m.group(1))
     return [n["note"] if isinstance(n, dict) else n for n in raw]
+
+
+# reference and evidence appendix slides: checked, not presented (rubric 0.2)
+EVIDENCE = ("evidence", "references", "reference", "provenance", "sources")
 
 
 def _role(attrs, sid, cls, note, ordinal):
@@ -76,7 +83,7 @@ def _role(attrs, sid, cls, note, ordinal):
         role = "divider"
     elif "exercise" in cls or "Exercise" in note:
         role = "exercise"
-    elif "evidence" in cls or sid.startswith("evidence"):
+    elif set(cls.split()) & set(EVIDENCE) or sid.startswith(EVIDENCE):
         role = "evidence"
     elif "close" in cls or sid == "close":
         role = "close"
@@ -117,6 +124,7 @@ def extract_deck(html):
             "layout": a.get("data-layout") or cls,
             "text": " ".join("".join(secs[primary]["text"]).split()),
             "notes": note,
+            "planted": PLANTED in note,
         })
     return {
         "kind": "deck",
@@ -259,27 +267,29 @@ _FIXTURE = """<html><body>
 <section class="exercise" data-slide-id="x1" data-screen-label="X1">Do it</section>
 <section class="meta" data-slide-id="t-a" data-screen-label="TA" data-state-group="h">First state</section>
 <section class="meta" data-slide-id="t-b" data-screen-label="TB" data-state-group="h">Second state</section>
+<section class="meta" data-slide-id="provenance" data-screen-label="Provenance">Sources</section>
 <section class="meta divider" data-slide-id="close" data-screen-label="Close" data-role="close" data-layout="end">Bye</section>
 </deck-stage>
 <script type="application/json" id="speaker-notes">
 [{"index":1,"note":"n1"},{"index":2,"note":"n2"},{"index":3,"note":"n3"},{"index":4,"note":"n4"},
-{"index":5,"note":"n5"},{"index":6,"note":"n6"},{"index":7,"note":"n7"},{"index":8,"note":"n8"},{"index":9,"note":"n9"}]
+{"index":5,"note":"n5"},{"index":6,"note":"n6 [planted]"},{"index":7,"note":"n7"},{"index":8,"note":"n8"},{"index":9,"note":"n9"},{"index":10,"note":"n10"}]
 </script></body></html>"""
 
 
 def selftest():
     doc = extract_deck(_FIXTURE)
     u = doc["units"]
-    assert doc["counts"]["sections"] == 9 and len(u) == 6, doc["counts"]
-    assert [x["id"] for x in u] == ["title", "s-b", "spare", "x1", "t-a", "close"]
+    assert doc["counts"]["sections"] == 10 and len(u) == 7, doc["counts"]
+    assert [x["id"] for x in u] == ["title", "s-b", "spare", "x1", "t-a", "provenance", "close"]
     assert u[1]["section_indices"] == [1, 2, 3] and u[1]["primary_index"] == 2
     assert u[1]["notes"] == "n3", "note must come from the primary's physical index"
     assert u[4]["primary_index"] == 6 and u[4]["notes"] == "n7", "no primary marked: first state"
-    assert u[5]["notes"] == "n9" and u[5]["ordinal"] == 6
+    assert u[6]["notes"] == "n10" and u[6]["ordinal"] == 7
+    assert u[5]["role"] == "evidence" and u[3]["planted"] and not u[1]["planted"]
     assert u[2]["hidden"] and not u[1]["hidden"] and doc["counts"]["hidden"] == 1
     assert u[1]["text"] == "State B" and u[0]["text"] == "Opening"
     assert (u[0]["role"], u[3]["role"], u[1]["role"]) == ("title", "exercise", "content")
-    assert (u[5]["role"], u[5]["role_inferred"], u[5]["layout"]) == ("close", False, "end")
+    assert (u[6]["role"], u[6]["role_inferred"], u[6]["layout"]) == ("close", False, "end")
     return True
 
 

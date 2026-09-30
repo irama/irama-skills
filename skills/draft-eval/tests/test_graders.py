@@ -96,8 +96,8 @@ class ValidateTest(unittest.TestCase):
         self.records[0]["scores"]["flow"] = {"score": "n/a", "reason": 'It says "the cat sat".'}
         self.records[0]["scores"]["delight"] = {"score": "n/a", "reason": 'It says "the cat sat".'}
         errs = self.errors(json.dumps({"model": "m", "records": self.records}))
-        # visual never allows N/A; u2 has a digit so honest_numbers may not be N/A
-        self.assertEqual(sorted(e.split(":")[0] for e in errs), ["u2 honest_numbers", "u2 visual"])
+        # visual never allows N/A; u2's digit may describe the session, so honest_numbers N/A is the grader's call
+        self.assertEqual(sorted(e.split(":")[0] for e in errs), ["u2 visual"])
 
     def test_no_number_unit_must_be_na_for_honest_numbers(self):
         self.units["units"][0]["text"] = "The cat sat"

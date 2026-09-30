@@ -123,8 +123,20 @@ def na_allowed(crit, unit, first, has_number, rubric):
     if unit.get("role") in na["roles"]:
         return True
     conds = na["conditions"]
-    return (("first_unit" in conds and first) or ("reveals_nothing" in conds)
-            or ("no_number" in conds and not has_number))
+    # no_number is allowed even with digits present: numbers that only describe the session
+    # ("90 minutes", "Exercise 3 of 4", C1 to C9) are the grader's call (rubric 0.2).
+    return (("first_unit" in conds and first) or ("reveals_nothing" in conds) or ("no_number" in conds)
+            or ("planted" in conds and bool(unit.get("planted"))))
+
+
+def na_forced(crit, unit, has_number):
+    """Why this criterion must be N/A on this unit, or None: no number at all, or a planted fake."""
+    conds = crit["na_allowed"]["conditions"]
+    if "planted" in conds and unit.get("planted"):
+        return "the unit is marked planted"
+    if "no_number" in conds and not has_number:
+        return "the unit has no number"
+    return None
 
 
 # criteria judged against the previous unit: only these may also quote it
@@ -145,9 +157,9 @@ def check_record(rec, unit, first, kind, rubric, prev=None):
         score = entry["score"]
         if score == "n/a" and not na_allowed(c, unit, first, has_number, rubric):
             errs.append(f"{uid} {cid}: N/A not allowed here")
-        if cid == "honest_numbers" and score != "n/a" and "no_number" in c["na_allowed"]["conditions"] \
-                and not has_number:
-            errs.append(f"{uid} {cid}: the unit has no number, so it must be N/A")
+        forced = na_forced(c, unit, has_number)
+        if score != "n/a" and forced:
+            errs.append(f"{uid} {cid}: {forced}, so it must be N/A")
         if not quotes_unit(entry["reason"], unit):
             errs.append(f"{uid} {cid}: the reason quotes nothing from the unit")
         elif cid not in PREV_OK and "prev" in quote_sources(entry["reason"], unit, prev):

@@ -68,8 +68,7 @@ def criteria_for(unit, first, kind, rubric):
         if kind not in c["applies_to"]:
             continue
         # the same N/A rule validate.py holds the graders to
-        forced = (c["id"] == "honest_numbers" and "no_number" in c["na_allowed"]["conditions"]
-                  and not has_number)
+        forced = bool(validate.na_forced(c, unit, has_number))
         out.append({"id": c["id"], "name": c["name"], "question": c["question"],
                     "anchors": c["anchors"], "forced": forced,
                     "na": forced or validate.na_allowed(c, unit, first, has_number, rubric)})
@@ -267,7 +266,7 @@ D.units.forEach((u, i) => {
     const q = el('td', {class: 'q'}, el('b', {text: c.name}), el('span', {text: c.question}),
                  el('details', {}, el('summary', {text: 'Anchors'}), anchors));
     const opts = el('td');
-    if (c.forced) opts.append(el('span', {class: 'forced', text: 'N/A: the unit has no number'}));
+    if (c.forced) opts.append(el('span', {class: 'forced', text: 'N/A: the unit has no number, or is marked planted'}));
     else for (const v of [1, 2, 3, 4, 5].concat(c.na ? ['n/a'] : [])) {
       const input = el('input', {type: 'radio', name: name, value: String(v)});
       if (S.scores[name] === v) input.checked = true;
