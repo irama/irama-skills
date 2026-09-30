@@ -84,5 +84,25 @@ class Rubric02Test(unittest.TestCase):
                 packet.load_examples(f, RUBRIC)
 
 
+    def test_short_label_quote_only_on_honest_numbers_na(self):
+        doc = units(text="Route D1: machine learning", notes="")
+        recs = records("machine learning")
+        recs[1]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'The only number is the label "D1".'}
+        self.assertEqual(errors(doc, recs), [])
+        # a scored honest_numbers keeps the 4-character floor
+        recs[1]["scores"]["honest_numbers"] = {"score": 4, "reason": 'The label "D1" is honest.'}
+        self.assertEqual(errors(doc, recs), ["u2 honest_numbers: the reason quotes nothing from the unit"])
+        # so does every other criterion, N/A or not
+        recs[1]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'Only the label "D1".'}
+        recs[1]["scores"]["clear"] = {"score": 4, "reason": 'The label "D1" reads plainly.'}
+        self.assertEqual(errors(doc, recs), ["u2 clear: the reason quotes nothing from the unit"])
+
+    def test_short_label_quote_must_be_a_whole_token(self):
+        doc = units(text="Route D12: machine learning", notes="")
+        recs = records("machine learning")
+        recs[1]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'The only number is "D1".'}
+        self.assertEqual(errors(doc, recs), ["u2 honest_numbers: the reason quotes nothing from the unit"])
+
+
 if __name__ == "__main__":
     unittest.main()

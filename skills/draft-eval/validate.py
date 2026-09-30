@@ -97,8 +97,12 @@ def _found(parts, source):
     return True
 
 
-def quote_sources(reason, unit, prev=None):
-    """Where each double-quoted piece of the reason comes from: "unit", "prev" or "other"."""
+def quote_sources(reason, unit, prev=None, short_ok=False):
+    """Where each double-quoted piece of the reason comes from: "unit", "prev" or "other".
+
+    short_ok lets a quote under 4 characters count when it is a whole token of the unit
+    ("D1"). check_record sets it only for an honest_numbers N/A, where a session label
+    is often the only thing there is to quote (rubric 0.2)."""
     source = _norm(unit.get("text", "") + "\n" + unit.get("notes", ""))
     before = _norm((prev or {}).get("text", ""))
     out = []
@@ -106,16 +110,20 @@ def quote_sources(reason, unit, prev=None):
         # an elided quote ("a ... b") counts when every piece is in the unit, in order
         parts = [_norm(p).strip(" .,;:!?") for p in re.split(r"\.\.\.|…", m.group(1) or m.group(2))]
         parts = [p for p in parts if p]
-        if not parts or len("".join(parts)) < 4:
+        if not parts:
+            continue
+        if len("".join(parts)) < 4:
+            if short_ok and len(parts) == 1 and re.search(r"(?<!\w)" + re.escape(parts[0]) + r"(?!\w)", source):
+                out.append("unit")
             continue
         out.append("unit" if _found(parts, source) else "prev" if before and _found(parts, before) else "other")
     return out
 
 
-def quotes_unit(reason, unit):
+def quotes_unit(reason, unit, short_ok=False):
     if not _norm(unit.get("text", "") + "\n" + unit.get("notes", "")):
         return True  # nothing to quote; the prompt asks for the screenshot instead
-    return "unit" in quote_sources(reason, unit)
+    return "unit" in quote_sources(reason, unit, short_ok=short_ok)
 
 
 def na_allowed(crit, unit, first, has_number, rubric):
@@ -160,7 +168,7 @@ def check_record(rec, unit, first, kind, rubric, prev=None):
         forced = na_forced(c, unit, has_number)
         if score != "n/a" and forced:
             errs.append(f"{uid} {cid}: {forced}, so it must be N/A")
-        if not quotes_unit(entry["reason"], unit):
+        if not quotes_unit(entry["reason"], unit, short_ok=(cid == "honest_numbers" and score == "n/a")):
             errs.append(f"{uid} {cid}: the reason quotes nothing from the unit")
         elif cid not in PREV_OK and "prev" in quote_sources(entry["reason"], unit, prev):
             errs.append(f"{uid} {cid}: the reason quotes the previous unit")
