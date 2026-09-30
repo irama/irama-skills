@@ -36,7 +36,7 @@ def errors(doc, recs):
 
 class Rubric02Test(unittest.TestCase):
     def test_version(self):
-        self.assertIn(RUBRIC["rubric_version"], ("0.2", "0.3"))  # 0.3 keeps every 0.2 ruling tested here
+        self.assertIn(RUBRIC["rubric_version"], ("0.2", "0.3", "0.3.1"))  # 0.3 keeps every 0.2 ruling tested here
 
     def test_planted_forces_na_on_honest_numbers(self):
         doc = units(text="A meta-analysis of 34 studies found 41 per cent", planted=True)

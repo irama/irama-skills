@@ -37,10 +37,18 @@ def errors(d, r):
 class DeviceTest(unittest.TestCase):
     def test_version_and_retired_criteria(self):
         ids = [c["id"] for c in RUBRIC["criteria"]]
-        self.assertEqual(RUBRIC["rubric_version"], "0.3")
+        self.assertEqual(RUBRIC["rubric_version"], "0.3.1")
         self.assertNotIn("guess_reveal", ids)
         self.assertNotIn("delight", ids)
         self.assertIn("variety", [c["id"] for c in RUBRIC["arc"]["criteria"]])
+
+    def test_031_lessons_in_the_anchors(self):
+        c = {x["id"]: x for x in RUBRIC["criteria"]}
+        self.assertIn("mascot used as decoration", c["visual"]["anchors"]["3"])
+        self.assertIn("metaphor is unclear", c["visual"]["anchors"]["3"])
+        self.assertIn('"kill"', c["clear"]["anchors"]["3"])
+        # kill is a clear-criterion note, never a banned term: banned terms also gate the notes
+        self.assertNotIn("kill", [b["term"].lower() for b in RUBRIC["banned_terms"]])
 
     def test_device_with_type_validates_and_keeps_the_type(self):
         r = recs()

@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.3",
+  "rubric_version": "0.3.1",
   "phase": "experimental",
   "changelog": [
     {
@@ -13,6 +13,10 @@
     {
       "version": "0.3",
       "note": "Fitted to the 24 calibration units and Andrew's round-two rulings, so those units are not a fair test of it; the blind preference test is the hold-out. Each unit now carries the base criteria plus one device: guess_reveal and delight are retired as per-unit criteria and replaced by device, which names the device type, and the arc gains variety, which checks that the types vary across the deck. New base criterion economy (no filler on the unit) with a short list of filler patterns check.py gates on slide text. New deck criterion notes_actionable (every instruction in the notes names the exact move and defines what it refers to). Flow gains a 4 anchor: a topic change the narrative supports. An exercise with no fixed answer is not a failed guess before reveal; it scores on its own device. The arc keeps flow, delight and participation; arc flow now accepts a supported topic change."
+    },
+    {
+      "version": "0.3.1",
+      "note": "Two lessons from the A4 blind preference notes. Visual: a recurring character or mascot used as decoration, or an image whose metaphor is unclear or does not fit the slide, scores at most 3. Clear: violent wording about an idea, such as \"kill\", reads as violent or about people; it is a clear-criterion note and not a banned term, because check.py applies banned terms to speaker notes as well as slide text."
     }
   ],
   "scale": {
@@ -45,8 +49,8 @@
       "question": "Does a chart, infographic, cartoon or shape carry the idea, and does the slide look different from the one before it?",
       "anchors": {
         "1": "Text only, or the only image is a logo or a small icon. The slide looks the same as the one before it.",
-        "3": "A visual is present but decorates the words rather than carrying the idea, or the slide repeats the previous slide's look.",
-        "5": "A chart, infographic, cartoon or shape carries the idea, and the slide looks different from the one before it. A logo or a small icon does not count."
+        "3": "A visual is present but decorates the words rather than carrying the idea, or the slide repeats the previous slide's look. A recurring character or mascot used as decoration, or an image whose metaphor is unclear or does not fit the slide, scores at most 3: it decorates the words rather than carrying the idea.",
+        "5": "A chart, infographic, cartoon or shape carries the idea, and the slide looks different from the one before it. A logo or a small icon does not count. The image's metaphor must be clear and fit the slide; a mascot counts only when it acts out the slide's idea."
       },
       "na_allowed": {
         "roles": [
@@ -66,7 +70,7 @@
       "question": "Does the wording stand alone in full sentences and plain words?",
       "anchors": {
         "1": "A reader cannot work out the meaning without the speaker or the author: undefined jargon, or a compression or image that has no reasonable reading.",
-        "3": "The meaning can be worked out, but one undefined technical term or one unclear phrase slows the reader down.",
+        "3": "The meaning can be worked out, but one undefined technical term or one unclear phrase slows the reader down. Violent wording about an idea, such as \"kill\" or \"die\", counts as one unclear phrase: it reads as violent or about people, so say what happens to the idea (it stops, it is dropped).",
         "5": "A reader can work out every line alone. Playful language, a short punchy line or an image in words is fine when it has a reasonable reading; only undefined jargon or an unreadable compression counts against it."
       },
       "na_allowed": {
