@@ -10,7 +10,9 @@ rejects: a unit missing from the batch or repeated, a missing criterion, a
 score out of range, N/A outside the rubric's allowed cases, a reason with
 no double-quoted text taken from the unit's text or notes, and a reason that
 quotes the previous unit on any criterion but flow and device. The device entry
-also names its type: "none" with a score of 1 or N/A, a real type otherwise.
+also names its type: "none" with a score of 1 or N/A, a real type otherwise. The
+clear entry carries the cold reader's point and guesses, and its score may not
+exceed what the guesses allow (rubric 0.4).
 
 On success, appends one record per unit in the spec's shape, stamped with the
 grader, the full model id, rubric_version, round, prompt_sha256 (of
@@ -163,6 +165,17 @@ def na_forced(crit, unit, has_number):
     return None
 
 
+def clear_errors(uid, entry):
+    """Rubric 0.4 cold-reader test: the score follows the guesses list. No guess allows 5, one caps
+    it at 3, two or more give 1, and an empty point (it cannot be paraphrased) gives 1."""
+    guesses, point = entry.get("guesses", []), entry.get("point", "").strip()
+    cap = 1 if not point or len(guesses) >= 2 else 3 if guesses else 5
+    if entry["score"] > cap:
+        why = "an empty point" if not point else f"{len(guesses)} guess{'es' if len(guesses) > 1 else ''}"
+        return [f"{uid} clear: {why} allows at most {cap}"]
+    return []
+
+
 # criteria judged against the previous unit: only these may also quote it
 PREV_OK = ("flow", "device")
 
@@ -190,6 +203,8 @@ def check_record(rec, unit, first, kind, rubric, prev=None):
                 errs.append(f"{uid} device: a score of 1 or N/A has type none")
             elif not none and entry.get("type") == "none":
                 errs.append(f"{uid} device: a score above 1 names its device type")
+        if cid == "clear" and score != "n/a":
+            errs += clear_errors(uid, entry)
         if not quotes_unit(entry["reason"], unit, short_ok=(cid == "honest_numbers" and score == "n/a")):
             errs.append(f"{uid} {cid}: the reason quotes nothing from the unit")
         elif cid not in PREV_OK and "prev" in quote_sources(entry["reason"], unit, prev):
@@ -245,6 +260,7 @@ def selftest():
     def rec(uid, quote):
         s = {c["id"]: {"score": 4, "reason": f'It says "{quote}".'} for c in rubric["criteria"]}
         s["device"]["type"] = "surprise"
+        s["clear"].update(point="The session opens.", guesses=[])
         return {"unit": uid, "scores": s}
     good = [rec("a", "Welcome to the session"), rec("b", "Nine in ten")]
     good[0]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'Only "Welcome to the session".'}

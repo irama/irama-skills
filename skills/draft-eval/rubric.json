@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.3.1",
+  "rubric_version": "0.4",
   "phase": "experimental",
   "changelog": [
     {
@@ -17,6 +17,10 @@
     {
       "version": "0.3.1",
       "note": "Two lessons from the A4 blind preference notes. Visual: a recurring character or mascot used as decoration, or an image whose metaphor is unclear or does not fit the slide, scores at most 3. Clear: violent wording about an idea, such as \"kill\", reads as violent or about people; it is a clear-criterion note and not a banned term, because check.py applies banned terms to speaker notes as well as slide text."
+    },
+    {
+      "version": "0.4",
+      "note": "Fitted to the 17 notes from the A4 blind preference test, where both graders scored clear and visual 4 or 5 on slides the reader faulted, so those slides are not a fair test of it. Clear becomes a cold-reader test: the grader first writes the point a first-time audience member would take and lists every word, name, label, title or question that person would have to guess at; 5 needs an empty list and a title that states the point, one guess caps it at 3, two or more give 1. Visual judges whether the visual works: every colour, position, order and grouping must mean something the slide or its notes make clear, and the visual must be complete; an unexplained colour, a broken encoding, an incomplete visual, a decorative mascot or an unclear metaphor caps it at 3. Economy: a text-heavy slide whose narrative could live in the speaker notes scores at most 3, and a list longer than the idea needs counts as filler. prefer_rulings.py turns every preference test's notes into rulings."
     }
   ],
   "scale": {
@@ -46,11 +50,11 @@
       "applies_to": [
         "deck"
       ],
-      "question": "Does a chart, infographic, cartoon or shape carry the idea, and does the slide look different from the one before it?",
+      "question": "Does the visual work: does a chart, infographic, cartoon or shape carry the idea, does every colour, position, order and grouping in it mean something the slide or its notes make clear, is it complete, and does the slide look different from the one before it?",
       "anchors": {
         "1": "Text only, or the only image is a logo or a small icon. The slide looks the same as the one before it.",
-        "3": "A visual is present but decorates the words rather than carrying the idea, or the slide repeats the previous slide's look. A recurring character or mascot used as decoration, or an image whose metaphor is unclear or does not fit the slide, scores at most 3: it decorates the words rather than carrying the idea.",
-        "5": "A chart, infographic, cartoon or shape carries the idea, and the slide looks different from the one before it. A logo or a small icon does not count. The image's metaphor must be clear and fit the slide; a mascot counts only when it acts out the slide's idea."
+        "3": "A visual is present but does not fully work. Any one of these caps visual at 3: it decorates the words rather than carrying the idea; a colour difference the slide and notes never explain (two regions coloured red among neutral ones, with no reason given); a broken encoding (a funnel whose stages do not narrow, an arrow where a tick is meant); an incomplete visual (part of a ladder, list or diagram the idea needs is cut off or missing, such as three of four rungs); items that belong together not grouped visibly; a recurring character or mascot used as decoration; an image whose metaphor is unclear or does not fit the slide; or the slide repeats the previous slide's look.",
+        "5": "A chart, infographic, cartoon or shape carries the idea, every colour, position, order and grouping means something the slide or its notes make clear, nothing the idea needs is cut off or missing, items that belong together are grouped visibly, and the slide looks different from the one before it. A logo or a small icon does not count. A mascot counts only when it acts out the slide's idea and its metaphor is clear."
       },
       "na_allowed": {
         "roles": [
@@ -67,11 +71,11 @@
         "deck",
         "article"
       ],
-      "question": "Does the wording stand alone in full sentences and plain words?",
+      "question": "Would a first-time audience member take the slide's point without guessing? Before scoring, write in \"point\" the one sentence that person would take from the unit, and list in \"guesses\" every word, name, label, title or question they would have to guess at: a step name that does not say what the step is, a subtitle whose purpose is unclear, a question the audience cannot parse, quadrant or axis labels the unit never explains, an ordering label that does not fit the order, undefined jargon. Playful language, a short punchy line or an image in words is not a guess when it has a reasonable reading.",
       "anchors": {
-        "1": "A reader cannot work out the meaning without the speaker or the author: undefined jargon, or a compression or image that has no reasonable reading.",
-        "3": "The meaning can be worked out, but one undefined technical term or one unclear phrase slows the reader down. Violent wording about an idea, such as \"kill\" or \"die\", counts as one unclear phrase: it reads as violent or about people, so say what happens to the idea (it stops, it is dropped).",
-        "5": "A reader can work out every line alone. Playful language, a short punchy line or an image in words is fine when it has a reasonable reading; only undefined jargon or an unreadable compression counts against it."
+        "1": "Two or more guesses, or the point cannot be paraphrased (\"point\" is empty).",
+        "3": "Exactly one guess. Violent wording about an idea, such as \"kill\" or \"die\", counts as one guess: it reads as violent or about people, so say what happens to the idea (it stops, it is dropped).",
+        "5": "No guesses, and the title states the point plainly. Playful language, a short punchy line or an image in words is fine when it has a reasonable reading."
       },
       "na_allowed": {
         "roles": [],
@@ -183,10 +187,10 @@
         "deck",
         "article"
       ],
-      "question": "Does every word, sentence and element on the unit serve its core message? Judge the slide's visible text and elements, or the article text; speaker notes are not judged here. A piece of filler is one sentence, phrase or element that does not serve the core message: meta-commentary that counts or describes what is visible (\"nine rules on the page\", \"all nine\"), an instruction on how to consume the unit (\"Do not read all nine out\"), the \"not X, but Y\" or \"it's this, not that\" pattern, or a line added for completeness rather than meaning.",
+      "question": "Does every word, sentence and element on the unit serve its core message? Judge the slide's visible text and elements, or the article text; speaker notes are not judged here. A piece of filler is one sentence, phrase or element that does not serve the core message: meta-commentary that counts or describes what is visible (\"nine rules on the page\", \"all nine\"), an instruction on how to consume the unit (\"Do not read all nine out\"), the \"not X, but Y\" or \"it's this, not that\" pattern, a line added for completeness rather than meaning, or list items beyond what the idea needs (four questions where three carry the idea). A text-heavy slide whose narrative could live in the speaker notes scores at most 3, however tight each sentence is.",
       "anchors": {
         "1": "Two or more pieces of filler.",
-        "3": "One piece of filler.",
+        "3": "One piece of filler, or a text-heavy slide whose narrative could move to the speaker notes.",
         "5": "No filler: cutting any word, sentence or element would weaken the core message."
       },
       "na_allowed": {

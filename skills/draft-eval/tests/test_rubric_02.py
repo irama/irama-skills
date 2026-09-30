@@ -23,6 +23,7 @@ def records(text2):
     def rec(uid, quote):
         s = {c["id"]: {"score": 4, "reason": f'It says "{quote}".'} for c in RUBRIC["criteria"]}
         s["device"]["type"] = "surprise"
+        s["clear"].update(point="It makes its point.", guesses=[])
         return {"unit": uid, "scores": s}
     r = [rec("u1", "Welcome to the session"), rec("u2", text2)]
     r[0]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'Only "Welcome to the session".'}
@@ -36,7 +37,7 @@ def errors(doc, recs):
 
 class Rubric02Test(unittest.TestCase):
     def test_version(self):
-        self.assertIn(RUBRIC["rubric_version"], ("0.2", "0.3", "0.3.1"))  # 0.3 keeps every 0.2 ruling tested here
+        self.assertIn(RUBRIC["rubric_version"], ("0.2", "0.3", "0.3.1", "0.4"))  # 0.3 and 0.4 keep every 0.2 ruling tested here
 
     def test_planted_forces_na_on_honest_numbers(self):
         doc = units(text="A meta-analysis of 34 studies found 41 per cent", planted=True)
@@ -52,10 +53,10 @@ class Rubric02Test(unittest.TestCase):
             recs[1]["scores"][cid] = {"score": "n/a", "reason": 'A references slide: "Sources".'}
         recs[1]["scores"]["device"]["type"] = "none"
         self.assertEqual(errors(doc, recs), [])
-        recs[1]["scores"]["clear"] = {"score": "n/a", "reason": 'A references slide: "Sources".'}
+        recs[1]["scores"]["clear"] = {"score": "n/a", "point": "It makes its point.", "guesses": [], "reason": 'A references slide: "Sources".'}
         self.assertEqual(errors(doc, recs), ["u2 clear: N/A not allowed here"])
         doc["units"][1]["role"] = "content"
-        recs[1]["scores"]["clear"] = {"score": 4, "reason": 'It says "Sources".'}
+        recs[1]["scores"]["clear"] = {"score": 4, "point": "It makes its point.", "guesses": [], "reason": 'It says "Sources".'}
         self.assertIn("u2 visual: N/A not allowed here", errors(doc, recs))
 
     def test_session_count_na_accepted_with_digits(self):
@@ -97,7 +98,7 @@ class Rubric02Test(unittest.TestCase):
         self.assertEqual(errors(doc, recs), ["u2 honest_numbers: the reason quotes nothing from the unit"])
         # so does every other criterion, N/A or not
         recs[1]["scores"]["honest_numbers"] = {"score": "n/a", "reason": 'Only the label "D1".'}
-        recs[1]["scores"]["clear"] = {"score": 4, "reason": 'The label "D1" reads plainly.'}
+        recs[1]["scores"]["clear"] = {"score": 4, "point": "It makes its point.", "guesses": [], "reason": 'The label "D1" reads plainly.'}
         self.assertEqual(errors(doc, recs), ["u2 clear: the reason quotes nothing from the unit"])
 
     def test_short_label_quote_survives_a_lost_block_space(self):

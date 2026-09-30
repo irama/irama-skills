@@ -24,6 +24,7 @@ UNITS = {"kind": "deck", "units": [
 def record(uid, reasons):
     s = {c: {"score": 4, "reason": reasons.get(c, reasons["*"])} for c in CRITS}
     s["device"]["type"] = "surprise"
+    s["clear"].update(point="It makes its point.", guesses=[])
     return {"unit": uid, "scores": s}
 
 

@@ -26,6 +26,7 @@ def good_record(uid, text):
     for c in RUBRIC["criteria"]:
         scores[c["id"]] = {"score": 4, "reason": f"The unit says {quote}."}
     scores["device"]["type"] = "surprise"
+    scores["clear"].update(point="It makes its point.", guesses=[])
     return {"unit": uid, "scores": scores}
 
 

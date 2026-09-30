@@ -15,10 +15,10 @@
 // ~/LOCAL-DEV/peakstate-deck/tests/node_modules.
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 function loadPlaywright() {
   const dirs = [
@@ -113,7 +113,10 @@ export async function render(indexPath, unitsPath, outdir) {
   return shots;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Run through a symlinked skill folder, argv[1] is the link path while
+// import.meta.url is the real path, so a plain URL compare made the CLI a silent no-op.
+// Compare real paths, as peakstate-brief's build-brief.mjs does.
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   const [indexPath, unitsPath, outdir] = process.argv.slice(2);
   if (!outdir) {
     console.error('usage: render.mjs <index.html> <units.json> <outdir>');

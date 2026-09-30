@@ -20,13 +20,14 @@ report). Until then, score only: run one round with no rewrite.
 | Script | Job |
 | --- | --- |
 | `extract.py` | One unit per logical slide (animation states grouped) or per article part of at most 400 words. |
-| `render.mjs` | One screenshot per deck unit, `contact.png` for the arc pass, `shots.json` with sha256 values and the Playwright and Chromium versions. |
+| `render.mjs` | One screenshot per deck unit (runs from the real path or through the skill symlink), `contact.png` for the arc pass, `shots.json` with sha256 values and the Playwright and Chromium versions. |
 | `check.py` | Mechanical gates, floors and warnings for a deck. |
 | `packet.py`, `validate.py` | Grading packets per batch; validation and stamping of each grader reply. |
 | `arc.py` | The arc pass packet and the validation of its replies. |
 | `run.py` | The lock, the run folder, the per-round record, the round commit, the record check. |
 | `score_round.py` | Unit scores, the median, the bar, the stop decision, the self-preference check, the split re-grade list and the rewrite list. |
 | `prefer.py` | The blind preference page, and `--score` for the 70% rule. |
+| `prefer_rulings.py` | The reader's preference notes as rulings, with each grader's score on the faulted criterion and a grader-missed count. |
 | `brief.py`, `review-brief.md` | The review brief: data placeholders filled from the run record. |
 | `calibrate.py` | Calibration packets and the scoring page. |
 
@@ -170,6 +171,22 @@ in place of its parsed file.
    `prefer.py --score prefer-answers.json prefer-key.json` applies the 70% rule. If after wins
    fewer than 70% of the pairs where a side was chosen, the result goes back to calibration, not
    to the user as a finished deck.
+
+   **Every preference test ends by filing its notes as rulings**, so the reader's notes always
+   feed the next run:
+
+       python3 <skill-dir>/prefer_rulings.py prefer-answers.json prefer-key.json \
+         --units $RUN/rounds/r<last>/units.json --label <target>-prefer \
+         --records $RUN/rounds/r<last>/grading/{codex,claude}.jsonl [<the round's *.regrade.jsonl>] \
+         [--criteria '{"<pair>": ["clear"]}'] -o <rulings.jsonl>
+
+   Each note becomes one ruling per criterion it bears on (keywords in the note pick `clear`,
+   `visual` or `economy`; `--criteria` overrides a pair, and a note that matches nothing stops the
+   script so no note is dropped). Each line carries both graders' scores on that criterion and
+   `missed`, the graders that scored 4 or more on a criterion the reader faulted. The summary on
+   stderr gives the grader-missed count per grader: report it in the brief. A high count means the
+   rubric, not only the deck, needs the next change. Pass the rulings file to `packet.py
+   --examples` in the next run.
 2. **Review brief** (a `peakstate-brief`), at `<brief folder>/<target>-<date>.md`:
 
        python3 <skill-dir>/brief.py $RUN -o <brief>.md --figures <brief folder>/<target>-<date>-figures [--prefer <score json>]
@@ -227,6 +244,10 @@ and `graders/`, as the calibration step says.
          --grader codex|claude --round <n> [--model <codex model id>] -o $R/grading/<grader>.jsonl
 
    For Claude, leave out `--model`; the record keeps the model id the agent reported.
+   From rubric 0.4 the `clear` entry also carries `point` (what a first-time reader takes from the
+   unit) and `guesses` (what they would have to guess at). `validate.py` rejects a `clear` score
+   above what the guesses allow: none allows 5, one caps it at 3, two or more (or an empty point)
+   give 1.
 
 5. If a batch fails validation, run that grader on that batch once more. If it fails again,
    log the batch as failed in `$R/grading/failed.json` as `{"failed": [{grader, batch, errors}]}`

@@ -45,6 +45,22 @@ between the 3 and 5 anchors.
 
 {{CRITERIA}}
 
+## Read it cold first (`clear`)
+
+Before you score `clear`, read the unit as a first-time audience member who has seen only the
+slides before it. Write in `point` the one sentence that person would take from the unit. Then list
+in `guesses` every word, name, label, title or question that person would have to guess at, each as
+a short quote or description. Score from the list: no guesses and a title that states the point
+allows 5; one guess allows at most 3; two or more guesses, or a point you cannot write (leave
+`point` empty), give 1. A higher score than the list allows is rejected. Do not excuse a guess
+because the speaker could explain it: the test is what the slide says on its own.
+
+## Does the visual work (`visual`)
+
+Judge whether the visual works, not only whether one exists. Check each colour, position, order and
+grouping: can the audience tell from the slide or its notes what it means? Check the visual is
+complete: nothing the idea needs is cut off or missing. One failure caps `visual` at 3.
+
 ## N/A rules
 
 - `"n/a"` is allowed only where a criterion says so above. Anywhere else the record is rejected.
@@ -84,6 +100,9 @@ Return one JSON object and nothing else:
         {
           "unit": "<unit id>",
           "scores": {
+            "clear": {"score": 3, "point": "The one sentence a first-time reader takes.",
+                      "guesses": ["\"the label\" is never explained"],
+                      "reason": "One sentence quoting \"the unit\"."},
             "<criterion id>": {"score": 1, "reason": "One sentence quoting \"the unit\"."},
             "<criterion id>": {"score": "n/a", "reason": "One sentence quoting \"the unit\"."},
             "<criterion not for this kind>": null
@@ -100,3 +119,5 @@ Return one JSON object and nothing else:
   `{"score": 5, "type": "live_challenge", "reason": "..."}`. A score of 1 or `"n/a"` has type
   `"none"`; any other score names the one device that carries the unit.
 - `score` is an integer from 1 to 5, or the string `"n/a"`.
+- `clear` also holds `point` (a string, empty only when the point cannot be paraphrased) and
+  `guesses` (a list of strings, empty when a first-time reader guesses at nothing).
