@@ -116,6 +116,8 @@ main { max-width:1400px; margin:0 auto; padding:16px 24px 80px; }
 .pick { margin-top:10px; display:flex; gap:24px; }
 .pick label { cursor:pointer; }
 .pick input { cursor:pointer; }
+.pair textarea { width:100%; min-height:3.2em; margin-top:10px; font:inherit; padding:6px 8px;
+  border:1px solid var(--line); border-radius:6px; resize:vertical; }
 .sides img { cursor:zoom-in; }
 #lb { position:fixed; inset:0; z-index:20; background:rgba(15,18,25,.92); display:none; flex-direction:column;
   align-items:center; justify-content:center; padding:16px; cursor:zoom-out; }
@@ -129,7 +131,7 @@ main { max-width:1400px; margin:0 auto; padding:16px 24px 80px; }
 <button id="download" type="button">Download JSON</button></header>
 <main>
 <div class="intro"><p>Each pair shows the same slide twice: one before the rewrite and one after, in a
-random order. Pick the slide you would rather present, or "No difference". Your answers save in this
+random order. Pick the slide you would rather present, or "No difference", and leave a note under any pair if you want to say why. Your answers save in this
 browser. When every pair is answered, press <b>Download JSON</b> and file it as
 <code>prefer-answers.json</code> beside this page.</p></div>
 <div id="pairs"></div>
@@ -139,8 +141,9 @@ browser. When every pair is answered, press <b>Download JSON</b> and file it as
 <script>
 const D = JSON.parse(document.getElementById('data').textContent);
 const KEY = 'draft-eval-prefer-' + D.key_id;
-let S = {};
+let S = {}, N = {};
 try { S = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+try { N = JSON.parse(localStorage.getItem(KEY + '-notes') || '{}'); } catch (e) {}
 const root = document.getElementById('pairs');
 function progress() {
   const done = D.pairs.filter(p => S[p.pair]).length;
@@ -162,6 +165,15 @@ D.pairs.forEach((p, i) => {
     lab.append(inp, ' ' + text);
     sec.querySelector('.pick').append(lab);
   }
+  const note = document.createElement('textarea');
+  note.placeholder = 'Notes on this pair (optional). Say left or right if you mean one side.';
+  note.setAttribute('aria-label', 'Notes on pair ' + (i + 1));
+  note.value = N[p.pair] || '';
+  note.addEventListener('input', () => {
+    if (note.value.trim()) N[p.pair] = note.value; else delete N[p.pair];
+    localStorage.setItem(KEY + '-notes', JSON.stringify(N));
+  });
+  sec.append(note);
   root.append(sec);
 });
 progress();
@@ -185,7 +197,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { lbSide = e.key === 'ArrowRight' ? 1 : 0; lbShow(); }
 });
 document.getElementById('download').addEventListener('click', () => {
-  const out = {kind: 'draft-eval-preference', key_id: D.key_id, saved_at: new Date().toISOString(), answers: S};
+  const out = {kind: 'draft-eval-preference', key_id: D.key_id, saved_at: new Date().toISOString(), answers: S, notes: N};
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], {type: 'application/json'}));
   a.download = 'prefer-answers.json';
