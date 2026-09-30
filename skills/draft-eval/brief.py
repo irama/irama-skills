@@ -11,7 +11,8 @@ self-preference line, the preference line, the model ids and the Recommended
 tag on Q1. Q1 carries "Recommended" only when the bar is met by both graders,
 no self-preference flag stands, no gate the recommendation rests on passed
 at a tie or failed, and (decks) a --prefer result is given. With --figures, copies each rewritten slide's before and
-after screenshot into that folder (beside the brief) and embeds them. Before is
+after screenshot into that folder (beside the brief) and embeds them as one
+`:::gallery pairs` block, each before beside its after. Before is
 round 1; after is the last round, or --after when the run ended on a rewrite.
 
 Prints the placeholders still open, which the orchestrator writes by hand (the
@@ -19,12 +20,12 @@ call and its price, the answers, the Q1 assumption and crux, proposals,
 failures, limitations). --check exits 1 while any placeholder is open.
 """
 import argparse
-import html
 import json
 import re
 import shutil
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 HERE = Path(__file__).resolve().parent
 OPEN = re.compile(r"\{\{[A-Z0-9_]+\}\}")
@@ -116,17 +117,15 @@ def fill(run, prefer=None, figures=None, after=None):
         now_path = Path(after) if after else last / "shots" / "shots.json"
         now = _json(now_path, {"shots": []})
         for u in rewritten:
-            pair = []
-            # the id is draft markup: keep it out of the path and escape it in the html
-            safe, esc = re.sub(r"[^A-Za-z0-9_-]", "_", str(u)), html.escape(str(u))
+            # the id is draft markup: keep it out of the path, and out of the
+            # markdown image syntax, so a bracket or a tag in it cannot break out
+            safe = re.sub(r"[^A-Za-z0-9_-]", "_", str(u))
+            cap = re.sub(r"[^A-Za-z0-9 -]", "-", str(u))
             for label, doc, base in (("before", first, rounds[0] / "shots"), ("after", now, now_path.parent)):
                 s = next((s for s in doc["shots"] if s["id"] == u), None)
                 if s:
                     shutil.copyfile(base / s["file"], figures / f"{safe}-{label}.png")
-                    src = html.escape(f"{figures.name}/{safe}-{label}.png")
-                    pair.append(f'<figure><img src="{src}" alt="{esc}, {label}">'
-                                f"<figcaption>{esc}, {label}</figcaption></figure>")
-            figs.append(":::html\n<div class=\"pair\">" + "".join(pair) + "</div>\n:::")
+                    figs.append(f"![Slide {cap}, {label}]({quote(figures.name)}/{safe}-{label}.png)")
 
     sp = sc["self_preference"]
     sp_line = ("no rewritten units yet" if not sp["rewritten"] else
@@ -143,7 +142,7 @@ def fill(run, prefer=None, figures=None, after=None):
         "GRADER_TABLE": table(("Grader", "Units scored", "Mean", "Mean per criterion"), grader_rows),
         "GATE_TABLE": table(("Gate", "Threshold", "Measured", "Result"), gates),
         "UNDER_BAR": "\n".join(under) or "None: every unit meets the bar from both graders.",
-        "REWRITE_FIGURES": "\n\n".join(figs) or "No slide was rewritten.",
+        "REWRITE_FIGURES": (":::gallery pairs\n" + "\n".join(figs) + "\n:::") if figs else "No slide was rewritten.",
         "Q1_REC_A": rec_a, "PAIR_COUNT": str(len(rewritten)),
         "CODEX_MODEL": ", ".join(models.get("codex", ["not run"])),
         "CLAUDE_MODEL": ", ".join(models.get("claude", ["not run"])),

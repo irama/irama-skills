@@ -157,7 +157,10 @@ class BriefFixTest(unittest.TestCase):
             figs = Path(t) / "figs"
             text = brief.fill(brief_run(t, rewritten=bad), figures=figs)
             self.assertNotIn("<img src=x", text)
-            self.assertIn("&lt;img", text)
+            gallery = text.split(":::gallery pairs\n", 1)[1].split("\n:::", 1)[0].splitlines()
+            self.assertEqual(len(gallery), 2)
+            for line in gallery:
+                self.assertRegex(line, r"^!\[Slide [A-Za-z0-9 -]+, (before|after)\]\([^)\s]+\)$")
             self.assertEqual({p.parent for p in Path(t).rglob("*-before.png")}, {figs})
 
 
