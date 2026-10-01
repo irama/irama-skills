@@ -38,19 +38,23 @@ worse than no tickets:
 
 1. **The grilling.** Every question goes to the user, one at a time, and waits. Decisions are
    theirs; only *facts* are looked up.
-2. **The ticket breakdown.** `/to-tickets`' own approval step runs in full.
+2. **The ticket breakdown.** `/to-tickets`' own approval step runs in full, presented with the
+   tickets already published and the final command beside them.
 
 Do not "save the user time" by answering either gate yourself.
 
-**But the breakdown gate carries the `/driver` command with it.** The approval turn is the last
-turn: present the numbered tickets AND, below them, the exact command that will be handed back
-once they are approved. "Approved" then means publish and confirm, not publish and wait another
-round for the invocation. Two turns to say the same thing is the waste this removes.
+**The breakdown gate assumes approval and carries the FINAL `/driver` command.** Before the
+approval turn, publish the tickets (step 6) and land the work (step 7), then present the tickets
+AND the paste-ready command with real issue references. The user approves by pasting the command
+and rejects by saying so. A command written with placeholders forces a second round trip whose
+only content is the numbers, and that is the waste this removes (2026-10-02: a placeholder
+`#LA-01` command was pasted as-is after approval).
 
-- The command is **provisional until the tickets exist**, so write it with the titles rather than
-  with issue numbers, and say in one line that the numbers arrive when they are published.
-- **The gate itself does not soften.** A change to the breakdown changes the command, so re-present
-  both together.
+- **Never show a provisional command.** No titles or placeholder ids in place of issue references.
+  If the tickets cannot be published yet, say why and show no command at all.
+- **The gate itself does not soften.** A rejection or a change to the breakdown means editing or
+  closing the published issues to match, and re-presenting the corrected tickets with the corrected
+  command. Closing a published issue is cheap. A wasted approval turn is not.
 - This applies to every gate that is followed by a mechanical step. If the only thing standing
   between an approval and a finished artefact is work you could have done first, do it first and
   show it alongside the question.
@@ -144,7 +148,9 @@ Verify each finding yourself before accepting it; reviewers are confidently wron
 
 ### 6. `/to-tickets`
 
-Tracer bullets, each sized to one context window, in dependency order. Its approval step runs.
+Tracer bullets, each sized to one context window, in dependency order. Its approval step runs,
+**optimistically**: publish the tickets first, then run step 7, then present the published tickets
+and the final command together as the approval turn (see "The breakdown gate assumes approval").
 
 Each ticket body carries: a link to the spec section, what to do, **the traps** (the specific
 failure the reviewer found, in the ticket where it will bite), acceptance criteria, and its
@@ -211,8 +217,9 @@ full suite runs.
 
 ### 8. Hand back the command
 
-**The command was already drafted and shown at the step 6 gate**, so this step resolves its
-titles into real references and confirms. Do not make the user ask for it a second time.
+**This IS the step 6 approval turn**: the tickets are published and the work is landed, so the
+command carries real references the first time it is shown. Do not make the user ask for it a
+second time, and never show a placeholder version of it.
 
 Lead with a **short label naming the work**, then the references, on one line, ready to paste:
 
