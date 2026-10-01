@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.4.2",
+  "rubric_version": "0.5",
   "phase": "experimental",
   "changelog": [
     {
@@ -29,6 +29,10 @@
     {
       "version": "0.4.2",
       "note": "Fitted to Andrew's round-three notes on the A4 deck, so those slides are not a fair test of it. Device gains curiosity: a signal that a mental model is coming, such as framework ids shown ahead of the framework. Clear: items in a list or sequence must be parallel in form and questions in a sequence share one polarity; a non-parallel list counts as one guess. A chart that does not say what it measures, for whom, and its takeaway, or a recommendation that does not say what to do and in what situation, counts as one guess under clear and caps visual at 3. Arc: taxonomy_ids also asks that a recurring emblem or id has exactly the same visual treatment every time; a new arc criterion one_model, in the bar, asks for one model per idea, so two slides that model the same idea with different axes or terms lower it."
+    },
+    {
+      "version": "0.5",
+      "note": "Fitted to the eight lesson groups Andrew confirmed on 1 October 2026 from five rounds of notes on the A4 deck, so that deck is not a fair test of it. Clear: slides build on earlier slides, so a term introduced on an earlier slide is not a guess where it is reused, and a question or label that makes sense only beside the speaker is one. Economy: a hedge or provenance caveat on the face of a slide is filler; it belongs in the speaker notes or the slide's sources field. Honest numbers can be met in the sources field. Notes: a provenance caveat written for the presenter to say aloud belongs in the sources field. Visual: draw the shape the idea already has, true to the rules of what it depicts and recognisable at a glance, with the fewest encodings the story needs. Arc: taxonomy_ids asks for one distinct look per framework; variety names curiosity. The arc pass now reads the deck-level rulings. A lessons list carries the confirmed groups as checks for the pre-review and the lessons step."
     }
   ],
   "scale": {
@@ -58,11 +62,11 @@
       "applies_to": [
         "deck"
       ],
-      "question": "Does the visual work: does a chart, infographic, cartoon or shape carry the idea, does every colour, position, order and grouping in it mean something the slide or its notes make clear, is it complete, do findings and recommendations look different, does a chart say what it shows and its takeaway, does a recommendation say what to do and when, and does the slide look different from the one before it?",
+      "question": "Does the visual work: does a chart, infographic, cartoon or shape carry the idea, is it the shape the idea already has (a journey as a map, a spread as a curve, a filter as a funnel), true to the rules of what it depicts and recognisable at a glance, does it carry the fewest encodings the story needs, does every colour, position, order and grouping in it mean something the slide or its notes make clear, is it complete, do findings and recommendations look different, does a chart say what it shows and its takeaway, does a recommendation say what to do and when, and does the slide look different from the one before it?",
       "anchors": {
         "1": "Text only, or the only image is a logo or a small icon. The slide looks the same as the one before it.",
-        "3": "A visual is present but does not fully work. Any one of these caps visual at 3: it decorates the words rather than carrying the idea; a colour difference the slide and notes never explain (two regions coloured red among neutral ones, with no reason given); a broken encoding (a funnel whose stages do not narrow, an arrow where a tick is meant); an incomplete visual (part of a ladder, list or diagram the idea needs is cut off or missing, such as three of four rungs); items that belong together not grouped visibly; a recurring character or mascot used as decoration; an image whose metaphor is unclear or does not fit the slide; findings and recommendations on one slide with the same visual treatment, so a recommendation reads as a finding; a chart that does not state plainly what it shows (what is measured, for whom) and its takeaway; a recommendation that does not say what to do and in what situation; or the slide repeats the previous slide's look.",
-        "5": "A chart, infographic, cartoon or shape carries the idea, every colour, position, order and grouping means something the slide or its notes make clear, nothing the idea needs is cut off or missing, items that belong together are grouped visibly, findings and recommendations on one slide look visibly different, every chart states what it measures, for whom, and its takeaway, every recommendation says what to do and when, and the slide looks different from the one before it. A logo or a small icon does not count. A mascot counts only when it acts out the slide's idea and its metaphor is clear."
+        "3": "A visual is present but does not fully work. Any one of these caps visual at 3: it decorates the words rather than carrying the idea; generic cards or a list where the idea has a shape of its own; a visual metaphor that breaks the rules of what it depicts (contour lines that cross, a path that zigzags where real paths wind); a drawn object that is not recognisable at a glance, or so skeuomorphic it reads as an imitation rather than the thing (a pipette where a funnel is meant); a series, colour or element the story does not need; a colour difference the slide and notes never explain (two regions coloured red among neutral ones, with no reason given); a broken encoding (a funnel whose stages do not narrow, an arrow where a tick is meant); an incomplete visual (part of a ladder, list or diagram the idea needs is cut off or missing, such as three of four rungs); items that belong together not grouped visibly; a recurring character or mascot used as decoration; an image whose metaphor is unclear or does not fit the slide; findings and recommendations on one slide with the same visual treatment, so a recommendation reads as a finding; a chart that does not state plainly what it shows (what is measured, for whom) and its takeaway; a recommendation that does not say what to do and in what situation; or the slide repeats the previous slide's look.",
+        "5": "A chart, infographic, cartoon or shape carries the idea in the shape the idea already has, true to what it depicts and recognisable at a glance, with the fewest encodings the story needs, every colour, position, order and grouping means something the slide or its notes make clear, nothing the idea needs is cut off or missing, items that belong together are grouped visibly, findings and recommendations on one slide look visibly different, every chart states what it measures, for whom, and its takeaway, every recommendation says what to do and when, and the slide looks different from the one before it. A logo or a small icon does not count. A mascot counts only when it acts out the slide's idea and its metaphor is clear."
       },
       "na_allowed": {
         "roles": [
@@ -79,7 +83,7 @@
         "deck",
         "article"
       ],
-      "question": "Would a first-time audience member take the slide's point without guessing? Before scoring, write in \"point\" the one sentence that person would take from the unit, and list in \"guesses\" every word, name, label, title or question they would have to guess at: a step name that does not say what the step is, a subtitle whose purpose is unclear, a question the audience cannot parse, quadrant or axis labels the unit never explains, an ordering label that does not fit the order, undefined jargon, a list or sequence whose items are not parallel in form (one item a question, the next a noun; questions in a sequence where \"yes\" continues on one and stops on another), a chart that does not say what it measures, for whom, or what to take from it, a recommendation that does not say what to do or in what situation. A term the deck's terms slide defines is not a guess on the slide that introduces it or any slide after; used before that slide, it still is. Playful language, a short punchy line or an image in words is not a guess when it has a reasonable reading.",
+      "question": "Would a first-time audience member take the slide's point without guessing? Before scoring, write in \"point\" the one sentence that person would take from the unit, and list in \"guesses\" every word, name, label, title or question they would have to guess at: a step name that does not say what the step is, a subtitle whose purpose is unclear, a question the audience cannot parse, quadrant or axis labels the unit never explains, an ordering label that does not fit the order, undefined jargon, a question or label that makes sense only beside the speaker rather than on its own, a list or sequence whose items are not parallel in form (one item a question, the next a noun; questions in a sequence where \"yes\" continues on one and stops on another), a chart that does not say what it measures, for whom, or what to take from it, a recommendation that does not say what to do or in what situation. Slides build on earlier slides: a term the deck introduces on an earlier slide (the terms list names the introducing slide, or the previous unit defines it) is not a guess where it is reused, and ideally context clues on the reusing slide also imply its meaning; a term used before any slide introduces it still is. Playful language, a short punchy line or an image in words is not a guess when it has a reasonable reading.",
       "anchors": {
         "1": "Two or more guesses, or the point cannot be paraphrased (\"point\" is empty).",
         "3": "Exactly one guess. Violent or loaded wording, such as \"kill\" or \"die\", counts as one guess only when its object is not clear on the same slide, a neighbour or an earlier slide; \"kill the idea\" right after the slide names the idea is fine. A non-parallel list or sequence counts as one guess, however many items break the pattern. A chart missing what it shows or its takeaway counts as one guess; a recommendation missing what to do or when counts as one guess.",
@@ -196,7 +200,7 @@
         "deck",
         "article"
       ],
-      "question": "Does every word, sentence and element on the unit serve its core message? Judge the slide's visible text and elements, or the article text; speaker notes are not judged here. A piece of filler is one sentence, phrase or element that does not serve the core message: meta-commentary that counts or describes what is visible (\"nine rules on the page\", \"all nine\"), an instruction on how to consume the unit (\"Do not read all nine out\"), the \"not X, but Y\" or \"it's this, not that\" pattern, a line added for completeness rather than meaning, or list items beyond what the idea needs (four questions where three carry the idea). A text-heavy slide whose narrative could live in the speaker notes scores at most 3, however tight each sentence is.",
+      "question": "Does every word, sentence and element on the unit serve its core message? Judge the slide's visible text and elements, or the article text; speaker notes are not judged here. A piece of filler is one sentence, phrase or element that does not serve the core message: meta-commentary that counts or describes what is visible (\"nine rules on the page\", \"all nine\"), an instruction on how to consume the unit (\"Do not read all nine out\"), the \"not X, but Y\" or \"it's this, not that\" pattern, a hedge or provenance caveat on the face of the slide (\"the study did not test this\", a limit stated beside the claim), which weakens the slide's authority and belongs in the speaker notes or the slide's sources field, a line added for completeness rather than meaning, or list items beyond what the idea needs (four questions where three carry the idea). A text-heavy slide whose narrative could live in the speaker notes scores at most 3, however tight each sentence is.",
       "anchors": {
         "1": "Two or more pieces of filler.",
         "3": "One piece of filler, or a text-heavy slide whose narrative could move to the speaker notes.",
@@ -234,11 +238,11 @@
         "deck",
         "article"
       ],
-      "question": "Does every number carry its source and its limit?",
+      "question": "Does every number carry its source and its limit? The source and limit may sit in the speaker notes or the slide's sources field (sources.txt) rather than on the slide; the slide states the claim plainly.",
       "anchors": {
         "1": "A number with no source and no limit. Counts that describe the session itself (timings, exercise positions, counts of acts or clusters, labels like C1 to C9) are not numbers here.",
         "3": "Every number has a source, but a limit is missing, or the source is vague.",
-        "5": "Every number has its source and its limit, on the slide, in the notes, or in the article's references. A unit whose only numbers describe the session is N/A, never 5."
+        "5": "Every number has its source and its limit, on the slide, in the notes, in the slide's sources field, or in the article's references. A unit whose only numbers describe the session is N/A, never 5."
       },
       "na_allowed": {
         "roles": [],
@@ -255,7 +259,7 @@
       "applies_to": [
         "deck"
       ],
-      "question": "Does every instruction in the speaker notes name the exact move and define what it refers to? \"Ask them for the forbidden list out loud\" fails, because the notes never say which list; \"Ask the room for an agentic opportunity, then ask what is forbidden in that example\" passes. Notes with no instruction score on whether every reference they make is defined.",
+      "question": "Does every instruction in the speaker notes name the exact move and define what it refers to? \"Ask them for the forbidden list out loud\" fails, because the notes never say which list; \"Ask the room for an agentic opportunity, then ask what is forbidden in that example\" passes. Notes with no instruction score on whether every reference they make is defined. A provenance caveat written for the presenter to say aloud (\"if asked, the study did not test this\") is not an instruction; it belongs in the slide's sources field, and in the notes it counts as one vague instruction.",
       "anchors": {
         "1": "Two or more instructions a presenter could not carry out as written: the move is vague, or it refers to something the notes never define.",
         "3": "One instruction is vague or refers to something undefined; the rest name the exact move.",
@@ -298,7 +302,7 @@
       {
         "id": "variety",
         "name": "Device variety",
-        "question": "Do the devices vary across the deck? Name each unit's device type (guess before reveal, surprise, tease paid off later, callback, live challenge, insight that overturns an assumption, surprising rule stated plainly).",
+        "question": "Do the devices vary across the deck? Name each unit's device type (guess before reveal, surprise, tease paid off later, callback, live challenge, insight that overturns an assumption, surprising rule stated plainly, curiosity). One device per unit is the aim, never every device on every unit.",
         "anchors": {
           "1": "One device type dominates the deck, or the same type repeats on consecutive units throughout.",
           "3": "Mostly varied, but the same type sits on two consecutive units, or one type covers more than half the units with a device.",
@@ -318,11 +322,11 @@
       {
         "id": "taxonomy_ids",
         "name": "Taxonomy ids mean something and look the same",
-        "question": "Where the deck labels items with ids (such as D1 to D4), does the letter stand for something the audience can tell, and is each id reused wherever its item appears? Does a recurring emblem or id use exactly the same visual treatment (shape, colour, type) every time it appears? A deck with no ids or emblems scores 5.",
+        "question": "Where the deck labels items with ids (such as D1 to D4), does the letter stand for something the audience can tell, and is each id reused wherever its item appears? Does a recurring emblem or id use exactly the same visual treatment (shape, colour, type) every time it appears? Does each framework have one distinct look, used identically everywhere and clearly unlike every other framework's look? A deck with no ids or emblems scores 5.",
         "anchors": {
-          "1": "The ids use a letter that means nothing to the audience, and an item appears later without its id or under another one. Or a recurring emblem or id changes its visual treatment on several slides.",
-          "3": "The letter means something, but an item appears later without its id, or the id's letter is never explained. Or a recurring emblem or id changes its visual treatment on one slide.",
-          "5": "Every id's letter means something the deck makes clear, and each id is reused wherever its item appears, with exactly the same visual treatment every time."
+          "1": "The ids use a letter that means nothing to the audience, and an item appears later without its id or under another one. Or a recurring emblem or id changes its visual treatment on several slides. Or several frameworks share one look.",
+          "3": "The letter means something, but an item appears later without its id, or the id's letter is never explained. Or a recurring emblem or id changes its visual treatment on one slide. Or two frameworks share a look, so their items blur.",
+          "5": "Every id's letter means something the deck makes clear, and each id is reused wherever its item appears, with exactly the same visual treatment every time. Each framework's look is clearly unlike every other framework's."
         }
       },
       {
@@ -428,5 +432,82 @@
       "pattern": "\\bread them together\\b",
       "why": "An instruction on how to consume the slide."
     }
-  ]
+  ],
+  "lessons": {
+    "note": "The confirmed lesson groups as checks. The pre-review holds every revision against them before the reader sees it, and the lessons step after each review round asks whether the rubric would have caught each reader note.",
+    "groups": [
+      {
+        "id": "words",
+        "checks": [
+          "A first-time reader takes each slide's point with nothing to guess.",
+          "A question or label makes sense on its own, not only beside the speaker.",
+          "List items share one form, and questions in a sequence share one polarity.",
+          "A non-plain term is introduced early, visually, with a metaphor or example, or replaced; once introduced it may be reused, ideally with context clues.",
+          "A loaded word such as \"kill\" has its object clear on the slide or just before it."
+        ]
+      },
+      {
+        "id": "economy",
+        "checks": [
+          "Every word and element serves the slide's message: no meta-commentary, reading instructions or \"this, not that\".",
+          "The slide states the position plainly; sources, limits and \"not tested\" caveats go in the sources field, never on the slide or in the spoken notes.",
+          "A text-heavy slide moves its story into the speaker notes."
+        ]
+      },
+      {
+        "id": "shape",
+        "checks": [
+          "Name the shape of the idea, then draw that shape.",
+          "A visual metaphor obeys the rules of what it depicts.",
+          "A drawn object is recognisable at a glance without becoming a photo-real imitation.",
+          "A mascot appears only when it plays a part in the slide's metaphor."
+        ]
+      },
+      {
+        "id": "encodings",
+        "checks": [
+          "Every colour, line, circle and position means something the slide or notes make clear.",
+          "Drop any series or element the story does not need.",
+          "Nothing the idea needs is cut off.",
+          "A chart says what it measures, for whom, and its takeaway; a recommendation says what to do and when, set apart from the findings."
+        ]
+      },
+      {
+        "id": "frameworks",
+        "checks": [
+          "One model per idea: two slides that model the same idea get merged.",
+          "A framework's ids use a letter that stands for something and appear wherever the item does.",
+          "Each framework has one look, used identically everywhere and unlike every other framework's look.",
+          "Ids shown before the framework can spark curiosity that a simple model is coming."
+        ]
+      },
+      {
+        "id": "devices",
+        "checks": [
+          "One device per slide, varied across the deck.",
+          "Curiosity counts as a device.",
+          "Narrative over strict flow: a deck may change topic when the story supports it, and a case may sit in the notes."
+        ]
+      },
+      {
+        "id": "regressions",
+        "checks": [
+          "Every element the reader praised is on the keep list; a rewrite that removes one says why.",
+          "A change the reader marks worse is reverted first, then the new idea is applied to the previous version.",
+          "When one slide is flagged, check every slide for the same fault."
+        ]
+      },
+      {
+        "id": "evals",
+        "checks": [
+          "Anchors test whether it works for a first-time audience, not whether it is present.",
+          "A slide the reader did not comment on is not a passed slide.",
+          "Claude sets the bar; Codex audits self-marking.",
+          "Reader notes become rulings, a grader-missed count and a lessons step.",
+          "A fresh reviewer holds each revision against these checks before the reader sees it.",
+          "Reviews show the slide, ask only about what changed, and never re-ask a settled ruling."
+        ]
+      }
+    ]
+  }
 }

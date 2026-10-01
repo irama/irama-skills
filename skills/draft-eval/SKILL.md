@@ -52,45 +52,34 @@ report). Until then, score only: run one round with no rewrite.
   onwards, and still is before it. `arc.py` writes it as `terms.md`, and `check.py` warns
   (`terms_before_intro`) on a term that appears before its introducing slide or has none.
 
-### Rubric 0.4.2
+- **The sources field** is a slide's non-spoken provenance: `<script type="application/json"
+  id="slide-sources">`, an array of `{index, sources}` keyed like the speaker notes (see the
+  `peakstate-deck` skill). `extract.py` writes it as the unit's `sources`, `packet.py` as
+  `sources.txt`, and graders count a number sourced there for `honest_numbers`. It is neither
+  notes for `notes_actionable` nor visible text for `economy`.
+- **The keep list** is `<folder>/keep.json`, committed with the draft:
+  `{"keep": [{"unit": "<slide id>", "element": "<what the reader praised>"}]}`. Every element the
+  reader praises in a review goes on it. The rewrite step reads it, and the review brief reports
+  each element against the run's rewrites.
 
-- **`device`** gains the type `curiosity`: the unit signals that a mental model is coming, such as
-  framework ids shown ahead of the framework. The model must arrive later.
-- **`clear`**: items in a list or sequence are parallel in form, and questions in a sequence share
-  one polarity (every "yes" continues). A non-parallel list counts as one guess.
-- **`visual` and `clear`**: a chart states what it measures, for whom, and its takeaway; a
-  recommendation says what to do and in what situation. Missing either caps visual at 3 and counts
-  as one guess under clear.
-- **Arc**: `taxonomy_ids` also asks that a recurring emblem or id has exactly the same visual
-  treatment every time. A new arc criterion in the bar, `one_model`, asks for one model per idea:
-  two slides that model the same idea with different axes or terms lower it.
+### Rubric 0.5
 
-### Rubric 0.4.1
+Fitted to the eight lesson groups the reader confirmed from five rounds of deck notes. Each lesson
+is now something a grader checks, and `rubric.json` carries them as a `lessons` list of checks.
 
-- **`clear`**: loaded wording such as "kill" is a guess only when its object is not clear on the
-  slide, a neighbour or an earlier slide. A term from the terms slide is not a guess once introduced.
-- **`visual`**: findings and recommendations on one slide need visibly different treatment; mixing
-  them caps visual at 3.
-- **Two arc criteria**, both in the bar: `terms_introduced` (every non-plain term is introduced
-  visually, with a metaphor or example, on or before its first use) and `taxonomy_ids` (an id such
-  as D1 uses a letter that means something and is reused wherever its item appears).
+- **`clear`**: slides build on earlier slides. A term introduced on an earlier slide is not a guess
+  where it is reused; context clues on the reusing slide are the ideal. A question or label that
+  makes sense only beside the speaker is a guess.
+- **`economy`**: a hedge or provenance caveat on the face of a slide is filler. **`honest_numbers`**
+  can be met in the notes or the sources field. **`notes_actionable`**: a caveat written for the
+  presenter to say aloud belongs in the sources field.
+- **`visual`**: draw the shape the idea already has, true to the rules of what it depicts and
+  recognisable at a glance, with the fewest encodings the story needs.
+- **Arc**: `taxonomy_ids` asks for one distinct look per framework; `variety` names curiosity. The
+  arc pass now reads the deck-level rulings (`arc.py build --examples`).
 
-### One device per unit (rubric 0.3)
-
-Each unit carries the base criteria plus ONE device, and the devices vary across the deck.
-
-- **`device`** scores the one trick or twist on the unit and names its `type`: `guess_reveal`,
-  `surprise`, `tease_payoff`, `callback`, `live_challenge`, `overturn`, `plain_rule` or `curiosity`. A score of 1
-  or N/A has type `none`. Title and evidence units may be N/A. An exercise with no fixed answer
-  scores on its own device, usually a live challenge.
-- **`economy`** counts filler on the unit's visible text: meta-commentary, instructions on how to
-  read the slide, the "not X, but Y" pattern, lines added for completeness. `check.py` gates the
-  rubric's `filler_patterns` (for example "do not read", "on this slide") on slide text, never on notes.
-- **`notes_actionable`** (decks) asks that every instruction in the notes names the exact move and
-  defines what it refers to. N/A only on a unit with no notes.
-- **The arc's `variety`** scores whether the device types vary. `score_round.py` writes
-  `device_variety` per grader (consecutive units that share a type, and the most common type's
-  share) as a cross-check.
+Earlier versions (0.3 to 0.4.2), whose rules still hold, are in `rubric-history.md`: open it when a
+score turns on a rule this section does not name.
 
 The rubric's `changelog` says what each version changed and what it was fitted to.
 
@@ -133,7 +122,8 @@ The rubric's `changelog` says what each version changed and what it was fitted t
    A calibration round (`--graders both`) has both graders grade every unit.
 5. **Arc pass** (decks), Claude only; Codex runs it too only in a calibration round:
 
-       python3 <skill-dir>/arc.py build $R/units.json $R --shots $R/shots/shots.json --run-sheet <run sheet> > $R/arc.build.json
+       python3 <skill-dir>/arc.py build $R/units.json $R --shots $R/shots/shots.json --run-sheet <run sheet> \
+         --examples <rulings.jsonl> > $R/arc.build.json
        codex exec --ephemeral -s read-only --skip-git-repo-check -C $R/arc --output-schema <skill-dir>/arc-schema.json \
          -o $R/arc/arc.codex.json - -i $R/arc/contact.png < $R/arc.prompt.md
        python3 <skill-dir>/arc.py validate $R/arc/arc.codex.json --grader codex --round <n> --model <codex model> -o $R/arc.json
@@ -156,7 +146,13 @@ The rubric's `changelog` says what each version changed and what it was fitted t
    - Edit the source (`_gen.py`, or the article `.md`), never the generated `index.html`.
    - Obey the deck's `BUILD.md`. Keep the approved spine's act order. Add or delete no slide.
    - Never read earlier grader reasoning into a packet: the graders see only the draft.
-   - Write `$R/rewrites.json`: `{"round": n, "rewrites": [{"unit", "why", "files", "change"}], "images": [...]}`.
+   - **Read `<folder>/keep.json` first.** A rewrite of a unit on the keep list keeps the praised
+     element, or says in its `keep` note why it goes.
+   - **Worse means revert.** Where the reader marked a change worse, restore the previous version
+     first, then apply the new idea to it.
+   - **Fix the pattern, not the slide.** When a fault is flagged on one unit, check every unit for
+     the same fault, and list each unit fixed.
+   - Write `$R/rewrites.json`: `{"round": n, "rewrites": [{"unit", "why", "files", "change", "keep"}], "images": [...]}`.
 9. **Images**: at most 10 new images per run, with `/gen-image`, following the robot monkey rules
    in the `peak-state-design` skill (`assets/characters/robot-monkey/README.md`). Log each one in
    `$RUN/images.json` (`round`, `unit`, `prompt`, `model`, `path`). Ideas past the tenth go into
@@ -229,9 +225,17 @@ in place of its parsed file.
    stderr gives the grader-missed count per grader: report it in the brief. A high count means the
    rubric, not only the deck, needs the next change. Pass the rulings file to `packet.py
    --examples` in the next run.
-2. **Review brief** (a `peakstate-brief`), at `<brief folder>/<target>-<date>.md`:
+2. **Pre-review against the lessons**, before the reader sees anything. Dispatch a fresh
+   general-purpose agent with the changed slides' screenshots, `<folder>/keep.json` and the
+   rubric's `lessons` checks. It returns every check a changed slide breaks and every kept element
+   a rewrite lost. Fix those, rebuild, and say in the brief what the pre-review caught, so the
+   reader only catches what the lessons do not yet cover.
+3. **Review brief** (a `peakstate-brief`), at `<brief folder>/<target>-<date>.md`:
 
        python3 <skill-dir>/brief.py $RUN -o <brief>.md --figures <brief folder>/<target>-<date>-figures [--prefer <score json>]
+
+   The brief shows each slide itself, asks only about what changed, never re-asks a settled
+   ruling, and reports the keep list (`{{KEEP_TABLE}}`, filled from `<folder>/keep.json`).
 
    `brief.py` fills the data and prints the placeholders still open. Write those by hand:
    - `{{CALL}}` and `{{PRICE}}` open the brief. The first sentence states the call; the second
@@ -243,6 +247,14 @@ in place of its parsed file.
 
    Then `python3 <skill-dir>/brief.py --check <brief>.md`, build with
    `node <peakstate-brief>/assets/build-brief.mjs <brief>.md`, and run `brief-lint.py` on the HTML.
+4. **Lessons step, after every review round.** When the reader's answers come back:
+   - File each note as a ruling (`prefer_rulings.py` for a preference test, by hand otherwise) and
+     report the grader-missed count: notes on a criterion a grader scored 4 or more.
+   - Add every element the reader praised to `<folder>/keep.json`.
+   - For each note, ask whether the rubric and the `lessons` checks would have caught it. A note
+     no anchor or check covers is a lesson: propose the anchor change and the check as the next
+     rubric version, for the reader to confirm.
+   - Silence is not approval: a slide the reader did not comment on is not a passed slide.
 
 ## Grading step
 
@@ -330,7 +342,9 @@ When the human scorer rules on a contested score or corrects one, file it as a w
 `score` is 1 to 5 or `"n/a"`. Extra fields (set, unit, ruling id) are kept in the file and not
 shown to graders. Pass the file to `packet.py --examples <file>`: each batch prompt gains the
 examples whose criterion applies to the draft's kind, labelled as calibration examples in a fenced
-data block, and the batch list gains `examples_sha256`. The file holds draft text, so it lives with
+data block, and the batch list gains `examples_sha256`. Pass the same file to `arc.py build
+--examples`: the arc prompt gains the deck-level rulings (an arc-only criterion such as
+`taxonomy_ids` or `one_model`, or an arc criterion with `"unit": "deck"`), and `packet.py` skips them. The file holds draft text, so it lives with
 the draft's private repo, never in this skill.
 
 Tests: `python3 -m unittest discover -s skills/draft-eval/tests` from the repo root.

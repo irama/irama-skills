@@ -115,7 +115,7 @@ def quote_sources(reason, unit, prev=None, short_ok=False):
     short_ok lets a quote under 4 characters count when it is a whole token of the unit
     ("D1"). check_record sets it only for an honest_numbers N/A, where a session label
     is often the only thing there is to quote (rubric 0.2)."""
-    source = _norm(unit.get("text", "") + "\n" + unit.get("notes", ""))
+    source = _norm(unit.get("text", "") + "\n" + unit.get("notes", "") + "\n" + unit.get("sources", ""))
     before = _norm((prev or {}).get("text", ""))
     out = []
     for m in QUOTE.finditer(reason):
@@ -183,7 +183,7 @@ PREV_OK = ("flow", "device")
 def check_record(rec, unit, first, kind, rubric, prev=None):
     errs = []
     uid = rec["unit"]
-    has_number = bool(NUMBER.search(unit.get("text", "") + " " + unit.get("notes", "")))
+    has_number = bool(NUMBER.search(" ".join(unit.get(k, "") for k in ("text", "notes", "sources"))))
     for c in rubric["criteria"]:
         cid, entry = c["id"], rec["scores"].get(c["id"])
         if kind not in c["applies_to"]:

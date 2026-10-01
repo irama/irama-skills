@@ -7,6 +7,7 @@ Each batch directory holds, per unit, a folder `<nn>-<id>/` with:
   slide.png  the unit's screenshot (decks)
   text.txt   the unit's visible text
   notes.txt  the unit's notes, when it has any
+  sources.txt  the unit's non-spoken sources field, when it has one
   context/prev.png  the previous unit's screenshot (decks, not on the first unit)
   context/prev.txt  the previous unit's text (not on the first unit)
 The previous unit sits in `context/` so a grader cannot mistake it for the unit:
@@ -69,7 +70,9 @@ def load_examples(path, rubric):
         e = json.loads(line)
         if isinstance(e.get("criterion"), str) and e["criterion"] not in crits:
             # a ruling on a criterion this rubric retired (guess_reveal, delight in 0.3) stays in the file
-            print(f"packet.py: {path} line {n}: skipped, {e['criterion']} is not in this rubric", file=sys.stderr)
+            why = ("an arc criterion, read by arc.py --examples" if e["criterion"] in {a["id"] for a in rubric["arc"]["criteria"]}
+                   else "not in this rubric")
+            print(f"packet.py: {path} line {n}: skipped, {e['criterion']} is {why}", file=sys.stderr)
             continue
         ok = (e.get("criterion") in crits and isinstance(e.get("excerpt"), str) and isinstance(e.get("reason"), str)
               and (e.get("score") == "n/a" or (type(e.get("score")) is int and 1 <= e["score"] <= 5)))
@@ -157,6 +160,8 @@ def build(units_doc, outdir, shots_path=None, rubric=None, select=None, examples
             (udir / "text.txt").write_text(u.get("text", ""))
             if u.get("notes"):
                 (udir / "notes.txt").write_text(u["notes"])
+            if u.get("sources"):
+                (udir / "sources.txt").write_text(u["sources"])
             if prev:
                 (udir / "context").mkdir()
                 (udir / "context" / "prev.txt").write_text(prev.get("text", ""))

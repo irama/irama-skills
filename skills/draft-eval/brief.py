@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fill the review brief's data placeholders from the run record.
 
-    brief.py <run dir> -o <brief.md> [--prefer prefer-result.json] [--figures <dir>] [--after shots.json]
+    brief.py <run dir> -o <brief.md> [--prefer prefer-result.json] [--figures <dir>] [--after shots.json] [--keep keep.json]
     brief.py --check <brief.md>
 
 Copies review-brief.md and fills everything that is data: the run ids, the grader
@@ -14,6 +14,10 @@ at a tie or failed, and (decks) a --prefer result is given. With --figures, copi
 after screenshot into that folder (beside the brief) and embeds them as one
 `:::gallery pairs` block, each before beside its after. Before is
 round 1; after is the last round, or --after when the run ended on a rewrite.
+
+The keep table reports every element on the draft's keep list (`<folder>/keep.json`, the
+folder that holds eval-runs/, or --keep) against the run's rewrites: untouched, rewritten
+with the rewrite's keep note, or rewritten with no keep note, which the reader checks by eye.
 
 Prints the placeholders still open, which the orchestrator writes by hand (the
 call and its price, the answers, the Q1 assumption and crux, proposals,
@@ -69,13 +73,28 @@ def gate_rows(sc, arc, prefer):
     return rows
 
 
+def keep_rows(keep, rounds):
+    notes = {}
+    for rd in rounds:
+        for r in _json(rd / "rewrites.json", {}).get("rewrites", []):
+            notes.setdefault(r["unit"], []).append(r.get("keep"))
+    rows = []
+    for k in keep.get("keep", []):
+        said = [n for n in notes.get(k["unit"], []) if n]
+        status = ("untouched" if k["unit"] not in notes else
+                  "rewritten: " + "; ".join(said) if said else "rewritten with no keep note: check by eye")
+        rows.append((k["unit"], k["element"], status))
+    return rows
+
+
 def table(head, rows):
     out = ["| " + " | ".join(head) + " |", "| " + " | ".join("---" for _ in head) + " |"]
     return "\n".join(out + ["| " + " | ".join(str(c).replace("|", "\\|") for c in r) + " |" for r in rows])
 
 
-def fill(run, prefer=None, figures=None, after=None):
+def fill(run, prefer=None, figures=None, after=None, keep=None):
     run = Path(run)
+    keep_path = Path(keep) if keep else run.parent.parent / "keep.json"
     meta = _json(run / "run.json")
     rounds = sorted((run / "rounds").glob("r*"), key=lambda p: int(p.name[1:]))
     last = rounds[-1]
@@ -147,6 +166,8 @@ def fill(run, prefer=None, figures=None, after=None):
         "CODEX_MODEL": ", ".join(models.get("codex", ["not run"])),
         "CLAUDE_MODEL": ", ".join(models.get("claude", ["not run"])),
         "RUN_RECORD": f"eval-runs/{Path(run).name}/",
+        "KEEP_TABLE": (table(("Unit", "What the reader praised", "This run"), keep_rows(_json(keep_path), rounds))
+                       if keep_path.exists() else "No keep list: the draft folder has no keep.json yet."),
     }
     text = (HERE / "review-brief.md").read_text()
     for k, v in values.items():
@@ -162,6 +183,7 @@ def main(argv=None):
     ap.add_argument("--figures")
     ap.add_argument("--check")
     ap.add_argument("--after", help="shots.json of the final state, when the run ended on a rewrite")
+    ap.add_argument("--keep", help="the keep list, when it is not <folder>/keep.json")
     a = ap.parse_args(argv)
     if a.check:
         left = sorted(set(OPEN.findall(Path(a.check).read_text())))
@@ -169,7 +191,7 @@ def main(argv=None):
         return 1 if left else 0
     if not (a.run and a.out):
         ap.error("<run dir> and -o are required")
-    text = fill(a.run, _json(a.prefer) if a.prefer else None, a.figures, a.after)
+    text = fill(a.run, _json(a.prefer) if a.prefer else None, a.figures, a.after, a.keep)
     Path(a.out).write_text(text)
     print("\n".join(sorted(set(OPEN.findall(text)))))
     return 0

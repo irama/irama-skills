@@ -16,6 +16,9 @@ The working directory holds one folder per unit, named `<nn>-<unit id>`. Each fo
 
 - `text.txt`: the unit's visible text.
 - `notes.txt`: the speaker notes, when the unit has any.
+- `sources.txt`: the slide's sources field, when it has one: sources, limits and provenance for the
+  presenter to consult, never spoken. A number sourced there counts as sourced for `honest_numbers`.
+  It is not part of the notes for `notes_actionable`, and not visible text for `economy`.
 - `slide.png`: the unit's screenshot (decks only).
 - `context/prev.txt` and `context/prev.png`: the previous unit's text and screenshot. The first
   unit of the draft has none.
@@ -28,7 +31,7 @@ you are in before you quote.
 An article batch also holds `references.md`, the article's references section. A number sourced
 there counts as sourced for `honest_numbers`.
 
-Work through the unit folders in order. For each one, read `text.txt` and `notes.txt`, look at
+Work through the unit folders in order. For each one, read `text.txt`, `notes.txt` and `sources.txt`, look at
 `slide.png`, and read `context/` only for `flow` and `device`.
 
 ## The units in this batch
@@ -60,8 +63,8 @@ slides before it. Write in `point` the one sentence that person would take from 
 in `guesses` every word, name, label, title or question that person would have to guess at, each as
 a short quote or description. Score from the list: no guesses and a title that states the point
 allows 5; one guess allows at most 3; two or more guesses, or a point you cannot write (leave
-`point` empty), give 1. A term the draft's terms list defines and this or an earlier slide introduces is
-not a guess. Loaded wording such as "kill" is a guess only when the reader cannot tell from this slide, a
+`point` empty), give 1. Slides build on earlier slides: a term that this or an earlier slide introduces (the terms list
+says where, or the previous unit defines it) is not a guess where it is reused. Loaded wording such as "kill" is a guess only when the reader cannot tell from this slide, a
 neighbour or an earlier slide what is being killed. A list or sequence whose items are not parallel in form or polarity is one guess, and so is a chart that does not say what it shows and its takeaway, or a recommendation that does not say what to do and when. A higher score than the list allows is rejected. Do not excuse a guess
 because the speaker could explain it: the test is what the slide says on its own.
 
@@ -69,7 +72,9 @@ because the speaker could explain it: the test is what the slide says on its own
 
 Judge whether the visual works, not only whether one exists. Check each colour, position, order and
 grouping: can the audience tell from the slide or its notes what it means? Check the visual is
-complete: nothing the idea needs is cut off or missing. One failure caps `visual` at 3.
+complete: nothing the idea needs is cut off or missing. Check it is the shape the idea already has,
+true to the rules of what it depicts, recognisable at a glance, and carries no series, colour or
+element the story does not need. One failure caps `visual` at 3.
 
 ## N/A rules
 
@@ -93,7 +98,7 @@ complete: nothing the idea needs is cut off or missing. One failure caps `visual
 ## Reasons
 
 Every reason is one sentence that quotes the unit, word for word, inside double quotes. The quote
-comes from that unit's `text.txt` or `notes.txt`, never paraphrased. A reason with no exact quote
+comes from that unit's `text.txt`, `notes.txt` or `sources.txt`, never paraphrased. A reason with no exact quote
 from the unit is rejected. A reason may also quote `context/prev.txt` only for `flow` and
 `device`, and only beside a quote from the unit. A quote from `context/` anywhere else is
 rejected. For a unit whose text and notes are both empty, describe

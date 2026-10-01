@@ -85,6 +85,16 @@ def _notes(html):
     return [_unescape(n["note"] if isinstance(n, dict) else n) for n in raw]
 
 
+def _sources(html):
+    """The non-spoken sources field: #slide-sources, an array of {index, sources}, index 1-based
+    over physical sections like the notes. Returns {physical index (0-based): text}."""
+    m = re.search(r'<script[^>]*id="slide-sources"[^>]*>(.*?)</script>', html, re.S)
+    if not m:
+        return {}
+    return {int(s["index"]) - 1: _unescape(s.get("sources") or "") for s in json.loads(m.group(1))
+            if isinstance(s, dict) and s.get("index")}
+
+
 def _unescape(s):
     # the notes JSON sits raw in a <script>, so entities survive, sometimes escaped twice
     while (u := html.unescape(s)) != s:
@@ -137,7 +147,7 @@ def _terms(secs, units):
 def extract_deck(html):
     parser = _Sections()
     parser.feed(html.split("<deck-stage", 1)[-1])
-    secs, notes = parser.sections, _notes(html)
+    secs, notes, sources = parser.sections, _notes(html), _sources(html)
     groups = []
     for i, s in enumerate(secs):
         g = s["attrs"].get("data-state-group")
@@ -166,6 +176,7 @@ def extract_deck(html):
             "layout": a.get("data-layout") or cls,
             "text": " ".join("".join(secs[primary]["text"]).split()),
             "notes": note,
+            "sources": sources.get(primary, ""),
             "planted": PLANTED in note,
             "introduces": [x.strip() for x in a.get("data-introduces", "").split(",") if x.strip()],
         })
@@ -317,7 +328,8 @@ _FIXTURE = """<html><body>
 <script type="application/json" id="speaker-notes">
 [{"index":1,"note":"n1"},{"index":2,"note":"n2"},{"index":3,"note":"n3"},{"index":4,"note":"n4"},
 {"index":5,"note":"n5"},{"index":6,"note":"n6 [planted]"},{"index":7,"note":"n7"},{"index":8,"note":"n8"},{"index":9,"note":"n9"},{"index":10,"note":"n10"}]
-</script></body></html>"""
+</script>
+<script type="application/json" id="slide-sources">[{"index":3,"sources":"Smith 2020, n=40"}]</script></body></html>"""
 
 
 def selftest():
@@ -327,6 +339,7 @@ def selftest():
     assert [x["id"] for x in u] == ["title", "s-b", "spare", "x1", "t-a", "provenance", "close"]
     assert u[1]["section_indices"] == [1, 2, 3] and u[1]["primary_index"] == 2
     assert u[1]["notes"] == "n3", "note must come from the primary's physical index"
+    assert u[1]["sources"] == "Smith 2020, n=40" and u[0]["sources"] == "", "sources key like notes"
     assert u[4]["primary_index"] == 6 and u[4]["notes"] == "n7", "no primary marked: first state"
     assert u[6]["notes"] == "n10" and u[6]["ordinal"] == 7
     assert u[5]["role"] == "evidence" and u[3]["planted"] and not u[1]["planted"]

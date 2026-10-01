@@ -32,8 +32,8 @@ class Rubric041Test(unittest.TestCase):
         self.doc = extract.extract_deck(DECK)
 
     def test_version_and_changelog(self):
-        self.assertIn(RUBRIC["rubric_version"], ("0.4.1", "0.4.2"))  # 0.4.2 keeps these rulings
-        self.assertIn("fair-or-harsh", RUBRIC["changelog"][-1 if RUBRIC["rubric_version"] == "0.4.1" else -2]["note"])
+        self.assertIn(RUBRIC["rubric_version"], ("0.4.1", "0.4.2", "0.5"))  # 0.4.2 and 0.5 keep these rulings
+        self.assertIn("fair-or-harsh", {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.4.1"])
 
     def test_extract_reads_terms_and_hides_the_terms_slide(self):
         t = {x["term"]: x for x in self.doc["terms"]}
@@ -84,7 +84,7 @@ class Rubric041Test(unittest.TestCase):
     def test_anchors_carry_the_rulings(self):
         c = {x["id"]: x for x in RUBRIC["criteria"]}
         self.assertIn("only when its object is not clear", c["clear"]["anchors"]["3"])
-        self.assertIn("terms slide defines", c["clear"]["question"])
+        self.assertIn("introduces on an earlier slide", c["clear"]["question"])  # 0.5 widens the terms-slide rule
         self.assertIn("findings and recommendations", c["visual"]["anchors"]["3"])
         self.assertIn("look visibly different", c["visual"]["anchors"]["5"])
 

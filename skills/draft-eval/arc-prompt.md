@@ -29,6 +29,7 @@ anchors. Where no anchors are given, a 1 fails the question outright, a 3 answer
 clear gaps, and a 5 answers it fully across the whole deck.
 
 {{CRITERIA}}
+{{EXAMPLES}}
 
 ## Reasons
 

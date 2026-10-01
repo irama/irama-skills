@@ -70,6 +70,12 @@ A gate passed at exactly its threshold reads "passed at a tie" in the last colum
 
 {{REWRITE_FIGURES}}
 
+## Keep list {#s-keep} :: what you praised, and whether a rewrite touched it
+
+A rewrite may remove a kept element only when its keep note says why.
+
+{{KEEP_TABLE}}
+
 ## Units still under the bar {#s-under} :: with each grader's quoted reason
 
 {{UNDER_BAR}}
