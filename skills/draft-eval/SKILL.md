@@ -52,6 +52,19 @@ report). Until then, score only: run one round with no rewrite.
   onwards, and still is before it. `arc.py` writes it as `terms.md`, and `check.py` warns
   (`terms_before_intro`) on a term that appears before its introducing slide or has none.
 
+### Rubric 0.4.2
+
+- **`device`** gains the type `curiosity`: the unit signals that a mental model is coming, such as
+  framework ids shown ahead of the framework. The model must arrive later.
+- **`clear`**: items in a list or sequence are parallel in form, and questions in a sequence share
+  one polarity (every "yes" continues). A non-parallel list counts as one guess.
+- **`visual` and `clear`**: a chart states what it measures, for whom, and its takeaway; a
+  recommendation says what to do and in what situation. Missing either caps visual at 3 and counts
+  as one guess under clear.
+- **Arc**: `taxonomy_ids` also asks that a recurring emblem or id has exactly the same visual
+  treatment every time. A new arc criterion in the bar, `one_model`, asks for one model per idea:
+  two slides that model the same idea with different axes or terms lower it.
+
 ### Rubric 0.4.1
 
 - **`clear`**: loaded wording such as "kill" is a guess only when its object is not clear on the
@@ -67,7 +80,7 @@ report). Until then, score only: run one round with no rewrite.
 Each unit carries the base criteria plus ONE device, and the devices vary across the deck.
 
 - **`device`** scores the one trick or twist on the unit and names its `type`: `guess_reveal`,
-  `surprise`, `tease_payoff`, `callback`, `live_challenge`, `overturn` or `plain_rule`. A score of 1
+  `surprise`, `tease_payoff`, `callback`, `live_challenge`, `overturn`, `plain_rule` or `curiosity`. A score of 1
   or N/A has type `none`. Title and evidence units may be N/A. An exercise with no fixed answer
   scores on its own device, usually a live challenge.
 - **`economy`** counts filler on the unit's visible text: meta-commentary, instructions on how to

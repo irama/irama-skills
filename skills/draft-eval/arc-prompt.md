@@ -47,7 +47,8 @@ Return one JSON object and nothing else:
         "participation": {"score": 1, "reason": "..."},
         "variety": {"score": 1, "reason": "..."},
         "terms_introduced": {"score": 1, "reason": "..."},
-        "taxonomy_ids": {"score": 1, "reason": "..."}
+        "taxonomy_ids": {"score": 1, "reason": "..."},
+        "one_model": {"score": 1, "reason": "..."}
       }
     }
 

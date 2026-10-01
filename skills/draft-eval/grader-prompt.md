@@ -62,7 +62,7 @@ a short quote or description. Score from the list: no guesses and a title that s
 allows 5; one guess allows at most 3; two or more guesses, or a point you cannot write (leave
 `point` empty), give 1. A term the draft's terms list defines and this or an earlier slide introduces is
 not a guess. Loaded wording such as "kill" is a guess only when the reader cannot tell from this slide, a
-neighbour or an earlier slide what is being killed. A higher score than the list allows is rejected. Do not excuse a guess
+neighbour or an earlier slide what is being killed. A list or sequence whose items are not parallel in form or polarity is one guess, and so is a chart that does not say what it shows and its takeaway, or a recommendation that does not say what to do and when. A higher score than the list allows is rejected. Do not excuse a guess
 because the speaker could explain it: the test is what the slide says on its own.
 
 ## Does the visual work (`visual`)

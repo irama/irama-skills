@@ -20,7 +20,8 @@
     "participation",
     "variety",
     "terms_introduced",
-    "taxonomy_ids"
+    "taxonomy_ids",
+    "one_model"
    ],
    "properties": {
     "flow": {
@@ -144,6 +145,30 @@
      }
     },
     "taxonomy_ids": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "score",
+      "reason"
+     ],
+     "properties": {
+      "score": {
+       "type": "integer",
+       "enum": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "one_model": {
      "type": "object",
      "additionalProperties": false,
      "required": [
