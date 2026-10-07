@@ -9,12 +9,13 @@ Use `semtools search` to find passages by meaning. It embeds locally, needs no A
 
 ```bash
 semtools search "how do I know a measurement system can be trusted" docs/wiki/*.md --top-k 5
-find docs -name '*.md' | semtools search "cash buffer before a career change" --top-k 5
+find docs -name '*.md' -print0 | xargs -0 semtools search "cash buffer before a career change" --top-k 5
 semtools search "pricing a facilitation day" notes/*.md -n 6 -m 0.5
 ```
 
 - `--top-k` sets the number of results, `-n` the lines of context around each, `-m` a maximum distance (lower is stricter), `-i` ignores case.
 - Results are `file:start::end (distance)` followed by the lines. A lower distance is a closer match.
+- Never pipe a file list into `semtools search`: stdin is searched as text, so it matches the file names, not the files. Use `xargs -0`.
 - Pass the narrowest set of files that can hold the answer. A whole home directory is slow and noisy.
 
 `semtools parse` and `semtools ask` need API keys that may not be configured. Do not use them; if a PDF or DOCX has no text copy, say so.
