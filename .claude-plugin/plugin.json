@@ -1,6 +1,6 @@
 {
   "name": "irama-skills",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agentic development skills, agents and hooks for Claude Code. Shipping verbs (commit/merge/push/prune), planning chain, UI verification, production readiness, network diagnostics.",
   "author": {
     "name": "irama",
@@ -15,8 +15,5 @@
     "workflow",
     "git",
     "productivity"
-  ],
-  "skills": "./skills/",
-  "agents": "./agents/",
-  "commands": "./commands/"
+  ]
 }
