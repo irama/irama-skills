@@ -20,7 +20,8 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "threads" / "assets"))
+ASSETS = Path(__file__).resolve().parent.parent / "skills" / "threads" / "assets"
+sys.path.insert(0, str(ASSETS))
 
 
 def main():
@@ -51,12 +52,12 @@ def main():
         "reason": (
             "This thread still holds open work in the register: %s. Say what "
             "happened to each one before ending the turn:\n"
-            "  CLAUDE_SESSION_ID=%s python3 ~/.claude/skills/threads/assets/"
-            "register.py sign-off <key> --status <status> --note '<one line>'\n"
+            "  CLAUDE_SESSION_ID=%s python3 %s sign-off <key> "
+            "--status <status> --note '<one line>'\n"
             "Statuses: %s. `blocked` and `waiting-on-user` keep the claim held, "
             "which is correct when the work is real but stopped — nobody else may "
             "take it. `incomplete` and `abandoned` hand it back. Then re-send."
-            % (keys, session_id, statuses)
+            % (keys, session_id, ASSETS / "register.py", statuses)
         ),
     }))
 
