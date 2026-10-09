@@ -21,7 +21,8 @@
     "variety",
     "terms_introduced",
     "taxonomy_ids",
-    "one_model"
+    "one_model",
+    "visual_journey"
    ],
    "properties": {
     "flow": {
@@ -169,6 +170,30 @@
      }
     },
     "one_model": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "score",
+      "reason"
+     ],
+     "properties": {
+      "score": {
+       "type": "integer",
+       "enum": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "visual_journey": {
      "type": "object",
      "additionalProperties": false,
      "required": [

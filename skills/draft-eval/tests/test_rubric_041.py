@@ -32,7 +32,7 @@ class Rubric041Test(unittest.TestCase):
         self.doc = extract.extract_deck(DECK)
 
     def test_version_and_changelog(self):
-        self.assertIn(RUBRIC["rubric_version"], ("0.4.1", "0.4.2", "0.5"))  # 0.4.2 and 0.5 keep these rulings
+        self.assertIn(RUBRIC["rubric_version"], ("0.4.1", "0.4.2", "0.5", "0.6"))  # 0.4.2 and 0.5 keep these rulings
         self.assertIn("fair-or-harsh", {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.4.1"])
 
     def test_extract_reads_terms_and_hides_the_terms_slide(self):

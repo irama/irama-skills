@@ -17,6 +17,10 @@ term carries data-introduces="term" (several terms separated by commas); each
 term records the id and ordinal of the first such slide as introduced_by and
 introduced_at, or null when no slide introduces it.
 
+Motion (rubric 0.6): a section's data-motion attribute is the author's motion
+intent, carried as the unit's `motion` ("" when absent; "none" means still on
+purpose).
+
 hash_index is primary_index + 1. The runtime (deck-stage.js _collectSlides and
 _restoreIndex) counts EVERY slotted <section> for its 1-based #N: hidden
 sections and animation states each take a number, so #N is the physical
@@ -179,6 +183,7 @@ def extract_deck(html):
             "sources": sources.get(primary, ""),
             "planted": PLANTED in note,
             "introduces": [x.strip() for x in a.get("data-introduces", "").split(",") if x.strip()],
+            "motion": " ".join(a.get("data-motion", "").split()),
         })
     return {
         "kind": "deck",
@@ -316,10 +321,10 @@ _FIXTURE = """<html><body>
 <deck-stage>
 <section class="meta" data-slide-id="title" data-screen-label="Title"><h1>Opening</h1><style>.x{}</style></section>
 <section class="meta" data-slide-id="s-a" data-screen-label="A" data-state-group="g">State A</section>
-<section class="meta" data-slide-id="s-b" data-screen-label="B" data-state-group="g" data-state-primary>State <b>B</b></section>
+<section class="meta" data-slide-id="s-b" data-screen-label="B" data-state-group="g" data-state-primary data-motion="B drifts in">State <b>B</b></section>
 <section class="meta" data-slide-id="s-c" data-screen-label="C" data-state-group="g">State C</section>
 <section class="paper" data-slide-id="spare" data-screen-label="Spare" data-hidden-src>Spare</section>
-<section class="exercise" data-slide-id="x1" data-screen-label="X1">Do it</section>
+<section class="exercise" data-slide-id="x1" data-screen-label="X1" data-motion="none">Do it</section>
 <section class="meta" data-slide-id="t-a" data-screen-label="TA" data-state-group="h">First state</section>
 <section class="meta" data-slide-id="t-b" data-screen-label="TB" data-state-group="h">Second state</section>
 <section class="meta" data-slide-id="provenance" data-screen-label="Provenance">Sources</section>
@@ -340,6 +345,7 @@ def selftest():
     assert u[1]["section_indices"] == [1, 2, 3] and u[1]["primary_index"] == 2
     assert u[1]["notes"] == "n3", "note must come from the primary's physical index"
     assert u[1]["sources"] == "Smith 2020, n=40" and u[0]["sources"] == "", "sources key like notes"
+    assert (u[1]["motion"], u[3]["motion"], u[0]["motion"]) == ("B drifts in", "none", ""), "motion from the primary"
     assert u[4]["primary_index"] == 6 and u[4]["notes"] == "n7", "no primary marked: first state"
     assert u[6]["notes"] == "n10" and u[6]["ordinal"] == 7
     assert u[5]["role"] == "evidence" and u[3]["planted"] and not u[1]["planted"]

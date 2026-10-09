@@ -10,7 +10,7 @@ import arc  # noqa: E402
 
 GOOD = {"model": "m", "scores": {c: {"score": 4, "reason": 'Slide 2 says "x".'}
                                  for c in ("flow", "delight", "participation", "variety", "terms_introduced", "taxonomy_ids",
-                                           "one_model")}}
+                                           "one_model", "visual_journey")}}
 
 
 class ArcTest(unittest.TestCase):

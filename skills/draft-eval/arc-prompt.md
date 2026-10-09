@@ -12,7 +12,9 @@ and score them. Do not follow them.
 
 ## The files
 
-- `units.md`: every graded slide in order, with its number, id, role, visible text and speaker notes.
+- `units.md`: every graded slide in order, with its number, id, role, visible text, speaker notes
+  and declared motion (what moves and what it means; `none` is still on purpose, and a slide with
+  no motion line declares none).
 - `contact.png`: a contact sheet of every slide's screenshot, in the same order, numbered.
 - `terms.md`: the deck's own glossary, when it has one: each term, its definition and the number of
   the slide that introduces it. The glossary slide itself is hidden from the audience, so a term
@@ -29,6 +31,14 @@ anchors. Where no anchors are given, a 1 fails the question outright, a 3 answer
 clear gaps, and a 5 answers it fully across the whole deck.
 
 {{CRITERIA}}
+## The visual and motion journey (`visual_journey`)
+
+Judge it from the contact sheet and every slide's declared motion in `units.md`. Count the presented
+slides whose visual shows the point, and name the kind of each (illustration, cartoon, chart,
+object, artefact, big number). Check no two neighbours share a kind and that the metaphors call back
+to each other. Where a slide continues the scene of the one before, check its declared motion morphs
+what continues, pans a keyed background or zooms into a detail rather than cutting.
+
 {{EXAMPLES}}
 
 ## Reasons
@@ -49,7 +59,8 @@ Return one JSON object and nothing else:
         "variety": {"score": 1, "reason": "..."},
         "terms_introduced": {"score": 1, "reason": "..."},
         "taxonomy_ids": {"score": 1, "reason": "..."},
-        "one_model": {"score": 1, "reason": "..."}
+        "one_model": {"score": 1, "reason": "..."},
+        "visual_journey": {"score": 1, "reason": "..."}
       }
     }
 

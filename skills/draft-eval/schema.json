@@ -29,6 +29,7 @@
       "additionalProperties": false,
       "required": [
        "visual",
+       "motion",
        "clear",
        "flow",
        "device",
@@ -41,6 +42,47 @@
       ],
       "properties": {
        "visual": {
+        "anyOf": [
+         {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "score",
+           "reason"
+          ],
+          "properties": {
+           "score": {
+            "anyOf": [
+             {
+              "type": "integer",
+              "enum": [
+               1,
+               2,
+               3,
+               4,
+               5
+              ]
+             },
+             {
+              "type": "string",
+              "enum": [
+               "n/a"
+              ]
+             }
+            ]
+           },
+           "reason": {
+            "type": "string",
+            "minLength": 1
+           }
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "motion": {
         "anyOf": [
          {
           "type": "object",

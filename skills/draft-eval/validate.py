@@ -115,7 +115,7 @@ def quote_sources(reason, unit, prev=None, short_ok=False):
     short_ok lets a quote under 4 characters count when it is a whole token of the unit
     ("D1"). check_record sets it only for an honest_numbers N/A, where a session label
     is often the only thing there is to quote (rubric 0.2)."""
-    source = _norm(unit.get("text", "") + "\n" + unit.get("notes", "") + "\n" + unit.get("sources", ""))
+    source = _norm("\n".join(unit.get(k, "") for k in ("text", "notes", "sources", "motion")))
     before = _norm((prev or {}).get("text", ""))
     out = []
     for m in QUOTE.finditer(reason):
@@ -150,7 +150,8 @@ def na_allowed(crit, unit, first, has_number, rubric):
     # ("90 minutes", "Exercise 3 of 4", C1 to C9) are the grader's call (rubric 0.2).
     return (("first_unit" in conds and first) or ("no_number" in conds)
             or ("planted" in conds and bool(unit.get("planted")))
-            or ("no_notes" in conds and not unit.get("notes", "").strip()))
+            or ("no_notes" in conds and not unit.get("notes", "").strip())
+            or ("motion_none" in conds and unit.get("motion") == "none"))
 
 
 def na_forced(crit, unit, has_number):

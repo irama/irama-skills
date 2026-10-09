@@ -62,6 +62,22 @@ report). Until then, score only: run one round with no rewrite.
   reader praises in a review goes on it. The rewrite step reads it, and the review brief reports
   each element against the run's rewrites.
 
+### Rubric 0.6
+
+Fitted to the deck-authoring rules on motion and visuals. Rounds scored under 0.5 are not
+comparable on the two new criteria.
+
+- **`motion`** (decks): does the slide's declared motion act out its point or metaphor, settle by
+  7s and keep any loop subtle and meaningful, and does a slide whose idea moves use that movement?
+  Authors declare intent on the section, `data-motion="..."`; `extract.py` carries it as the unit's
+  `motion` and `packet.py` writes it as `motion.txt`, so graders judge it beside the static
+  screenshot. N/A for evidence slides, and for `data-motion="none"` when the idea has no movement.
+- **Arc**: `visual_journey`, in the bar, asks for a visual on about nine presented slides in ten,
+  varied kinds with no two neighbours alike, metaphors that work as a set, and immersive
+  transitions where the next slide continues the same scene.
+- **`check.py`** gains a `motion` gate from the runtime's `?motion` report: a slide that settles
+  after 7s or an unmarked loop fails it. A deck whose `deck-tools.js` predates `?motion` skips it.
+
 ### Rubric 0.5
 
 Fitted to the eight lesson groups the reader confirmed from five rounds of deck notes. Each lesson

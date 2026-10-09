@@ -88,6 +88,8 @@ def build(units_doc, outdir, shots_path, run_sheet=None, rubric=None, examples=N
             lines.append("\nNotes:\n\n" + "\n".join("    " + x for x in u["notes"].splitlines()))
         if u.get("sources"):
             lines.append("\nSources (not spoken):\n\n" + "\n".join("    " + x for x in u["sources"].splitlines()))
+        if u.get("motion"):
+            lines.append("\nMotion (declared):\n\n    " + u["motion"])
         lines.append("")
     (adir / "units.md").write_text("\n".join(lines))
     if units_doc.get("terms"):

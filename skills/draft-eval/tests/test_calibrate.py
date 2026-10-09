@@ -109,7 +109,8 @@ class BuildTest(unittest.TestCase):
             data = calibrate.page_data(out)
             self.assertEqual(len(data["units"]), 8)
             deck_crits = {c["id"] for c in data["units"][0]["criteria"]}
-            self.assertEqual(len(deck_crits), 10)
+            rubric = json.loads((packet.HERE / "rubric.json").read_text())
+            self.assertEqual(deck_crits, {c["id"] for c in rubric["criteria"] if "deck" in c["applies_to"]})
             art_unit = [u for u in data["units"] if u["set"] == "art-y"][0]
             self.assertNotIn("visual", {c["id"] for c in art_unit["criteria"]})
             first = data["units"][0]

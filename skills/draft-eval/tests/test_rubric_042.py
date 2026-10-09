@@ -35,7 +35,7 @@ def errors(r):
 
 class Rubric042Test(unittest.TestCase):
     def test_version_and_changelog(self):
-        self.assertIn(RUBRIC["rubric_version"], ("0.4.2", "0.5"))  # 0.5 keeps these anchors
+        self.assertIn(RUBRIC["rubric_version"], ("0.4.2", "0.5", "0.6"))  # 0.5 and 0.6 keep these anchors
         self.assertIn("round-three", {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.4.2"])
 
     def test_curiosity_is_a_device_type_the_schema_accepts(self):

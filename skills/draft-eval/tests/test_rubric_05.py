@@ -30,9 +30,9 @@ RULINGS = [
 
 class Rubric05Test(unittest.TestCase):
     def test_version_and_changelog(self):
-        self.assertEqual(RUBRIC["rubric_version"], "0.5")
+        self.assertIn(RUBRIC["rubric_version"], ("0.5", "0.6"))  # 0.6 keeps these anchors
         self.assertEqual(RUBRIC["phase"], "experimental")
-        self.assertIn("eight lesson groups", RUBRIC["changelog"][-1]["note"])
+        self.assertIn("eight lesson groups", {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.5"])
 
     def test_cold_reader_lets_slides_build_on_earlier_slides(self):
         q = CRIT["clear"]["question"]
@@ -60,7 +60,7 @@ class Rubric05Test(unittest.TestCase):
         self.assertIn("curiosity", ARC["variety"]["question"])
 
     def test_lessons_list_carries_eight_groups(self):
-        g = RUBRIC["lessons"]["groups"]
+        g = RUBRIC["lessons"]["groups"][:8]  # 0.6 appends motion
         self.assertEqual([x["id"] for x in g], ["words", "economy", "shape", "encodings", "frameworks", "devices",
                                                 "regressions", "evals"])
         self.assertTrue(all(x["checks"] for x in g))

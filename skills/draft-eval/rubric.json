@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.5",
+  "rubric_version": "0.6",
   "phase": "experimental",
   "changelog": [
     {
@@ -33,6 +33,10 @@
     {
       "version": "0.5",
       "note": "Fitted to the eight lesson groups Andrew confirmed on 1 October 2026 from five rounds of notes on the A4 deck, so that deck is not a fair test of it. Clear: slides build on earlier slides, so a term introduced on an earlier slide is not a guess where it is reused, and a question or label that makes sense only beside the speaker is one. Economy: a hedge or provenance caveat on the face of a slide is filler; it belongs in the speaker notes or the slide's sources field. Honest numbers can be met in the sources field. Notes: a provenance caveat written for the presenter to say aloud belongs in the sources field. Visual: draw the shape the idea already has, true to the rules of what it depicts and recognisable at a glance, with the fewest encodings the story needs. Arc: taxonomy_ids asks for one distinct look per framework; variety names curiosity. The arc pass now reads the deck-level rulings. A lessons list carries the confirmed groups as checks for the pre-review and the lessons step."
+    },
+    {
+      "version": "0.6",
+      "note": "Fitted to the deck-authoring rules on motion and visuals, not to a reader's notes, so no deck is yet a fair test of it. A new judged criterion, motion (decks only), asks whether a slide's declared motion (the section's data-motion, shown to the grader as motion.txt) acts out its point or metaphor, settles by 7s, keeps any loop subtle and meaningful, and uses the movement an idea already has. A new arc criterion in the bar, visual_journey, asks for a visual on about nine presented slides in ten, varied kinds of visual with no two neighbours alike, metaphors that work as a set, and immersive transitions where the next slide continues the same scene. check.py gains a motion gate from the runtime's ?motion report, skipped for decks whose deck-tools.js predates it. Rounds scored under 0.5 or earlier are not comparable on motion or visual_journey."
     }
   ],
   "scale": {
@@ -52,7 +56,8 @@
     "first_unit": "The unit is the first unit of the draft.",
     "no_number": "The unit contains no number, or its only numbers describe the session or the draft itself: timings such as \"90 minutes\", positions such as \"Exercise 3 of 4\", counts of its own acts, parts, questions or clusters, and labels such as C1 to C9 or D1. A unit with digits may be N/A on this ground; the reason says the numbers describe the session.",
     "planted": "The unit is marked planted: its speaker notes carry a [planted] tag because it holds a deliberately fabricated figure, planted as a teaching trick. It must be N/A.",
-    "no_notes": "The unit has no speaker notes. It must be N/A."
+    "no_notes": "The unit has no speaker notes. It must be N/A.",
+    "motion_none": "The unit declares data-motion=\"none\" (still on purpose) and its idea has no movement in it: no shift, drift, reveal, transformation or continuity with the previous slide. A still slide whose idea plainly moves is scored, not N/A."
   },
   "criteria": [
     {
@@ -73,6 +78,28 @@
           "evidence"
         ],
         "conditions": []
+      }
+    },
+    {
+      "id": "motion",
+      "name": "Motion carries meaning",
+      "kind": "judged",
+      "applies_to": [
+        "deck"
+      ],
+      "question": "Does the slide's declared motion act out its point or metaphor, settle by 7s, and keep any loop subtle and meaningful? Where the idea has movement in it (a shift, a drift, a reveal, a transformation, continuity with the previous slide), does the slide use it? You see a static screenshot, so judge from the declared motion in motion.txt plus the screenshot: picture the motion on the slide as shown. A slide with no motion.txt declares no motion and is judged as still.",
+      "anchors": {
+        "1": "Arbitrary or decorative motion, motion that competes with the point, or motion that settles after 7s.",
+        "3": "Generic entrance motion where the idea had a movement of its own; or a still slide whose idea plainly moves; or a declared intent that does not match the slide's point.",
+        "5": "The motion acts out the metaphor and settles: numbers that shake in proportion to their unreliability then go still, a verdict stamped onto the page the audience believed, a word that travels to become the next slide's headword. Any loop is subtle, meaningful and marked ambient."
+      },
+      "na_allowed": {
+        "roles": [
+          "evidence"
+        ],
+        "conditions": [
+          "motion_none"
+        ]
       }
     },
     {
@@ -338,6 +365,16 @@
           "3": "One idea is modelled twice, on two slides with different axes or terms.",
           "5": "Every idea has one model; a later slide that returns to it reuses the same axes and terms."
         }
+      },
+      {
+        "id": "visual_journey",
+        "name": "Visual and motion journey",
+        "question": "Judged from the contact sheet and every slide's declared motion: do about nine presented slides in ten carry a visual that shows the point? Do the kinds of visual vary (illustration, cartoon, chart, object, artefact, big number), with no two neighbours alike? Do the metaphors work as a set, with callbacks? Where the next slide continues the same scene, is the transition immersive (morph what continues across the pair, pan a keyed background, zoom into a detail)? Name the slides with no visual and any neighbours that share a kind.",
+        "anchors": {
+          "1": "Fewer than seven presented slides in ten carry a visual that shows the point, or one kind of visual dominates and neighbours repeat it throughout.",
+          "3": "About eight in ten carry a visual, or two neighbours share a kind, or the metaphors stand alone with no callbacks, or a slide that continues the same scene cuts where it could morph, pan or zoom.",
+          "5": "About nine presented slides in ten carry a visual that shows the point, the kinds vary with no two neighbours alike, the metaphors work as a set with callbacks, and every slide that continues the same scene arrives by an immersive transition."
+        }
       }
     ],
     "hook_payoff": "Every [hook:<name>] tag in the notes has a matching [payoff:<name>] tag later."
@@ -399,7 +436,8 @@
       "variety",
       "terms_introduced",
       "taxonomy_ids",
-      "one_model"
+      "one_model",
+      "visual_journey"
     ],
     "mechanical_gates_must_pass": true,
     "bar_grader": "claude",
@@ -506,6 +544,16 @@
           "Reader notes become rulings, a grader-missed count and a lessons step.",
           "A fresh reviewer holds each revision against these checks before the reader sees it.",
           "Reviews show the slide, ask only about what changed, and never re-ask a settled ruling."
+        ]
+      },
+      {
+        "id": "motion",
+        "checks": [
+          "Every movement on a slide acts out the slide's metaphor; motion with no meaning is cut.",
+          "Foreground motion settles by 7s (design for 5); a subtle loop that carries meaning is marked data-ambient.",
+          "Each section declares its motion intent in data-motion; data-motion=\"none\" means still on purpose.",
+          "Where the next slide continues the same scene, morph what continues, pan a keyed background or zoom into a detail.",
+          "About nine presented slides in ten carry a visual, and the kinds of visual vary with no two neighbours alike."
         ]
       }
     ]

@@ -8,6 +8,7 @@ Each batch directory holds, per unit, a folder `<nn>-<id>/` with:
   text.txt   the unit's visible text
   notes.txt  the unit's notes, when it has any
   sources.txt  the unit's non-spoken sources field, when it has one
+  motion.txt  the unit's declared motion intent (data-motion), when it has one
   context/prev.png  the previous unit's screenshot (decks, not on the first unit)
   context/prev.txt  the previous unit's text (not on the first unit)
 The previous unit sits in `context/` so a grader cannot mistake it for the unit:
@@ -162,6 +163,8 @@ def build(units_doc, outdir, shots_path=None, rubric=None, select=None, examples
                 (udir / "notes.txt").write_text(u["notes"])
             if u.get("sources"):
                 (udir / "sources.txt").write_text(u["sources"])
+            if u.get("motion"):
+                (udir / "motion.txt").write_text(u["motion"])
             if prev:
                 (udir / "context").mkdir()
                 (udir / "context" / "prev.txt").write_text(prev.get("text", ""))

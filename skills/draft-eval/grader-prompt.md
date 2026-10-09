@@ -19,6 +19,8 @@ The working directory holds one folder per unit, named `<nn>-<unit id>`. Each fo
 - `sources.txt`: the slide's sources field, when it has one: sources, limits and provenance for the
   presenter to consult, never spoken. A number sourced there counts as sourced for `honest_numbers`.
   It is not part of the notes for `notes_actionable`, and not visible text for `economy`.
+- `motion.txt`: the slide's declared motion intent (decks only), when it has one: what moves and
+  what that movement means. `none` means still on purpose. No `motion.txt` means no motion is declared.
 - `slide.png`: the unit's screenshot (decks only).
 - `context/prev.txt` and `context/prev.png`: the previous unit's text and screenshot. The first
   unit of the draft has none.
@@ -31,7 +33,7 @@ you are in before you quote.
 An article batch also holds `references.md`, the article's references section. A number sourced
 there counts as sourced for `honest_numbers`.
 
-Work through the unit folders in order. For each one, read `text.txt`, `notes.txt` and `sources.txt`, look at
+Work through the unit folders in order. For each one, read `text.txt`, `notes.txt`, `sources.txt` and `motion.txt`, look at
 `slide.png`, and read `context/` only for `flow` and `device`.
 
 ## The units in this batch
@@ -76,6 +78,15 @@ complete: nothing the idea needs is cut off or missing. Check it is the shape th
 true to the rules of what it depicts, recognisable at a glance, and carries no series, colour or
 element the story does not need. One failure caps `visual` at 3.
 
+## Does the motion carry meaning (`motion`)
+
+The screenshot is static, so judge motion from `motion.txt` plus the screenshot: picture the declared
+motion on the slide as shown. Ask what the slide's point or metaphor is, then whether the motion acts
+it out, settles by 7s, and keeps any loop subtle and meaningful. Then ask whether the idea has a
+movement of its own (a shift, a drift, a reveal, a transformation, continuity with the previous
+slide) that the slide leaves unused. A slide with no `motion.txt` is judged as still: a still slide
+whose idea plainly moves scores 3 at most. `none` with an idea that has no movement in it is N/A.
+
 ## N/A rules
 
 - `"n/a"` is allowed only where a criterion says so above. Anywhere else the record is rejected.
@@ -92,13 +103,15 @@ element the story does not need. One failure caps `visual` at 3.
 - Ordinals ("first", "second"), the word "one" and vague amounts ("years", "most", "millions of")
   are not numbers. A unit whose only such words are these is N/A for `honest_numbers`.
 - A deck unit with no `notes.txt` is N/A for `notes_actionable`. A unit with notes must be scored on it.
+- A deck unit whose `motion.txt` says `none`, and whose idea has no movement in it, may be N/A for
+  `motion`. Any other unit, evidence slides aside, is scored on it.
 - `economy` judges the visible text and elements only, never the notes.
 - A criterion that does not apply to a {{KIND}} (it is not listed above) is `null`.
 
 ## Reasons
 
 Every reason is one sentence that quotes the unit, word for word, inside double quotes. The quote
-comes from that unit's `text.txt`, `notes.txt` or `sources.txt`, never paraphrased. A reason with no exact quote
+comes from that unit's `text.txt`, `notes.txt`, `sources.txt` or `motion.txt`, never paraphrased. A reason with no exact quote
 from the unit is rejected. A reason may also quote `context/prev.txt` only for `flow` and
 `device`, and only beside a quote from the unit. A quote from `context/` anywhere else is
 rejected. For a unit whose text and notes are both empty, describe
@@ -128,7 +141,7 @@ Return one JSON object and nothing else:
 
 - One record per unit in the batch, each unit exactly once, with its unit id (not the folder name),
   in unit-folder order.
-- `scores` holds every criterion id: `visual`, `clear`, `flow`, `device`, `one_idea`,
+- `scores` holds every criterion id: `visual`, `motion`, `clear`, `flow`, `device`, `one_idea`,
   `concrete_first`, `economy`, `earns_place`, `honest_numbers`, `notes_actionable`.
 - `device` also holds `type`, one of the device types listed under `device`:
   `{"score": 5, "type": "live_challenge", "reason": "..."}`. A score of 1 or `"n/a"` has type

@@ -3,7 +3,9 @@
 
     check.py <index.html> <units.json> [--floors floors.json] [--baseline]
 
-Gates: ?audit reports every slide clean; no em dash and no banned term (rubric
+Gates: ?audit reports every slide clean; ?motion reports every presented slide
+settled by 7s with no unmarked loop (rubric 0.6; skipped, not failed, when the
+deck's deck-tools.js predates ?motion and writes no #motion-report); no em dash and no banned term (rubric
 banned_terms) in any unit's text or notes; every [hook:x] has a later
 [payoff:x]; no filler pattern (rubric filler_patterns) in any unit's visible
 text, notes excluded; every `content` unit has an img, svg, canvas or figure.
@@ -15,7 +17,7 @@ arc pass's terms_introduced, rubric 0.4.1). Hidden units are skipped, except tha
 whole deck. --baseline writes the floors file (default floors.json beside
 units.json) from the current deck. Exit 1 when a gate or a floor fails.
 
-?audit and ?export are read with headless Chrome --dump-dom. Set $CHROME to
+?audit, ?motion and ?export are read with headless Chrome --dump-dom. Set $CHROME to
 override the browser path.
 """
 import argparse
@@ -188,6 +190,22 @@ def audit_verdict(report):
     return {"pass": ok, "problems": problems}
 
 
+def motion(index):
+    m = re.search(r'<pre[^>]*id="motion-report"[^>]*>(.*?)</pre>', dump_dom(index, "motion"), re.S)
+    if not m:
+        return {"pass": True, "skipped": "deck-tools.js predates ?motion", "problems": []}
+    return motion_verdict(m.group(1))
+
+
+def motion_verdict(report):
+    """Judge a ?motion report by its final summary line only, like audit_verdict. Problems are the
+    slides that settle late and the unmarked loops."""
+    lines = [ln.strip() for ln in report.splitlines() if ln.strip()]
+    ok = bool(lines) and re.fullmatch(r"all presented slides settle by \d+(\.\d+)?s", lines[-1]) is not None
+    problems = [ln for ln in lines[:-1] if re.match(r"\d+ LATE\b", ln) or re.search(r"\bLOOP x\d", ln)]
+    return {"pass": ok, "problems": problems}
+
+
 def screen_metrics(index, units):
     m = re.search(r'<script[^>]*id="layout"[^>]*>(.*?)</script>', dump_dom(index, "export"), re.S)
     if not m:
@@ -222,6 +240,7 @@ def run(index, units_path, floors_path=None, baseline=False):
     missing = missing_visual(units, visual_tags(html))
     gates = {
         "audit": audit(index),
+        "motion": motion(index),
         "banned": {"pass": not hits, "hits": hits},
         "filler": {"pass": not filler, "hits": filler},
         "hook_payoff": {"pass": not unpaid, "unpaid": unpaid},
