@@ -121,6 +121,9 @@ class Rubric06Test(unittest.TestCase):
         self.assertTrue(validate.na_allowed(m, u[1], False, False, RUBRIC))
         self.assertIsNone(validate.na_forced(m, u[1], False))
         self.assertTrue(validate.na_allowed(m, dict(u[2], role="evidence"), False, False, RUBRIC))
+        # A still slide may say why it is still; "nonetheless" is not a declaration.
+        self.assertTrue(validate.na_allowed(m, dict(u[0], motion="none: a still page is the trap"), False, False, RUBRIC))
+        self.assertFalse(validate.na_allowed(m, dict(u[0], motion="nonetheless it drifts"), False, False, RUBRIC))
         self.assertEqual(validate.quote_sources('It says "shake in proportion".', u[0]), ["unit"])
 
 

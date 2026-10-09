@@ -151,7 +151,7 @@ def na_allowed(crit, unit, first, has_number, rubric):
     return (("first_unit" in conds and first) or ("no_number" in conds)
             or ("planted" in conds and bool(unit.get("planted")))
             or ("no_notes" in conds and not unit.get("notes", "").strip())
-            or ("motion_none" in conds and unit.get("motion") == "none"))
+            or ("motion_none" in conds and re.match(r"none\b", unit.get("motion", "").strip(), re.I) is not None))
 
 
 def na_forced(crit, unit, has_number):
