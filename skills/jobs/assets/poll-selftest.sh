@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Scripted check of poll.sh with a fake HOME, a fake jobs.py, a fake claude and a fake
-# Telegram sender. Covers the pick filter, the stale and live lock, the at-most-once rule,
-# the In review message and the watchdog. Touches no hub, no launchd, no real config.
+# Telegram sender. Covers the pick filter, the untargeted slash job and its default home,
+# the once-per-job skip log, the stale and live lock, the at-most-once rule, the In review
+# message and the watchdog. Touches no hub, no launchd, no real config.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
 tmp=$(mktemp -d)
@@ -16,16 +17,20 @@ open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
 if sys.argv[1] == "list":
     print(json.dumps({"jobs": [
         {"id": 1, "source": "board", "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "board job"},
-        {"id": 2, "source": "zero", "column": "backlog", "targets": [], "claimed": False, "title": "no target"},
+        {"id": 2, "source": "zero", "column": "backlog", "targets": [], "claimed": False, "title": "/looks-like-one"},
+        {"id": 4, "source": "zero", "column": "backlog", "targets": [], "claimed": False, "title": "slash job"},
         {"id": 5, "source": "zero", "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "newer"},
         {"id": 3, "source": "zero", "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "oldest"},
     ], "next_cursor": None}))
 elif sys.argv[1] == "get":
-    print(json.dumps({"data": {"id": int(sys.argv[2]), "column": os.environ.get("FAKE_COLUMN", "in_review")}}))
+    # Job 2's title looks like a command but its prompt is not one; only the prompt counts.
+    prompts = {2: "file this email", 4: "  /apply-for-jobs the role in the email"}
+    print(json.dumps({"data": {"id": int(sys.argv[2]), "column": os.environ.get("FAKE_COLUMN", "in_review"),
+                               "prompt": prompts.get(int(sys.argv[2]), "")}}))
 EOF
 cat >"$tmp/claude" <<'EOF'
 #!/usr/bin/env bash
-echo "claude $*" >>"$CALLS"
+echo "claude $* @ $(pwd -P)" >>"$CALLS"
 sleep "${FAKE_RUN_SECS:-0}"
 EOF
 cat >"$tmp/send.sh" <<'EOF'
@@ -51,13 +56,19 @@ grep -q 'claude -p /jobs JOB-3 --background --permission-mode auto --permission-
   || fail "JOB-3 not started with the explicit permission mode"
 grep -q 'list --column backlog --source zero' "$tmp/calls" || fail "list call"
 grep -q 'JOB-3 is In review' "$tmp/sent" || fail "no In review message"
+home_real=$(cd "$HOME" && pwd -P)
+grep -q "JOB-3 --background .* @ $home_real\$" "$tmp/calls" || fail "targeted job not run from HOME"
 
 # ii) The next tick does not start JOB-3 again; it takes JOB-5. Board job 1 and untargeted job 2 never start.
 FAKE_COLUMN=backlog bash "$here/poll.sh"
 [ "$(grep -c 'JOB-3 --background' "$tmp/calls")" = 1 ] || fail "JOB-3 started twice"
 grep -q 'JOB-5 run failed' "$tmp/sent" || fail "no failure message for JOB-5"
 bash "$here/poll.sh"
-grep -Eq 'JOB-(1|2) ' "$tmp/calls" && fail "board or untargeted job started"
+grep -Eq 'JOB-(1|2|4) ' "$tmp/calls" && fail "board or untargeted job started"
+# With no JOBS_DEFAULT_HOME, an untargeted job is skipped, logged once, and its prompt is not read.
+[ "$(grep -c 'JOB-4 skipped: no target and JOBS_DEFAULT_HOME is unset' "$tmp/log")" = 1 ] \
+  || fail "missing default home not logged exactly once"
+grep -q '^get 4$' "$tmp/calls" && fail "prompt read with no default home"
 
 # iii) A live lock means a run is active: the tick makes no list call.
 mkdir "$lock"
@@ -72,6 +83,27 @@ rm -rf "$lock"
 JOBS_POLLER_LIMIT=2 FAKE_RUN_SECS=60 bash "$here/poll.sh"
 grep -q 'comment 3 --kind event --body Stopped after 0 minutes' "$tmp/calls" || fail "no watchdog comment"
 grep -q 'JOB-3 stopped after' "$tmp/sent" || fail "no watchdog message"
+
+# vi) A default home that is missing on disk still skips; JOB-5 (tagged) starts instead.
+printf 'JOBS_DEFAULT_HOME=%q\n' "$tmp/nohome" >>"$HOME/.config/jobs/poller.env"
+bash "$here/poll.sh"
+grep -q 'JOB-5 --background' "$tmp/calls" || fail "tagged JOB-5 not started"
+grep -Eq 'JOB-4 --background' "$tmp/calls" && fail "JOB-4 started with a missing default home"
+
+# vii) With the default home present, the untargeted slash job starts there. The
+# untargeted job whose prompt is not a slash command is skipped and logged once.
+mkdir "$tmp/xcoach"
+printf 'JOBS_DEFAULT_HOME=%q\n' "$tmp/xcoach" >>"$HOME/.config/jobs/poller.env"
+bash "$here/poll.sh"
+xc_real=$(cd "$tmp/xcoach" && pwd -P)
+grep -q "claude -p /jobs JOB-4 --background --permission-mode auto --permission-prompts none @ $xc_real\$" \
+  "$tmp/calls" || fail "slash JOB-4 not started in JOBS_DEFAULT_HOME"
+bash "$here/poll.sh"
+bash "$here/poll.sh"
+[ "$(grep -c 'JOB-2 skipped: no target and not a slash command' "$tmp/log")" = 1 ] \
+  || fail "non-slash skip not logged exactly once"
+[ "$(grep -c '^get 2$' "$tmp/calls")" = 1 ] || fail "non-slash prompt read more than once"
+grep -q 'JOB-2 --background' "$tmp/calls" && fail "non-slash untargeted job started"
 
 # v) A non-numeric id from the hub is refused, not run.
 cat >"$tmp/skill/assets/jobs.py" <<'EOF'

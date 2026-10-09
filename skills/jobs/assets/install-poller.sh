@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Install, or remove, the launchd agent that runs poll.sh every 60 s.
 #
-#   install-poller.sh [--repos-root DIR] [--dry-run]   install and load
+#   install-poller.sh [--repos-root DIR] [--default-home DIR] [--dry-run]   install and load
 #   install-poller.sh --uninstall [--dry-run]          unload and delete
 #
 # Install resolves the absolute paths of claude, python3 and this skill from the current
 # shell, because launchd gives poll.sh no login-shell PATH. It writes them to
 # ~/.config/jobs/poller.env (mode 600), writes ~/Library/LaunchAgents/org.<user>.jobs-poller.plist
 # (StartInterval 60, RunAtLoad true) and loads it. --dry-run prints both files and writes nothing.
+# --default-home DIR is where a ZERO job with no target runs (JOBS_DEFAULT_HOME). Without it,
+# the value already in poller.env is kept, else $JOBS_DEFAULT_HOME from this shell.
 # It never changes the Mac's sleep or Energy settings.
 set -euo pipefail
 
@@ -17,13 +19,16 @@ CONF="$HOME/.config/jobs/poller.env"
 LOG="$HOME/Library/Logs/jobs-poller.log"
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd -P)"
 
-mode=install dry=0 repos_root=""
+# shellcheck disable=SC1090
+prev_home=$( [ -f "$CONF" ] && . "$CONF" 2>/dev/null; printf '%s' "${JOBS_DEFAULT_HOME:-}")
+mode=install dry=0 repos_root="" default_home="${prev_home:-${JOBS_DEFAULT_HOME:-}}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --uninstall) mode=uninstall ;;
     --dry-run) dry=1 ;;
     --repos-root) repos_root="${2:?--repos-root needs a folder}"; shift ;;
-    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --default-home) default_home="${2:?--default-home needs a folder}"; shift ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -52,6 +57,9 @@ if [ -z "$repos_root" ]; then
   repos_root=$(dirname "$(dirname "$common")")
 fi
 [ -d "$repos_root" ] || { echo "no such folder: $repos_root" >&2; exit 1; }
+# poll.sh logs and skips an untargeted job while this is unset or missing, so only warn.
+[ -n "$default_home" ] && [ -d "$default_home" ] \
+  || echo "warning: no default home (${default_home:-unset}): untargeted jobs will be skipped; pass --default-home DIR" >&2
 send="$SKILL_DIR/../telegram/send.sh"
 if [ -x "$send" ]; then send=$(cd "$(dirname "$send")" && pwd -P)/send.sh; else send=""; fi
 
@@ -61,6 +69,7 @@ env_body=$(
   printf 'SKILL_DIR=%q\n' "$SKILL_DIR"
   printf 'TELEGRAM_SEND=%q\n' "$send"
   printf 'JOBS_REPOS_ROOT=%q\n' "$repos_root"
+  printf 'JOBS_DEFAULT_HOME=%q\n' "$default_home"
   printf 'POLLER_PATH=%q\n' "$PATH"
 )
 # ponytail: paths go into the plist unescaped; a path holding & or < breaks the XML.

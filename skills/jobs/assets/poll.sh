@@ -5,9 +5,11 @@
 # ~/.config/jobs/poller.env, which the installer writes. Each tick:
 #   1. Takes the lock (a directory holding the run's PID). A lock whose PID is dead is removed.
 #   2. Makes one `jobs.py list --column backlog --source zero` call.
-#   3. Takes the oldest waiting ZERO job with a tagged target that was never started here.
-#   4. Runs `claude -p "/jobs JOB-<id> --background"` from $HOME, in the background, and
-#      kills it after 45 minutes (macOS has no `timeout`).
+#   3. Takes the oldest waiting ZERO job that was never started here and has either a tagged
+#      target, or no target and a prompt that starts with a slash command (`/name ...`).
+#   4. Runs `claude -p "/jobs JOB-<id> --background"` in the background, from $HOME for a
+#      targeted job and from $JOBS_DEFAULT_HOME for an untargeted slash job, and kills it
+#      after 45 minutes (macOS has no `timeout`).
 #   5. Sends Telegram when the card reaches In review or the run fails.
 # The tick stays in the foreground while the run lives, so launchd starts no second tick.
 # It never reads or writes claims.json: jobs.py owns that file.
@@ -17,6 +19,7 @@ CFG_DIR="$HOME/.config/jobs"
 CONF="$CFG_DIR/poller.env"
 LOCK="$CFG_DIR/poller.lock"
 TRIED="$CFG_DIR/poller-tried"
+SKIPPED="$CFG_DIR/poller-skipped" # "<id>:<reason>" lines, so each skip logs once
 LOG="${JOBS_POLLER_LOG:-$HOME/Library/Logs/jobs-poller.log}"
 LIMIT="${JOBS_POLLER_LIMIT:-2700}"   # seconds; tests shorten it
 STEP="${JOBS_POLLER_STEP:-5}"        # watchdog check interval, seconds
@@ -32,6 +35,7 @@ for v in CLAUDE_BIN PYTHON3_BIN SKILL_DIR; do
 done
 export PATH="${POLLER_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 [ -n "${JOBS_REPOS_ROOT:-}" ] && export JOBS_REPOS_ROOT
+[ -n "${JOBS_DEFAULT_HOME:-}" ] && export JOBS_DEFAULT_HOME
 J=("$PYTHON3_BIN" "$SKILL_DIR/assets/jobs.py")
 
 notify() {
@@ -63,7 +67,7 @@ mv "$pid_tmp" "$LOCK/pid"
 trap 'rm -rf "$LOCK"' EXIT
 
 # ── Pick ─────────────────────────────────────────────────────────────────────
-touch "$TRIED"
+touch "$TRIED" "$SKIPPED"
 # --all-pages: without it, a full first page of tried/stuck backlog jobs could hide
 # every newer job behind them.
 if ! listing=$("${J[@]}" list --column backlog --source zero --all-pages 2>&1); then
@@ -71,29 +75,68 @@ if ! listing=$("${J[@]}" list --column backlog --source zero --all-pages 2>&1); 
   exit 1
 fi
 # Client-side check as well, so a hub that ignores ?source can never start a board job.
-pick=$(printf '%s' "$listing" | "$PYTHON3_BIN" -c '
+# One line per candidate, oldest first: "<id> <T|U> <title>" (T has a tagged target,
+# U has none). An untargeted job already skipped as "not a slash command" is left out.
+cands=$(printf '%s' "$listing" | "$PYTHON3_BIN" -c '
 import json, sys
-tried = {l.strip() for l in open(sys.argv[1]) if l.strip()}
+skip = {l.strip() for l in open(sys.argv[1]) if l.strip()}
+skip |= {l.split(":")[0] for l in open(sys.argv[2]) if l.strip().endswith(":not-slash")}
 jobs = [j for j in json.load(sys.stdin).get("jobs", [])
-        if j.get("source") == "zero" and j.get("column") == "backlog" and j.get("targets")
-        and not j.get("claimed") and str(j.get("id")) not in tried]
-if jobs:
-    j = min(jobs, key=lambda j: j["id"])
-    print(j["id"], (j.get("title") or "")[:120].replace("\n", " "))
-' "$TRIED") || { log "could not parse the job list"; exit 1; }
-[ -n "$pick" ] || exit 0
-id=${pick%% *}
-title=${pick#* }
-case "$id" in
-  ''|*[!0-9]*) log "bad id: refusing ($id)"; exit 1 ;;
-esac
+        if j.get("source") == "zero" and j.get("column") == "backlog"
+        and not j.get("claimed") and str(j.get("id")) not in skip]
+for j in sorted(jobs, key=lambda j: str(j["id"]).zfill(20)):
+    print(j["id"], "T" if j.get("targets") else "U", (j.get("title") or "")[:120].replace("\n", " "))
+' "$TRIED" "$SKIPPED") || { log "could not parse the job list"; exit 1; }
+
+# Log a skip once per job and reason. The line in poller-skipped is the memory.
+skip_once() {
+  if ! grep -qxF "$1:$2" "$SKIPPED"; then
+    echo "$1:$2" >>"$SKIPPED"
+    log "JOB-$1 skipped: $3"
+  fi
+}
+
+id="" title="" run_dir="$HOME"
+while read -r cid kind ctitle; do
+  [ -n "$cid" ] || continue
+  case "$cid" in
+    *[!0-9]*) log "bad id: refusing ($cid)"; exit 1 ;;
+  esac
+  if [ "$kind" = T ]; then
+    id=$cid title=$ctitle
+    break
+  fi
+  # No target: run it only when the owner's prompt is a slash command, from the default
+  # home. The list omits the prompt, so read it with get. The title and the email comment
+  # are never the trigger.
+  if [ -z "${JOBS_DEFAULT_HOME:-}" ] || [ ! -d "$JOBS_DEFAULT_HOME" ]; then
+    skip_once "$cid" no-home "no target and JOBS_DEFAULT_HOME is unset or missing (${JOBS_DEFAULT_HOME:-unset})"
+    continue
+  fi
+  if ! slash=$("${J[@]}" get "$cid" 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, re, sys
+p = json.load(sys.stdin)["data"].get("prompt") or ""
+print("yes" if re.match(r"/[a-z][\w-]*(\s|$)", p.strip()) else "no")
+' 2>/dev/null); then
+    log "JOB-$cid could not read the prompt"
+    continue
+  fi
+  if [ "$slash" = yes ]; then
+    id=$cid title=$ctitle run_dir=$JOBS_DEFAULT_HOME
+    break
+  fi
+  # ponytail: a prompt edited into a slash command later stays skipped; delete its line
+  # from poller-skipped to let the poller read it again.
+  skip_once "$cid" not-slash "no target and not a slash command"
+done <<<"$cands"
+[ -n "$id" ] || exit 0
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 # A job is started at most once. A failed run stays in Backlog and is not retried every
 # minute; delete its line from poller-tried to let the poller start it again.
 echo "$id" >>"$TRIED"
-log "JOB-$id start: $title"
-cd "$HOME" || exit 1
+log "JOB-$id start in $run_dir: $title"
+cd "$run_dir" || exit 1
 # auto is the defaultMode the interactive /jobs runs use. --permission-prompts none denies
 # anything that would prompt, so an unattended run cannot stall on a question.
 # Its own process group, so the watchdog can kill the whole tree (claude plus whatever
