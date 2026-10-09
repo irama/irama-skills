@@ -15,8 +15,12 @@ import subprocess
 import sys
 
 STATE = os.path.expanduser("~/.claude/state/session-branches")
+# Git accepts options in any order, so `worktree add <path> -b <name>` is as common as
+# `worktree add -b <name> <path>`. Skip other tokens up to the flag, but never across ; & |.
 NEW_BRANCH = re.compile(
-    r"\bgit\s+(?:-C\s+\S+\s+)?(?:switch\s+-c|checkout\s+-b|worktree\s+add\s+(?:-q\s+)?-b)\s+(\S+)"
+    r"\bgit\s+(?:-C\s+\S+\s+)?"
+    r"(?:switch\s+(?:[^\s;&|]+\s+)*?-[cC]|checkout\s+(?:[^\s;&|]+\s+)*?-[bB]"
+    r"|worktree\s+add\s+(?:[^\s;&|]+\s+)*?-[bB])\s+([^\s;&|]+)"
 )
 
 
