@@ -20,7 +20,7 @@ STATE = os.path.expanduser("~/.claude/state/session-branches")
 NEW_BRANCH = re.compile(
     r"\bgit\s+(?:-C\s+\S+\s+)?"
     r"(?:switch\s+(?:[^\s;&|]+\s+)*?-[cC]|checkout\s+(?:[^\s;&|]+\s+)*?-[bB]"
-    r"|worktree\s+add\s+(?:[^\s;&|]+\s+)*?-[bB])\s+([^\s;&|]+)"
+    r"|worktree\s+add\s+(?:[^\s;&|]+\s+)*?-[bB])\s+('[^']*'|\"[^\"]*\"|[^\s;&|]+)"
 )
 
 

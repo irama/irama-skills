@@ -59,7 +59,8 @@ def main():
             ("git -C r worktree add -q /p -b x2 main", "x2"),
             ("git switch -C y2", "y2"),
             ("git checkout -B z2 origin/main", "z2"),
-            ("git worktree add /p main && ls -b q", None)]):
+            ("git worktree add /p main && ls -b q", None),
+            ("git switch -c 'feature&api'", "feature&api")]):
         sid = "order%d" % i
         run_hook("record-session-branches.py",
                  {"session_id": sid, "tool_name": "Bash", "tool_input": {"command": cmd}}, home)
