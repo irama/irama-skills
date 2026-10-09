@@ -46,17 +46,27 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   if [ -n "$held" ] && kill -0 "$held" 2>/dev/null; then
     exit 0 # a run is active
   fi
+  if [ -z "$held" ]; then
+    # The pid file is written just below, after mkdir, so a lock dir that still has no
+    # pid file can be another tick mid-creation rather than abandoned. Give it ~5s.
+    age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
+    [ "$age" -ge 5 ] || exit 0 # another tick is still writing its pid
+  fi
   # ponytail: a reused PID reads as alive and holds the lock until that process ends.
   log "removed stale lock (pid ${held:-none})"
   rm -rf "$LOCK"
   mkdir "$LOCK" 2>/dev/null || exit 0
 fi
-echo $$ >"$LOCK/pid"
+pid_tmp="$LOCK/pid.$$"
+echo $$ >"$pid_tmp"
+mv "$pid_tmp" "$LOCK/pid"
 trap 'rm -rf "$LOCK"' EXIT
 
 # ── Pick ─────────────────────────────────────────────────────────────────────
 touch "$TRIED"
-if ! listing=$("${J[@]}" list --column backlog --source zero 2>&1); then
+# --all-pages: without it, a full first page of tried/stuck backlog jobs could hide
+# every newer job behind them.
+if ! listing=$("${J[@]}" list --column backlog --source zero --all-pages 2>&1); then
   log "list failed: $(printf '%s' "$listing" | tr '\n' ' ' | cut -c1-300)"
   exit 1
 fi
@@ -74,6 +84,9 @@ if jobs:
 [ -n "$pick" ] || exit 0
 id=${pick%% *}
 title=${pick#* }
+case "$id" in
+  ''|*[!0-9]*) log "bad id: refusing ($id)"; exit 1 ;;
+esac
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 # A job is started at most once. A failed run stays in Backlog and is not retried every
@@ -83,20 +96,26 @@ log "JOB-$id start: $title"
 cd "$HOME" || exit 1
 # auto is the defaultMode the interactive /jobs runs use. --permission-prompts none denies
 # anything that would prompt, so an unattended run cannot stall on a question.
+# Its own process group, so the watchdog can kill the whole tree (claude plus whatever
+# it spawns) by group instead of chasing children one `pkill -P` level deep.
+set -m
 "$CLAUDE_BIN" -p "/jobs JOB-$id --background" \
   --permission-mode auto --permission-prompts none >>"$LOG" 2>&1 &
 run=$!
-echo "$run" >"$LOCK/pid"
+set +m
+pid_tmp="$LOCK/pid.$$"
+echo "$run" >"$pid_tmp"
+mv "$pid_tmp" "$LOCK/pid"
 
 waited=0
 killed=0
 while kill -0 "$run" 2>/dev/null; do
   if [ "$waited" -ge "$LIMIT" ]; then
     killed=1
-    pkill -TERM -P "$run" 2>/dev/null
+    kill -TERM -- "-$run" 2>/dev/null
     kill -TERM "$run" 2>/dev/null
     for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$run" 2>/dev/null || break; sleep 1; done
-    pkill -KILL -P "$run" 2>/dev/null
+    kill -KILL -- "-$run" 2>/dev/null
     kill -KILL "$run" 2>/dev/null
     break
   fi

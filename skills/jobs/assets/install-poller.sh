@@ -96,5 +96,20 @@ mv "$CONF.tmp" "$CONF"
 printf '%s\n' "$plist_body" >"$PLIST"
 plutil -lint "$PLIST" >/dev/null
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
+# bootout returns before the service is actually gone; a bootstrap that races it can fail
+# with "Bootstrap failed: 5: Input/output error". Poll (bounded) until it's really unloaded.
+wait_tries=0
+while [ "$wait_tries" -lt 10 ] && launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; do
+  wait_tries=$((wait_tries + 1))
+  sleep 0.5
+done
+boot_tries=0
+until launchctl bootstrap "gui/$(id -u)" "$PLIST"; do
+  boot_tries=$((boot_tries + 1))
+  [ "$boot_tries" -lt 3 ] || {
+    echo "launchctl bootstrap failed 3 times for $LABEL; check: launchctl print gui/$(id -u)/$LABEL" >&2
+    exit 1
+  }
+  sleep 1
+done
 echo "loaded $LABEL. Log: $LOG. Remove with: $0 --uninstall"

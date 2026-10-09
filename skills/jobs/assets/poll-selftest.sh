@@ -72,4 +72,22 @@ rm -rf "$lock"
 JOBS_POLLER_LIMIT=2 FAKE_RUN_SECS=60 bash "$here/poll.sh"
 grep -q 'comment 3 --kind event --body Stopped after 0 minutes' "$tmp/calls" || fail "no watchdog comment"
 grep -q 'JOB-3 stopped after' "$tmp/sent" || fail "no watchdog message"
+
+# v) A non-numeric id from the hub is refused, not run.
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+if sys.argv[1] == "list":
+    print(json.dumps({"jobs": [
+        {"id": "x1", "source": "zero", "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "bad id"},
+    ], "next_cursor": None}))
+EOF
+: >"$HOME/.config/jobs/poller-tried"
+claude_calls_before=$(grep -c '^claude ' "$tmp/calls" || true)
+rc=0
+bash "$here/poll.sh" || rc=$?
+[ "$rc" = 1 ] || fail "bad id did not exit 1 (got $rc)"
+grep -q 'bad id: refusing (x1)' "$tmp/log" || fail "bad id not logged"
+[ "$(grep -c '^claude ' "$tmp/calls" || true)" = "$claude_calls_before" ] || fail "claude ran for a bad id"
+[ ! -d "$lock" ] || fail "lock left after a bad id"
 echo "poll.sh selftest: ok"
