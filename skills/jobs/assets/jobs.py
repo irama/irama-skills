@@ -2,7 +2,7 @@
 """Client for the job board's agent API. The /jobs skill calls this; it never builds curl.
 
     jobs.py here                                  this repo's target and whether it orchestrates
-    jobs.py list [--column C] [--target T|none] [--awaiting] [--ship-approved] [--all-pages]
+    jobs.py list [--column C] [--target T|none] [--source board|zero] [--awaiting] [--ship-approved] [--all-pages]
     jobs.py get ID                                one job, runs, last 200 comments
     jobs.py attachments ID                        1-hour signed image URLs
     jobs.py claim ID [--agent LABEL]              claim with this machine's token for the job
@@ -10,7 +10,8 @@
     jobs.py run ID --target T [--branch B] [--base-sha S] [--head-sha S] [--state claimed|committed|failed]
     jobs.py shipped ID --target T --deployed-sha S
     jobs.py comment ID --kind message|event [--body TEXT | --body-file F | stdin] [--agent LABEL]
-    jobs.py repos [--root DIR] [--dry-run]        report sibling git repos (PUT /api/jobs/repos)
+    jobs.py repos [--root DIR] [--dry-run]        report sibling git repos (PUT /api/jobs/repos);
+                                                  outside a repo, --root defaults to $JOBS_REPOS_ROOT
     jobs.py preflight ID --target T --repo PATH [--void] [--recheck]   ship preflight; --recheck before the push
     jobs.py --selftest
 
@@ -238,7 +239,9 @@ def sibling_repos(root):
 
 def cmd_repos(a):
     here = repo_root(Path.cwd())
-    root = Path(a.root) if a.root else (here.parent if here else None)
+    # The background poller runs from the home folder, so it names the root in the env.
+    fallback = os.environ.get("JOBS_REPOS_ROOT")
+    root = Path(a.root) if a.root else (here.parent if here else (Path(fallback) if fallback else None))
     if not root or not root.is_dir():
         die("not in a git repo and no --root given")
     repos = sibling_repos(root)
@@ -259,6 +262,8 @@ def cmd_list(a):
         q["column"] = a.column
     if a.target:
         q["target"] = a.target
+    if a.source:
+        q["source"] = a.source
     if a.awaiting:
         q["awaiting"] = "1"
     if a.ship_approved:
@@ -492,6 +497,32 @@ def selftest():
         assert api("GET", "/short") == (0, {"error": "hub read failed: IncompleteRead", "code": "UNREACHABLE"})
         assert api("GET", "/bytes")[1]["code"] == "BAD_RESPONSE"
         srv.server_close()
+        # list --source reaches the hub as ?source=, beside the other filters.
+        seen = []
+
+        class Echo(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.path)
+                body = b'{"data":{"jobs":[],"next_cursor":null}}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Echo)
+        threading.Thread(target=srv.handle_request, daemon=True).start()
+        os.environ["JOBS_BASE_URL"] = f"http://127.0.0.1:{srv.server_port}"
+        ns = argparse.Namespace(column="backlog", target=None, source="zero", awaiting=False,
+                                ship_approved=False, all_pages=False)
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert cmd_list(ns) == 0
+        assert seen == ["/api/jobs?column=backlog&source=zero"], seen
+        srv.server_close()
         for k in ("JOBS_BASE_URL", "JOBS_AGENT_TOKEN"):
             del os.environ[k]
 
@@ -574,6 +605,7 @@ def main():
     s = sub.add_parser("list")
     s.add_argument("--column", choices=["backlog", "in_progress", "in_review", "done"])
     s.add_argument("--target")
+    s.add_argument("--source", choices=["board", "zero"])
     s.add_argument("--awaiting", action="store_true")
     s.add_argument("--ship-approved", action="store_true")
     s.add_argument("--all-pages", action="store_true")

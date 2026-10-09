@@ -1,7 +1,7 @@
 ---
 name: jobs
 description: Work the job board — list the jobs queued for this repo (or every repo), let the user pick, then claim, size, build and report back on each card, and ship approved runs through /merge and /push. Use when the user says "jobs", "check the job board", "what jobs are there", "work JOB-12", "ship the approved jobs", or invokes /jobs.
-argument-hint: "nothing (this repo's jobs), `all` (every job), or `JOB-<id>` (one job, from anywhere)"
+argument-hint: "nothing (this repo's jobs), `all` (every job), `JOB-<id>` (one job, from anywhere), or `JOB-<id> --background` (the poller's unattended run)"
 disable-model-invocation: true
 ---
 
@@ -12,8 +12,8 @@ disable-model-invocation: true
 
 The job board is a hub page where the operator queues **jobs** (a prompt, optional targets,
 optional screenshots) from a phone. This skill reads the board through the hub's bearer-token
-agent API, and **the invoking session does the work itself**. Never launch `claude -p` or a
-second session.
+agent API, and **the invoking session does the work itself**. Never launch `claude -p` from
+inside a run.
 
 Every API call goes through the client. Never build curl by hand:
 
@@ -76,6 +76,8 @@ can differ (an app called Foo can be `owner/foo` checked out as `tools/foo-site`
 - **`/jobs all`, or `/jobs` where `$J here` says `"orchestrator": true`:** every job across
   targets (`$J list --all-pages`), grouped by column, each with its proposed targets and size.
 - **`/jobs JOB-12`:** that one job (`$J get 12`), from anywhere.
+- **`/jobs JOB-12 --background`:** the unattended run the poller starts. Follow
+  the Background mode section only; there is no pick.
 
 **Then stop and let the operator pick.** Nothing is claimed before they do. The list omits
 the prompt, so run `$J get <id>` for each picked job before working it.
@@ -143,6 +145,32 @@ any. `RUNS_UNSHIPPED` (409) means a move to Done while a run is unshipped.
 `PAYLOAD_TOO_LARGE` (413) is a body over 64 KB: trim it. `NOT_CONFIGURED` (503) means the hub
 has no usable token set.
 
+## Background mode (`/jobs JOB-<id> --background`)
+
+The poller (see [Background pickup](#background-pickup)) starts this mode with `claude -p` from
+the home folder. Nobody is watching, so never ask a question in the session: every question,
+refusal and result goes on the card. `$J repos` and `$J repos --dry-run` find the checkouts
+through `JOBS_REPOS_ROOT`, which the poller exports.
+
+1. **Check the job:** `$J get <id>`. Refuse a job whose `source` is not `zero`, or whose
+   `targets` is empty (no "agent picks" in the background). A refusal is one comment,
+   `$J comment <id> --kind event --body "Background run refused: <reason>"`, then stop
+   without a claim.
+2. **Claim** as in Execution step 1. On any refusal, comment the reason and stop.
+3. **Size** as in Execution step 2. Never pass `--targets-picked`.
+4. **quick or build:** Execution step 3, for the tagged targets only. Find each target's
+   checkout with `$J repos --dry-run`. A target with no local checkout is a failed run
+   (`$J run <id> --target <t> --state failed` plus a comment).
+5. **Any other size:** do not start the work. For `grill`, post the questions as one message
+   on the card. For `prototype`, `to_driver` or `wayfinder`, post the reason and the exact
+   command, as in Execution step 5. Then move the job to In review.
+6. **Close the conductor claim** as in Execution step 6, `--status incomplete` if you stopped
+   part-way.
+
+Background mode never runs the Ship section, never merges and never pushes. On any hub
+refusal it comments on the card, signs off the conductor claim `--status incomplete`, and
+stops.
+
 ## Ship, for each `approved` run
 
 The operator approves in the hub. That pins each run's `approved_sha`. Ship per target, from
@@ -207,8 +235,41 @@ the target repo.
 
 - Create or edit a job, its prompt, title, tagged targets or screenshots. There is no route.
 - Approve a ship, or move a job to Backlog. Both belong to the operator.
-- Pick up jobs on a timer. It runs only when invoked.
+- Pick up jobs on a timer, except the `--background` mode that the poller starts.
+
+## Background pickup
+
+A launchd agent, `org.<user>.jobs-poller` (`<user>` is `id -un`), runs `<skill-dir>/assets/poll.sh` every 60 seconds.
+Each tick makes one `$J list --column backlog --source zero` call and takes the oldest job
+that ZERO created with a tagged target. It checks `source` and `targets` again on its own
+side, so a hub that ignores `?source` can never start a board job. It runs
+`claude -p "/jobs JOB-<id> --background" --permission-mode auto --permission-prompts none`
+from the home folder. `auto` is the permission mode the interactive runs use (the
+`defaultMode` in the user settings). `--permission-prompts none` denies any action that
+would prompt, so an unattended run cannot stall on a question.
+
+- **Install:** `bash <skill-dir>/assets/install-poller.sh` from a login shell. It writes the
+  absolute paths of `claude`, `python3`, this skill, the Telegram sender and the repos root
+  to `~/.config/jobs/poller.env` (mode 600), because launchd gives no login-shell `PATH`.
+  `--dry-run` prints both files and writes nothing. `--repos-root DIR` overrides the folder
+  holding the main checkouts.
+- **Stop:** `bash <skill-dir>/assets/install-poller.sh --uninstall` unloads the agent and
+  deletes the plist and `poller.env`. It keeps the log and `claims.json`.
+- **Log:** `~/Library/Logs/jobs-poller.log`. A Telegram message (through the `telegram`
+  skill's `send.sh`) reports a card that reaches In review, and a run that fails.
+- **Limits:** one run at a time, held by the lock directory `~/.config/jobs/poller.lock`
+  (it holds the run's PID; a lock with a dead PID is removed at the next tick). A run stops
+  after 45 minutes, with the card comment "Stopped after 45 minutes". The poller starts a
+  job at most once: a failed job stays in Backlog, and its id is in
+  `~/.config/jobs/poller-tried`. Delete that line to let the poller start it again. Only
+  `quick` and `build` jobs are built. Nothing is shipped, merged or pushed.
+- **Sleep:** the poller does not run while the Mac sleeps. launchd runs a missed interval
+  at wake, so a waiting job starts then. To run with the lid closed, turn on "Prevent
+  automatic sleeping on power adapter when the display is off" in System Settings, Battery
+  (Options). The installer does not change this setting.
 
 `python3 <skill-dir>/assets/jobs.py --selftest` covers target parsing, the config template,
 claim-token reuse and concurrent creation, a stalled body read, default-branch resolution,
-and the ship preflight and its re-check against a local git origin.
+the ship preflight and its re-check against a local git origin, and the `--source` filter.
+`bash <skill-dir>/assets/poll-selftest.sh` runs the poller against fakes: the pick filter,
+the stale and live lock, the at-most-once rule, the Telegram messages and the watchdog.
