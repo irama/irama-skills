@@ -48,6 +48,21 @@ def repo_root() -> Path:
 
 ROOT = repo_root()
 
+
+def main_checkout(cwd=None):
+    """The main checkout's root, also when run from a linked worktree.
+
+    `.leakrc` is gitignored, so it exists only in the main checkout. Read from
+    ROOT alone, a worktree gate ran without the private list and passed what the
+    main checkout blocks."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                             capture_output=True, text=True, check=True, cwd=cwd).stdout.strip()
+        common = Path(out)
+        return common.parent if common.name == ".git" else None
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
 # Blocks the commit. Absolute home paths are also a portability bug, not just
 # a disclosure one — they break the repo for everyone who is not the author.
 HARD = [
@@ -91,6 +106,7 @@ def _leakrc(prefix=None):
     # the same secret inventory, and the one that forgets is the one that leaks.
     for rc in (Path(os.environ["LEAKRC"]) if os.environ.get("LEAKRC") else None,
                ROOT / ".leakrc",
+               (main_checkout() or ROOT) / ".leakrc",
                Path.home() / ".claude" / ".leakrc"):
         if rc and rc.is_file():
             break
@@ -406,6 +422,23 @@ def selftest_no_leakrc() -> bool:
     return True
 
 
+def selftest_worktree_root() -> bool:
+    """From a linked worktree, the main checkout (where .leakrc lives) is found."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        repo, wt = Path(d) / "repo", Path(d) / "wt"
+        g = lambda *a: subprocess.run(["git", *a], check=True, capture_output=True)
+        g("init", "-q", "-b", "main", str(repo))
+        g("-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+          "--allow-empty", "-m", "init")
+        g("-C", str(repo), "worktree", "add", "-q", "-b", "w", str(wt))
+        got = main_checkout(str(wt))
+        if not got or got.resolve() != repo.resolve():
+            print(f"selftest FAIL: main_checkout from a worktree gave {got}")
+            return False
+    return True
+
+
 def selftest_staged() -> bool:
     """Pre-commit mode must scan the index, not the working copy.
 
@@ -592,6 +625,7 @@ def selftest() -> int:
 
     ok = selftest_staged() and ok
     ok = selftest_no_leakrc() and ok
+    ok = selftest_worktree_root() and ok
     print("selftest passed" if ok else "selftest FAILED")
     return 0 if ok else 1
 
