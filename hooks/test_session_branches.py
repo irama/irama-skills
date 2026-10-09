@@ -53,6 +53,20 @@ def main():
     with open(os.path.join(home, ".claude/state/session-branches/s3")) as fh:
         assert fh.read().split() == ["mine"]
 
+    # Any option order: the path before -b was missed, and a background /jobs run lost its branch.
+    for i, (cmd, want) in enumerate([
+            ("git worktree add $W -b job/2-smoke main", "job/2-smoke"),
+            ("git -C r worktree add -q /p -b x2 main", "x2"),
+            ("git switch -C y2", "y2"),
+            ("git checkout -B z2 origin/main", "z2"),
+            ("git worktree add /p main && ls -b q", None)]):
+        sid = "order%d" % i
+        run_hook("record-session-branches.py",
+                 {"session_id": sid, "tool_name": "Bash", "tool_input": {"command": cmd}}, home)
+        path = os.path.join(home, ".claude/state/session-branches", sid)
+        got = open(path).read().split() if os.path.exists(path) else []
+        assert got == ([want] if want else []), (cmd, got)
+
     # Gap 2: launchers no longer skip the guard.
     g("-C", repo, "switch", "-q", "foreign")
     for cmd in ["command git commit -m x", "env git commit -m x", "rtk git commit -m x",
