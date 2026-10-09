@@ -78,6 +78,50 @@ images as a spend the user should approve first, with an estimate.
   best. `nano-banana` was the old address and it is gone; the model, not the skill, is the thing
   that changes.
 
+## Icons: render a sheet, then slice
+
+Never render icons one at a time. One render of a 4 by 4 sheet gives 16 icons that share a
+style, for the price of one image. Tested 2026-10 on `nb2`, `gpt2` and `gpt25`: all three kept
+a 4 by 4 grid with nothing overlapping, at 1:1.
+
+**Prompt shape.** Two blocks, the sheet first, then the style:
+
+- *Sheet:* "A sheet of 16 icons arranged in a strict 4 by 4 grid on a plain flat <colour>
+  background. Every cell is the same size, evenly spaced with generous empty margin, each icon
+  centred in its own cell, no icon touches or overlaps another. No grid lines, no borders, no
+  labels, no numbers, no text of any kind." Then the 16 subjects, numbered in reading order.
+  End with "All 16 icons share exactly the same style, line weight and scale."
+- *Style:* the line (tool, weight, wobble, ends), the detail budget ("the outline plus at
+  most three interior lines"), what is banned (hatching, shading, gradients), and the palette
+  as hex codes, ending "Only those colours on the background."
+- Ask for a line weight that "still reads at 48 pixels". Fine sketchy pencil styles look
+  good on the sheet and fall apart at 64 px.
+- Name a character literally when you need it: "a cartoon monkey, not an astronaut or robot".
+  The GPT models turned a "robot monkey head" into an antenna robot.
+
+**Slice.** `<skill-dir>/slice_sheet.py` cuts the sheet into one transparent PNG per icon:
+
+```
+python3 <skill-dir>/slice_sheet.py sheet.png icons/ --grid 4x4 --names pipe,seesaw,...
+```
+
+It keys out the background, trims each icon to its ink, pads it to a square (`--size`,
+default 512) and writes `<name>-dark.png` too, with neutral ink swapped for a light colour
+(`--dark-ink`) so the set works on dark slides while coloured accents keep their colour. Grid
+lines snap to the emptiest gutter near their nominal position, because models drift a little
+off a perfect grid; a cut that still crosses ink is printed, so check those cells by eye.
+`--selftest` runs its built-in check. Needs Pillow and numpy.
+
+**Keep a set consistent across sheets.**
+
+- Same style block, word for word, saved as a `.txt` beside the icons.
+- Same model for the whole set. The models do not match each other's line.
+- For sheet two onwards, use `nb2` and pass sheet one back as a reference. The script prints
+  each result's public URL (`url:` on stderr); keep it in a log, then `--ref <that url>` and
+  open the prompt with "The attached image is the style reference for this set. Match it
+  exactly: the same line weight, wobble, accent and icon scale." The host's result URLs are
+  temporary, so re-upload the saved sheet if the link has expired.
+
 ## After generating
 
 - Save into the project that needs it, not a scratch dir, and reference it with a relative path.

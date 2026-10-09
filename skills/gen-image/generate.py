@@ -130,6 +130,11 @@ def main() -> None:
         with urllib.request.urlopen(dl, timeout=120) as res, open(out, "wb") as fh:
             fh.write(res.read())
         print(out)
+        # The result URL is public for a while: pass it back as --ref to hold a style.
+        print("url:", urls[0], file=sys.stderr)
+        for k in ("usage", "cost", "credits", "price"):
+            if k in st:
+                print(k + ":", json.dumps(st[k]), file=sys.stderr)
         for extra in urls[1:]:
             print("also:", extra, file=sys.stderr)
         return
