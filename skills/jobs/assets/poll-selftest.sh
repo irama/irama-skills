@@ -175,4 +175,33 @@ grep -qx 10 "$HOME/.config/jobs/poller-owned" || fail "backlog run not recorded 
 : >"$tmp/calls"
 FAKE_LAST=41 bash "$here/poll.sh"
 grep -q 'JOB-8 --background' "$tmp/calls" || fail "a new reply did not start a run"
+# ix) An approved run ships first, once per approved commit, with the --ship flag.
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+a = sys.argv[1:]
+run = {"state": os.environ.get("FAKE_STATE", "approved"), "target": "o/r", "approved_sha": "abc1234"}
+if a[0] == "list" and "--ship-approved" in a:
+    print(json.dumps({"jobs": [{"id": 12, "claimed": True, "title": "ship me", "runs": [run]},
+                               {"id": 13, "claimed": True, "title": "not mine", "runs": [run]}]}))
+elif a[0] == "list":
+    print(json.dumps({"jobs": [{"id": 10, "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "backlog"}]}))
+elif a[0] == "get":
+    print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "runs": [run]}}))
+elif a[0] == "repos":
+    print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
+EOF
+echo '{"12": "tok"}' >"$HOME/.config/jobs/claims.json"
+: >"$HOME/.config/jobs/poller-tried"
+: >"$tmp/calls"
+: >"$tmp/sent"
+FAKE_STATE=approved bash "$here/poll.sh"
+grep -q "claude -p /jobs JOB-12 --background --ship .* @ $repo_real\$" "$tmp/calls" || fail "approved job 12 not shipped in its checkout"
+grep -q 'JOB-13 ' "$tmp/calls" && fail "job without this machine's claim shipped"
+grep -q 'JOB-10 ' "$tmp/calls" && fail "backlog started before an approved ship"
+grep -q 'JOB-12 ship failed' "$tmp/sent" || fail "a run still approved was not reported as a failed ship"
+grep -qx '12#ship@abc1234' "$HOME/.config/jobs/poller-tried" || fail "ship key not recorded"
+: >"$tmp/calls"
+bash "$here/poll.sh"
+grep -q 'JOB-12 ' "$tmp/calls" && fail "same approval shipped twice"
 echo "poll.sh selftest: ok"

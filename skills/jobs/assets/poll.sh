@@ -81,8 +81,39 @@ m = [r["path"] for r in json.load(sys.stdin)["repos"] if r["target"] == sys.argv
 print(m[0] if m else "")
 ' "$1" 2>/dev/null
 }
-id="" title="" run_dir="$HOME" tried_key="" reply_cid=""
-if awaiting=$("${J[@]}" list --awaiting --all-pages 2>/dev/null); then
+id="" title="" run_dir="$HOME" tried_key="" reply_cid="" ship=""
+# Before anything else: a run the operator approved to ship. Approving is the instruction to
+# ship, so the poller ships it unattended. One run per approved commit: "<id>#ship@<sha>".
+if approved=$("${J[@]}" list --ship-approved --all-pages 2>/dev/null); then
+  read -r cid ctarget csha ctitle < <(printf '%s' "$approved" | "$PYTHON3_BIN" -c '
+import json, os, sys
+tried = {l.strip() for l in open(sys.argv[1]) if l.strip()}
+try:
+    mine = set(json.load(open(os.path.expanduser("~/.config/jobs/claims.json"))))
+except (OSError, ValueError):
+    mine = set()  # shipping needs this machine claim token
+for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"]).zfill(20)):
+    runs = [r for r in j.get("runs") or [] if r.get("state") == "approved" and r.get("approved_sha")]
+    if not runs or str(j["id"]) not in mine:
+        continue
+    key = "%s#ship@%s" % (j["id"], runs[0]["approved_sha"])
+    if key in tried:
+        continue
+    print(j["id"], runs[0]["target"], runs[0]["approved_sha"], (j.get("title") or "")[:120].replace("\n", " "))
+    break
+' "$TRIED" 2>/dev/null)
+  case "$cid" in
+    ""|*[!0-9]*) ;;
+    *)
+      id=$cid title=$ctitle ship=1 tried_key="$cid#ship@$csha"
+      run_dir=$(first_target_dir "$ctarget")
+      [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
+      LIMIT="${JOBS_POLLER_SHIP_LIMIT:-5400}" # merge, review, build and deploy take longer
+      log "JOB-$id approved to ship at ${csha:0:7}"
+      ;;
+  esac
+fi
+if [ -z "$id" ] && awaiting=$("${J[@]}" list --awaiting --all-pages 2>/dev/null); then
   while read -r cid ctarget ctitle; do
     case "$cid" in *[!0-9]*|"") continue ;; esac
     last=$("${J[@]}" get "$cid" 2>/dev/null | "$PYTHON3_BIN" -c '
@@ -236,7 +267,7 @@ export JOBS_RUN_DIR="$run_dir"
 # A known session id, so the transcript can be found after the run (see Retag).
 sid=$(uuidgen | tr '[:upper:]' '[:lower:]')
 set -m
-"$CLAUDE_BIN" -p "/jobs JOB-$id --background" --session-id "$sid" \
+"$CLAUDE_BIN" -p "/jobs JOB-$id --background${ship:+ --ship}" --session-id "$sid" \
   --permission-mode auto --permission-prompts none >>"$LOG" 2>&1 &
 run=$!
 set +m
@@ -302,7 +333,17 @@ import json, sys
 print(json.load(sys.stdin)["data"]["column"])
 ' 2>/dev/null || echo unknown)
 log "JOB-$id ended: exit $rc, card in $column"
-if [ -n "$reply_cid" ]; then
+if [ -n "$ship" ]; then
+  left=$("${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, sys
+print(sum(1 for r in json.load(sys.stdin)["data"].get("runs") or [] if r.get("state") == "approved"))
+' 2>/dev/null || echo 1)
+  if [ "$rc" = 0 ] && [ "$left" = 0 ]; then
+    notify "JOB-$id shipped: $title"
+  else
+    notify "JOB-$id ship failed (exit $rc, $left run(s) still approved): $title"
+  fi
+elif [ -n "$reply_cid" ]; then
   # A reply run starts in In review, so the column proves nothing: the ack does.
   ack=$("${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
 import json, sys

@@ -172,7 +172,14 @@ slash job (below). Nobody is watching, so never ask a question in the session: e
 refusal and result goes on the card. `$J repos` and `$J repos --dry-run` find the checkouts
 through `JOBS_REPOS_ROOT`, which the poller exports.
 
-0. **Follow-up on your reply.** If this machine already holds the job's claim (the job is
+0. **Ship on approval (`--ship`).** The poller passes `--ship` when the operator has approved a
+   run. Approving is the instruction to ship. Run the [Ship](#ship-for-each-approved-run)
+   section for every `approved` run on the job, from the target repo, with all its checks
+   (preflight, conductor claims, review at `/merge`, the re-check before the push, `/push`
+   with its migrations, build and deploy check). Any refusal stops that run and goes on the
+   card. Do nothing else in this session.
+
+0b. **Follow-up on your reply.** If this machine already holds the job's claim (the job is
    claimed, `$J patch` would not refuse `CLAIM_MISMATCH`, and `~/.config/jobs/claims.json` has
    its id) and `$J get <id>` shows `author='you'` comments with `id` above `ack_comment_id`,
    this run is a follow-up. Skip steps 1 to 5 and do this instead:
@@ -216,7 +223,7 @@ through `JOBS_REPOS_ROOT`, which the poller exports.
 6. **Close the conductor claim** as in Execution step 6, `--status incomplete` if you stopped
    part-way.
 
-Background mode never runs the Ship section, never merges and never pushes. On any hub
+Background mode merges and pushes only in a `--ship` run, through the Ship section. On any hub
 refusal it comments on the card, signs off the conductor claim `--status incomplete`, and
 stops.
 
@@ -283,7 +290,8 @@ the target repo.
 ## What this skill never does
 
 - Create or edit a job, its prompt, title, tagged targets or screenshots. There is no route.
-- Approve a ship, or move a job to Backlog. Both belong to the operator.
+- Approve a ship, or move a job to Backlog. Both belong to the operator. Once the operator
+  approves, the poller ships it with no further prompt.
 - Pick up jobs on a timer, except the `--background` mode that the poller starts.
 
 ## Background pickup
@@ -336,7 +344,9 @@ would prompt, so an unattended run cannot stall on a question.
   after 45 minutes, with the card comment "Stopped after 45 minutes". The poller starts a
   job at most once: a failed job stays in Backlog, and its id is in
   `~/.config/jobs/poller-tried`. Delete that line to let the poller start it again. Only
-  `quick` and `build` jobs, and untargeted slash jobs, are run. Nothing is shipped, merged or pushed.
+  `quick` and `build` jobs, and untargeted slash jobs, are run. A run the operator approved
+  ships first, once per approved commit (`<id>#ship@<sha>` in `poller-tried`), with a
+  90-minute limit; it needs this machine's claim token for the job.
 - **Sleep:** the poller does not run while the Mac sleeps. launchd runs a missed interval
   at wake, so a waiting job starts then. To run with the lid closed, turn on "Prevent
   automatic sleeping on power adapter when the display is off" in System Settings, Battery
