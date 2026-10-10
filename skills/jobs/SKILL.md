@@ -90,6 +90,10 @@ can differ (an app called Foo can be `owner/foo` checked out as `tools/foo-site`
 **Then stop and let the operator pick.** Nothing is claimed before they do. The list omits
 the prompt, so run `$J get <id>` for each picked job before working it.
 
+**Every result comment ends with a "For you" list:** the actions the operator now takes (check,
+send, approve, reply), one line each, or "Nothing: review and archive." A card in In review always
+flags the operator, so the comment must say what the flag asks for.
+
 ## Execution, for each picked job, in order
 
 1. **Claim**, conductor first, then the hub. Stop on either refusal: another session has
