@@ -243,19 +243,21 @@ cd "$run_dir" || exit 1
 # Drive for desktop keeps most files online-only, and a headless run reading one gets
 # "Resource deadlock avoided". Download the folders runs need first ("|"-separated paths).
 if [ -n "${JOBS_PREFETCH:-}" ]; then
-  n=0 bad=0 until=$(( $(date +%s) + 300 )) # 60 s a file, 5 minutes in all
+  n=0 bad=0 seen=0 until=$(( $(date +%s) + 300 )) # 60 s a file, 5 minutes in all
   IFS='|' read -r -a pre <<<"$JOBS_PREFETCH"
   for d in "${pre[@]}"; do
     [ -d "$d" ] || continue
     while IFS= read -r -d '' f; do
       [ "$(date +%s)" -lt "$until" ] || { log "JOB-$id prefetch stopped at 5 minutes"; break 2; }
+      seen=$((seen + 1))
       case "$(stat -f %Sf "$f" 2>/dev/null)" in
         *dataless*)
           if perl -e 'alarm 60; exec @ARGV' cat "$f" >/dev/null 2>&1; then n=$((n + 1)); else bad=$((bad + 1)); fi ;;
       esac
     done < <(find "$d" -type f -print0 2>/dev/null)
   done
-  [ "$n$bad" = 00 ] || log "JOB-$id prefetched $n Drive files, $bad failed"
+  # Always log: a launchd process may list nothing at all, and silence hid that once.
+  log "JOB-$id prefetch: listed $seen files, downloaded $n, $bad failed"
 fi
 run_dir=$(pwd -P) # absolute, for trust.py and the claim's session folder
 # A folder that was never trusted drops its permission allow rules in a headless run.
