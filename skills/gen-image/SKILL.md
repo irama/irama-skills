@@ -113,18 +113,29 @@ off a perfect grid; a cut that still crosses ink is printed, so check those cell
 `--dark-drop-wash` leaves a pale wash out of the `-dark` copy (see House look). `--selftest` runs its built-in check. Needs Pillow and numpy.
 
 **House look.** A fine hand-drawn ink line: two or three light overlapping passes, little
-interior detail, no hatching or shading. On light backgrounds a loose gold wash (#D0B561)
-sits under the line, offset a little down and right like a quick watercolour fill. On dark
-backgrounds the line turns cream and has no wash.
+interior detail, no hatching or shading. On light backgrounds a flat light gold shape
+(#E9D7AC) sits under the line: a copy of the icon's main silhouette, offset down and right by
+one fixed share of the icon box, like a print whose colour plate is slightly out of register.
+On dark backgrounds the line turns cream and has no wash.
 
-- Render the wash in the same sheet: add it to the style block ("under each icon sits one
-  loose flat wash of muted gold, a single soft-edged blob, set slightly offset down and to the
-  right; the line sits on top of the wash") and pass a line-only sheet of the set as the
-  reference. Tested 2026-10 on `nb2`: the rendered wash reads as real watercolour. A
-  programmatic blob laid under the line (filled outline, noise-wobbled edge, offset) costs
-  nothing but looks airbrushed, and thin icons such as dashed arrows get almost none.
-- Slice with `--dark-drop-wash`: the `-dark` copy clears the pale wash and keeps the line,
-  recoloured cream, so one washed sheet serves both backgrounds.
+- Render the sheet line only, then add the wash by script, free and deterministic:
+
+  ```
+  python3 <skill-dir>/shape_wash.py icons/hammer.png icons/scale.png -o washed/
+  python3 <skill-dir>/shape_wash.py --strip strip.png icons/*.png   # 120 px test strip, two tints
+  ```
+
+  It closes small gaps in the line, fills enclosed holes, then erodes and dilates so thin
+  strokes drop out and the shape follows the main body. A separate thin part (a dash, an
+  arrow shaft) takes a modest thickening of its own stroke instead. The shape is flat and
+  opaque with an anti-aliased edge, offset 6 % of the box (`--offset`), tint by `--tint`.
+  Apply it to the light copies only; the `-dark` copies stay line only.
+- For a drawing assembled from several icons, wash each piece at its own offset and lay every
+  shape under every line. One shift for the whole drawing doubles thin dashed lines.
+- Tested 2026-10: a wash rendered by the model (watercolour) and a noise-wobbled blob were
+  both rejected; the shape-matched flat offset is the method.
+- `--dark-drop-wash` remains for a sheet that was rendered with a wash: the `-dark` copy
+  clears the pale wash and keeps the line, recoloured cream.
 - A reference sheet's subjects win over the prompt's list: `nb2` redrew the reference's 16
   subjects and ignored swapped-in ones. Pass a reference whose subjects match the new sheet.
 
