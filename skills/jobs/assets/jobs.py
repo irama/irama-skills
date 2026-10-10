@@ -458,9 +458,8 @@ def upload_images(job_id, paths, files=()):
             older = status in (400, 404, 405) and payload.get("code") not in ("VALIDATION_ERROR", "NOT_FOUND")
             # A hub from before result files refuses the new type or the filename field as a
             # validation error: say so plainly rather than as a generic refusal.
-            if (is_file and status == 400 and payload.get("code") == "VALIDATION_ERROR"
-                    and "mime" in json.dumps(payload).lower()):
-                older = True  # only a refusal of the file type itself means an older hub
+            if is_file and status == 400 and payload.get("code") == "VALIDATION_ERROR":
+                older = True
             if older:
                 kind = "result files" if is_file else "agent screenshots"
                 print(json.dumps({"error": f"the hub does not accept {kind} yet (the slot route "
