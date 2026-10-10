@@ -128,9 +128,10 @@ the prompt, so run `$J get <id>` for each picked job before working it.
    375px and at desktop width, and returns the screenshot paths. Attach them to the result
    comment: `$J comment <id> --kind message --body-file <f> --image <375.png> --image <desktop.png>`
    (at most 6 per comment, each downscaled to 1600px on the long edge). The operator sees
-   them as thumbnails in the card's thread on a phone. If the app needs a login and the repo
-   has no shortcut for it (a dev bypass or a test account), say so in the result comment
-   instead of the screenshots. If `--image` fails because the hub does not accept agent
+   them as thumbnails in the card's thread on a phone. Before deciding a signed-in screen
+   cannot be captured, read the repo's `.claude/verify-ui.md` and the routes or e2e section of
+   its `CLAUDE.md`: most apps carry a scripted sign-in there. Only if neither has one, say on
+   the card that the app needs a login with no shortcut, and name the files you checked. If `--image` fails because the hub does not accept agent
    screenshots yet, post the comment without them and say the screenshots are on this
    machine, with their paths.
 4. **grill:** ask the questions inline in this session, post them to the card as one message,
