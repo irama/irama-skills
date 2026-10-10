@@ -22,6 +22,8 @@ J="python3 <skill-dir>/assets/jobs.py"
 $J here                     # this repo's target, and whether it is an orchestrator
 $J comment <id> --kind message --body-file <f> --image <a.png> --image <b.png>
                             # a comment with up to 6 screenshots (PNG, JPEG or WebP)
+$J comment <id> --kind message --body-file <f> --file <report.html> --file <brief.pdf>
+                            # a comment with result files (HTML or PDF, at most 20 MB each)
 ```
 
 `--image` needs this machine's claim token for the job. Each image is downscaled to 1600px on
@@ -29,6 +31,13 @@ the long edge with macOS `sips` (the original goes when `sips` is missing), uplo
 slot, and linked to the comment in one step. If any image fails, no comment is posted. Until
 the hub deploys agent screenshots, the slot route answers 404 or 405 and the client says so
 and exits 1.
+
+`--file` works the same way and needs the same claim token. It takes `.html`, `.htm` and `.pdf`
+only, checks locally that the first bytes match (HTML starts with `<!doctype` or `<html`, PDF with
+`%PDF-`) and that the file is at most 20 MB, and sends the file name. Files and images share the
+6 per comment. The operator opens a file with "Open result" on the card, behind the hub's login.
+If the hub refuses (a hub from before result files), the client says the hub does not accept
+result files yet, posts nothing and exits 1: post the comment again without `--file`.
 
 Output is JSON. Exit 1 means the hub or the preflight refused; the JSON carries `code` and
 `status`. Exit 2 is a usage or config error.
@@ -94,7 +103,9 @@ the prompt, so run `$J get <id>` for each picked job before working it.
 send, approve, reply), one line each, or "Nothing: review and archive." A card in In review always
 flags the operator, so the comment must say what the flag asks for. Name every file it made or
 changed by its absolute path in backticks (`/Users/...`), never a bare filename: the card shows a
-Copy path button for those, so the operator can open the file from the board.
+Copy path button for those, so the operator can open the file from the board. **Every result
+comment also attaches each HTML brief or report and each PDF the job produced with `--file`**, in
+addition to giving its absolute path in backticks, so the operator can read it on a phone.
 
 ## Execution, for each picked job, in order
 
@@ -127,7 +138,8 @@ Copy path button for those, so the operator can open the file from the board.
    Record each result as it lands:
    `$J run <id> --target <t> --branch <b> --base-sha <s> --head-sha <s> --state committed`
    (`--state failed` with a comment on failure). Post a result comment
-   (`$J comment <id> --kind message --body-file <f>`). When every run is committed, move
+   (`$J comment <id> --kind message --body-file <f>`, plus `--file <path>` for each HTML or PDF
+   result the job produced). When every run is committed, move
    the job: `$J patch <id> --column in_review`.
 
    **When the change touches UI,** the subagent runs `/verify-ui` on the changed screen at

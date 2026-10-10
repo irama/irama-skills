@@ -12,6 +12,8 @@
     jobs.py comment ID --kind message|event [--body TEXT | --body-file F | stdin] [--agent LABEL]
                        [--image PATH ...]       up to 6 screenshots, downscaled to 1600px (sips);
                                                 needs this machine's claim token for the job
+                       [--file PATH ...]        result files (.html/.htm, .pdf, at most 20 MB);
+                                                shares the 6 per comment with --image
     jobs.py repos [--root DIR] [--dry-run]        report sibling git repos (PUT /api/jobs/repos);
                                                   outside a repo, --root defaults to $JOBS_REPOS_ROOT
     jobs.py preflight ID --target T --repo PATH [--void] [--recheck]   ship preflight; --recheck before the push
@@ -356,8 +358,10 @@ def post_comment(job_id, kind, body, agent=None, attachment_ids=None):
     return api("POST", f"/api/jobs/{job_id}/comments", payload)
 
 
-MAX_IMAGES = 6
+MAX_IMAGES = 6  # per comment, screenshots and result files together
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_FILE_BYTES = 20 * 1024 * 1024
+FILE_MIME = {".html": "text/html", ".htm": "text/html", ".pdf": "application/pdf"}
 LONG_EDGE = 1600
 IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
@@ -385,6 +389,37 @@ def image_bytes(path, out_dir):
     return src.read_bytes(), mime
 
 
+def sniff_file(head):
+    """The result file type from its first bytes, or None. HTML: `<!doctype` or `<html` after a
+    UTF-8 byte order mark and whitespace, any case. PDF: `%PDF-`. The hub checks the same."""
+    if head.startswith(b"%PDF-"):
+        return "application/pdf"
+    text = head[3:] if head.startswith(b"\xef\xbb\xbf") else head
+    text = text.lstrip(b" \t\r\n\f").lower()
+    if text.startswith(b"<!doctype") or text.startswith(b"<html"):
+        return "text/html"
+    return None
+
+
+def file_bytes(path):
+    """A result file to attach, checked locally before anything is sent: an .html, .htm or .pdf
+    file whose first bytes match its extension, at most 20 MB."""
+    src = Path(path)
+    if not src.is_file():
+        die(f"file not found: {path}")
+    mime = FILE_MIME.get(src.suffix.lower())
+    if not mime:
+        die(f"not an HTML or PDF file (.html, .htm, .pdf): {path}")
+    if src.stat().st_size > MAX_FILE_BYTES:
+        die(f"file over 20 MB: {path}")
+    if src.stat().st_size == 0:
+        die(f"empty file: {path}")
+    data = src.read_bytes()
+    if sniff_file(data[:512]) != mime:
+        die(f"{path} does not start like {'a PDF (%PDF-)' if mime == 'application/pdf' else 'HTML (<!doctype or <html)'}")
+    return data, mime
+
+
 def put_bytes(url, data, mime):
     """PUT the bytes to a signed upload URL. The URL carries its own token: no bearer."""
     req = urllib.request.Request(url, data=data, method="PUT")
@@ -398,32 +433,47 @@ def put_bytes(url, data, mime):
         return 0
 
 
-def upload_images(job_id, paths):
-    """Open a slot per image, PUT it, return the slot ids. Any failure: (None, exit code), and
-    the caller posts nothing, so a comment never goes out without the screenshots it promised."""
+def upload_images(job_id, paths, files=()):
+    """Open a slot per result file and per image, PUT it, return the slot ids (files first).
+    Any failure: (None, exit code), and the caller posts nothing, so a comment never goes out
+    without the files and screenshots it promised. Files are checked before anything is sent."""
     import tempfile
 
+    prepared = [(path, *file_bytes(path)) for path in files]
     token = claim_token(job_id)
     ids = []
     with tempfile.TemporaryDirectory() as tmp:
-        for path in paths:
-            data, mime = image_bytes(path, tmp)
-            if len(data) > MAX_IMAGE_BYTES:
-                die(f"image over 5 MB after downscaling: {path}")
-            status, payload = api("POST", f"/api/jobs/{job_id}/attachments",
-                                  {"claim_token": token, "mime": mime, "bytes": len(data)})
-            if status in (400, 404, 405) and payload.get("code") not in ("VALIDATION_ERROR", "NOT_FOUND"):
-                print(json.dumps({"error": "the hub does not accept agent screenshots yet (the slot route "
-                                  f"answered {status}); comment not posted", "status": status}, indent=1))
+        items = prepared + [(path, None, None) for path in paths]
+        for path, data, mime in items:
+            is_file = data is not None
+            what = "result file" if is_file else "screenshot"
+            if not is_file:
+                data, mime = image_bytes(path, tmp)
+                if len(data) > MAX_IMAGE_BYTES:
+                    die(f"image over 5 MB after downscaling: {path}")
+            body = {"claim_token": token, "mime": mime, "bytes": len(data)}
+            if is_file:
+                body["filename"] = Path(path).name
+            status, payload = api("POST", f"/api/jobs/{job_id}/attachments", body)
+            older = status in (400, 404, 405) and payload.get("code") not in ("VALIDATION_ERROR", "NOT_FOUND")
+            # A hub from before result files refuses the new type or the filename field as a
+            # validation error: say so plainly rather than as a generic refusal.
+            if is_file and status == 400 and payload.get("code") == "VALIDATION_ERROR":
+                older = True
+            if older:
+                kind = "result files" if is_file else "agent screenshots"
+                print(json.dumps({"error": f"the hub does not accept {kind} yet (the slot route "
+                                  f"answered {status}: {payload.get('error', 'error')}); "
+                                  "comment not posted", "status": status}, indent=1))
                 return None, 1
             if not 200 <= status < 300:
-                emit(status, {**payload, "error": f"screenshot slot refused for {path}: "
+                emit(status, {**payload, "error": f"{what} slot refused for {path}: "
                               f"{payload.get('error', 'error')}; comment not posted"})
                 return None, 1
             slot = payload["data"]
             put = put_bytes(slot["upload_url"], data, mime)
             if not 200 <= put < 300:
-                print(json.dumps({"error": f"screenshot upload failed for {path} (HTTP {put}); "
+                print(json.dumps({"error": f"{what} upload failed for {path} (HTTP {put}); "
                                   "comment not posted", "status": put}, indent=1))
                 return None, 1
             ids.append(slot["id"])
@@ -435,10 +485,11 @@ def cmd_comment(a):
     if not body.strip():
         die("empty comment body")
     ids = None
-    if a.image:
-        if len(a.image) > MAX_IMAGES:
-            die(f"at most {MAX_IMAGES} images per comment")
-        ids, code = upload_images(a.id, a.image)
+    images, files = a.image or [], getattr(a, "file", None) or []
+    if images or files:
+        if len(images) + len(files) > MAX_IMAGES:
+            die(f"at most {MAX_IMAGES} images and files per comment")
+        ids, code = upload_images(a.id, images, files)
         if ids is None:
             return code
     return emit(*post_comment(a.id, a.kind, body, a.agent, ids))
@@ -691,6 +742,63 @@ def selftest():
             assert cmd_comment(ns) == 1
         assert "does not accept agent screenshots yet" in out.getvalue(), out.getvalue()
         assert [h[1] for h in hits] == ["/api/jobs/5/attachments"], hits
+        # comment --file: checked locally, then slot (with filename), PUT, one comment.
+        Hub.deployed = True
+        hits.clear()
+        rep = tmp / "2026-10-10 triage report.html"
+        rep.write_bytes(b"\xef\xbb\xbf\n  <!DOCTYPE html><html><body>r</body></html>")
+        pdf = tmp / "brief.pdf"
+        pdf.write_bytes(b"%PDF-1.7\n%fake\n")
+        nf = argparse.Namespace(id=5, kind="message", body="result", body_file=None, agent="t",
+                                image=[str(shots[0])], file=[str(rep), str(pdf)])
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert cmd_comment(nf) == 0
+        assert [h[:2] for h in hits] == [("POST", "/api/jobs/5/attachments"), ("PUT", "/upload/1?token=t"),
+                                         ("POST", "/api/jobs/5/attachments"), ("PUT", "/upload/2?token=t"),
+                                         ("POST", "/api/jobs/5/attachments"), ("PUT", "/upload/3?token=t"),
+                                         ("POST", "/api/jobs/5/comments")], hits
+        assert hits[0][2] == {"claim_token": tok, "mime": "text/html", "bytes": rep.stat().st_size,
+                              "filename": "2026-10-10 triage report.html"}, hits[0]
+        assert hits[1][2][0] == "text/html" and hits[1][2][2] is None
+        assert hits[2][2]["mime"] == "application/pdf" and hits[2][2]["filename"] == "brief.pdf"
+        assert hits[4][2] == {"claim_token": tok, "mime": "image/png", "bytes": 21}
+        assert hits[6][2]["attachment_ids"] == [41, 42, 43]
+        # Wrong magic bytes, another type, or too many: refused locally, nothing sent.
+        hits.clear()
+        bad = tmp / "fake.pdf"
+        bad.write_bytes(b"<html>not a pdf")
+        txt = tmp / "notes.txt"
+        txt.write_text("x")
+        for files, extra in (([str(bad)], []), ([str(txt)], []), ([str(rep)] * 4, [str(shots[0])] * 3)):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                try:
+                    cmd_comment(argparse.Namespace(id=5, kind="message", body="x", body_file=None,
+                                                   agent="t", image=extra, file=files))
+                    raise AssertionError("expected a refusal")
+                except SystemExit as e:
+                    assert e.code == 2, e.code
+        assert hits == [], hits
+        # An older hub refuses the file type as a validation error: clear failure, nothing posted.
+        class OldHub(Hub):
+            def do_POST(self):
+                sent = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                hits.append(("POST", self.path, sent))
+                if self.path.endswith("/attachments") and sent["mime"] not in IMAGE_MIME.values():
+                    return self.reply(400, {"error": "Invalid option", "code": "VALIDATION_ERROR"})
+                return self.reply(201, {"data": {"id": 99}})
+        old = http.server.HTTPServer(("127.0.0.1", 0), OldHub)
+        threading.Thread(target=old.serve_forever, daemon=True).start()
+        os.environ["JOBS_BASE_URL"] = f"http://127.0.0.1:{old.server_port}"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert cmd_comment(argparse.Namespace(id=5, kind="message", body="x", body_file=None,
+                                                  agent="t", image=None, file=[str(rep)])) == 1
+        assert "does not accept result files yet" in out.getvalue(), out.getvalue()
+        assert [h[1] for h in hits] == ["/api/jobs/5/attachments"], hits
+        old.shutdown()
+        old.server_close()
+        os.environ["JOBS_BASE_URL"] = f"http://127.0.0.1:{srv.server_port}"
         # Without --image the payload is unchanged.
         hits.clear()
         with contextlib.redirect_stdout(io.StringIO()):
@@ -824,6 +932,8 @@ def main():
     s.add_argument("--agent")
     s.add_argument("--image", action="append", metavar="PATH",
                    help="a screenshot to attach (repeatable, at most 6)")
+    s.add_argument("--file", action="append", metavar="PATH",
+                   help="an HTML or PDF result file to attach (repeatable; shares the 6 with --image)")
     s.set_defaults(fn=cmd_comment)
     s = sub.add_parser("repos")
     s.add_argument("--root")
