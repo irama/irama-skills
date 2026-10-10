@@ -10,6 +10,8 @@
     jobs.py run ID --target T [--branch B] [--base-sha S] [--head-sha S] [--state claimed|committed|failed]
     jobs.py shipped ID --target T --deployed-sha S
     jobs.py comment ID --kind message|event [--body TEXT | --body-file F | stdin] [--agent LABEL]
+                       [--image PATH ...]       up to 6 screenshots, downscaled to 1600px (sips);
+                                                needs this machine's claim token for the job
     jobs.py repos [--root DIR] [--dry-run]        report sibling git repos (PUT /api/jobs/repos);
                                                   outside a repo, --root defaults to $JOBS_REPOS_ROOT
     jobs.py preflight ID --target T --repo PATH [--void] [--recheck]   ship preflight; --recheck before the push
@@ -337,15 +339,99 @@ def cmd_shipped(a):
                      {"claim_token": claim_token(a.id), "target": a.target, "deployed_sha": a.deployed_sha}))
 
 
-def post_comment(job_id, kind, body, agent=None):
-    return api("POST", f"/api/jobs/{job_id}/comments", {"kind": kind, "body": body, "agent": agent_label(agent)})
+def post_comment(job_id, kind, body, agent=None, attachment_ids=None):
+    payload = {"kind": kind, "body": body, "agent": agent_label(agent)}
+    if attachment_ids:
+        payload["attachment_ids"] = attachment_ids
+    return api("POST", f"/api/jobs/{job_id}/comments", payload)
+
+
+MAX_IMAGES = 6
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+LONG_EDGE = 1600
+IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
+
+def image_bytes(path, out_dir):
+    """The image to upload: downscaled to 1600px on the long edge with macOS sips, never
+    upscaled. The original when sips is missing or cannot read or write the file."""
+    src = Path(path)
+    if not src.is_file():
+        die(f"image not found: {path}")
+    mime = IMAGE_MIME.get(src.suffix.lower())
+    if not mime:
+        die(f"not a PNG, JPEG or WebP image: {path}")
+    try:
+        dims = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(src)],
+                              capture_output=True, text=True, timeout=60, check=True).stdout
+        long_edge = max(int(n) for n in re.findall(r"pixel(?:Width|Height): (\d+)", dims))
+        if long_edge > LONG_EDGE:
+            out = Path(out_dir) / f"{len(list(Path(out_dir).iterdir()))}{src.suffix.lower()}"
+            subprocess.run(["sips", "-Z", str(LONG_EDGE), str(src), "--out", str(out)],
+                           capture_output=True, timeout=60, check=True)
+            return out.read_bytes(), mime
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass  # no sips, or it could not read the file: send the original
+    return src.read_bytes(), mime
+
+
+def put_bytes(url, data, mime):
+    """PUT the bytes to a signed upload URL. The URL carries its own token: no bearer."""
+    req = urllib.request.Request(url, data=data, method="PUT")
+    req.add_header("Content-Type", mime)
+    try:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (urllib.error.URLError, OSError, http.client.HTTPException):
+        return 0
+
+
+def upload_images(job_id, paths):
+    """Open a slot per image, PUT it, return the slot ids. Any failure: (None, exit code), and
+    the caller posts nothing, so a comment never goes out without the screenshots it promised."""
+    import tempfile
+
+    token = claim_token(job_id)
+    ids = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for path in paths:
+            data, mime = image_bytes(path, tmp)
+            if len(data) > MAX_IMAGE_BYTES:
+                die(f"image over 5 MB after downscaling: {path}")
+            status, payload = api("POST", f"/api/jobs/{job_id}/attachments",
+                                  {"claim_token": token, "mime": mime, "bytes": len(data)})
+            if status in (400, 404, 405) and payload.get("code") not in ("VALIDATION_ERROR", "NOT_FOUND"):
+                print(json.dumps({"error": "the hub does not accept agent screenshots yet (the slot route "
+                                  f"answered {status}); comment not posted", "status": status}, indent=1))
+                return None, 1
+            if not 200 <= status < 300:
+                emit(status, {**payload, "error": f"screenshot slot refused for {path}: "
+                              f"{payload.get('error', 'error')}; comment not posted"})
+                return None, 1
+            slot = payload["data"]
+            put = put_bytes(slot["upload_url"], data, mime)
+            if not 200 <= put < 300:
+                print(json.dumps({"error": f"screenshot upload failed for {path} (HTTP {put}); "
+                                  "comment not posted", "status": put}, indent=1))
+                return None, 1
+            ids.append(slot["id"])
+    return ids, 0
 
 
 def cmd_comment(a):
     body = a.body if a.body is not None else (Path(a.body_file).read_text() if a.body_file else sys.stdin.read())
     if not body.strip():
         die("empty comment body")
-    return emit(*post_comment(a.id, a.kind, body, a.agent))
+    ids = None
+    if a.image:
+        if len(a.image) > MAX_IMAGES:
+            die(f"at most {MAX_IMAGES} images per comment")
+        ids, code = upload_images(a.id, a.image)
+        if ids is None:
+            return code
+    return emit(*post_comment(a.id, a.kind, body, a.agent, ids))
 
 
 # ── Ship preflight ──────────────────────────────────────────────────────────
@@ -534,6 +620,75 @@ def selftest():
             assert cmd_list(ns) == 0
         assert seen == ["/api/jobs?column=backlog&source=zero"], seen
         srv.server_close()
+
+        # comment --image: slot, PUT, then one comment naming the slots. Offline fake hub.
+        hits = []
+
+        class Hub(http.server.BaseHTTPRequestHandler):
+            deployed = True
+
+            def reply(self, status, obj):
+                body = json.dumps(obj).encode()
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                sent = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                hits.append(("POST", self.path, sent))
+                if self.path.endswith("/attachments"):
+                    if not Hub.deployed:
+                        return self.reply(405, {})
+                    n = sum(1 for h in hits if h[1].endswith("/attachments"))
+                    url = f"http://127.0.0.1:{self.server.server_port}/upload/{n}?token=t"
+                    return self.reply(201, {"data": {"id": 40 + n, "upload_url": url, "method": "PUT",
+                                                     "headers": {"content-type": sent["mime"]}}})
+                self.reply(201, {"data": {"id": 99}})
+
+            def do_PUT(self):
+                data = self.rfile.read(int(self.headers["Content-Length"]))
+                hits.append(("PUT", self.path, (self.headers["Content-Type"], data,
+                                                self.headers.get("Authorization"))))
+                self.reply(200, {})
+
+            def log_message(self, *_):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Hub)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        os.environ["JOBS_BASE_URL"] = f"http://127.0.0.1:{srv.server_port}"
+        shots = [tmp / "a.png", tmp / "b.jpg"]
+        for i, f in enumerate(shots):
+            f.write_bytes(b"not-really-an-image-%d" % i)  # sips cannot read it: the original goes
+        tok = claim_token(5, create=True)
+        ns = argparse.Namespace(id=5, kind="message", body="done", body_file=None, agent="t",
+                                image=[str(f) for f in shots])
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert cmd_comment(ns) == 0
+        assert [h[:2] for h in hits] == [("POST", "/api/jobs/5/attachments"), ("PUT", "/upload/1?token=t"),
+                                         ("POST", "/api/jobs/5/attachments"), ("PUT", "/upload/2?token=t"),
+                                         ("POST", "/api/jobs/5/comments")], hits
+        assert hits[0][2] == {"claim_token": tok, "mime": "image/png", "bytes": 21}
+        assert hits[1][2] == ("image/png", b"not-really-an-image-0", None), "PUT carries no bearer"
+        assert hits[3][2][0] == "image/jpeg"
+        assert hits[4][2] == {"kind": "message", "body": "done", "agent": "t", "attachment_ids": [41, 42]}
+        # Before the hub deploys the route: a clear failure, and no text-only comment.
+        hits.clear()
+        Hub.deployed = False
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert cmd_comment(ns) == 1
+        assert "does not accept agent screenshots yet" in out.getvalue(), out.getvalue()
+        assert [h[1] for h in hits] == ["/api/jobs/5/attachments"], hits
+        # Without --image the payload is unchanged.
+        hits.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert cmd_comment(argparse.Namespace(id=5, kind="event", body="x", body_file=None,
+                                                  agent="t", image=None)) == 0
+        assert hits == [("POST", "/api/jobs/5/comments", {"kind": "event", "body": "x", "agent": "t"})]
+        srv.shutdown()
+        srv.server_close()
         for k in ("JOBS_BASE_URL", "JOBS_AGENT_TOKEN"):
             del os.environ[k]
 
@@ -656,6 +811,8 @@ def main():
     s.add_argument("--body")
     s.add_argument("--body-file")
     s.add_argument("--agent")
+    s.add_argument("--image", action="append", metavar="PATH",
+                   help="a screenshot to attach (repeatable, at most 6)")
     s.set_defaults(fn=cmd_comment)
     s = sub.add_parser("repos")
     s.add_argument("--root")
