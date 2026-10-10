@@ -110,7 +110,23 @@ default 512) and writes `<name>-dark.png` too, with neutral ink swapped for a li
 (`--dark-ink`) so the set works on dark slides while coloured accents keep their colour. Grid
 lines snap to the emptiest gutter near their nominal position, because models drift a little
 off a perfect grid; a cut that still crosses ink is printed, so check those cells by eye.
-`--selftest` runs its built-in check. Needs Pillow and numpy.
+`--dark-drop-wash` leaves a pale wash out of the `-dark` copy (see House look). `--selftest` runs its built-in check. Needs Pillow and numpy.
+
+**House look.** A fine hand-drawn ink line: two or three light overlapping passes, little
+interior detail, no hatching or shading. On light backgrounds a loose gold wash (#D0B561)
+sits under the line, offset a little down and right like a quick watercolour fill. On dark
+backgrounds the line turns cream and has no wash.
+
+- Render the wash in the same sheet: add it to the style block ("under each icon sits one
+  loose flat wash of muted gold, a single soft-edged blob, set slightly offset down and to the
+  right; the line sits on top of the wash") and pass a line-only sheet of the set as the
+  reference. Tested 2026-10 on `nb2`: the rendered wash reads as real watercolour. A
+  programmatic blob laid under the line (filled outline, noise-wobbled edge, offset) costs
+  nothing but looks airbrushed, and thin icons such as dashed arrows get almost none.
+- Slice with `--dark-drop-wash`: the `-dark` copy clears the pale wash and keeps the line,
+  recoloured cream, so one washed sheet serves both backgrounds.
+- A reference sheet's subjects win over the prompt's list: `nb2` redrew the reference's 16
+  subjects and ignored swapped-in ones. Pass a reference whose subjects match the new sheet.
 
 **Keep a set consistent across sheets.**
 

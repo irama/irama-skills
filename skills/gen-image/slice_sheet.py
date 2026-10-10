@@ -70,6 +70,16 @@ def recolour_ink(rgba, ink, max_chroma=45):
     return out
 
 
+def drop_wash(rgba):
+    """Clear light coloured pixels (a pale wash), keeping the dark line. For the -dark copy
+    of a set drawn with a wash under the line: on a dark slide the line goes alone."""
+    a = np.asarray(rgba).copy()
+    rgb = a[..., :3].astype(int)
+    wash = (a[..., 3] > 0) & (rgb.mean(-1) > 120) & (rgb.max(-1) - rgb.min(-1) > 15)
+    a[wash, 3] = 0
+    return Image.fromarray(a, "RGBA")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("sheet")
@@ -83,6 +93,8 @@ def main():
     ap.add_argument("--snap", type=float, default=0.12,
                     help="search this fraction of a cell either side of each grid line for the emptiest gutter")
     ap.add_argument("--dark-ink", default="#F5F0E8", help="ink colour for the -dark copy")
+    ap.add_argument("--dark-drop-wash", action="store_true",
+                    help="leave the pale wash out of the -dark copy, so the line goes alone on dark slides")
     a = ap.parse_args()
 
     cols, rows = (int(n) for n in a.grid.lower().split("x"))
@@ -117,7 +129,8 @@ def main():
             sq.paste(rgba, ((side - rgba.width) // 2, (side - rgba.height) // 2))
             sq = sq.resize((a.size, a.size), Image.LANCZOS)
             sq.save(os.path.join(a.out_dir, names[i] + ".png"))
-            recolour_ink(sq, hex_rgb(a.dark_ink)).save(os.path.join(a.out_dir, names[i] + "-dark.png"))
+            dark = drop_wash(sq) if a.dark_drop_wash else sq
+            recolour_ink(dark, hex_rgb(a.dark_ink)).save(os.path.join(a.out_dir, names[i] + "-dark.png"))
 
     print("background", "#%02X%02X%02X" % bg, "| cells", cols * rows,
           "| cuts through ink (check by eye):", ", ".join(flagged) or "none")
@@ -135,6 +148,10 @@ def selftest():
     gold.putpixel((0, 0), (26, 22, 20, 255))
     out = recolour_ink(gold, (245, 240, 232))
     assert out.getpixel((0, 0))[:3] == (245, 240, 232) and out.getpixel((1, 0))[:3] == (208, 181, 97)
+    washed = Image.new("RGBA", (2, 1), (230, 210, 160, 255))
+    washed.putpixel((0, 0), (26, 22, 20, 255))
+    out = drop_wash(washed)
+    assert out.getpixel((0, 0))[3] == 255 and out.getpixel((1, 0))[3] == 0
     print("selftest ok")
 
 
