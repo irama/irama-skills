@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Put a flat gold shape under a line-only icon, offset down and right, for light slides.
 
-    python3 shape_wash.py icon.png [more.png ...] -o out_dir [--tint E9D7AC] [--offset 0.06]
+    python3 shape_wash.py icon.png [more.png ...] -o out_dir [--tint E9D4A0] [--offset 0.042]
     python3 shape_wash.py --strip strip.png icon.png ...   # test strip at 120 px on bone, both tints
 
 The shape is the icon's own main silhouette, built from the line mask alone (free,
@@ -15,7 +15,7 @@ import argparse, os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-TINTS = {"light": "E9D7AC", "deep": "DEC68C"}
+TINTS = {"light": "E9D4A0", "deep": "DEC68C"}
 WORK = 192  # working size for the morphology; the mask is scaled back up with a smooth edge
 
 
@@ -72,7 +72,7 @@ def silhouette(alpha):
     return np.clip((a - 0.5) * 6 + 0.5, 0, 1)  # crisp, just anti-aliased
 
 
-def shape_layer(im, tint="E9D7AC"):
+def shape_layer(im, tint="E9D4A0"):
     """The flat gold shape for a trimmed line icon, same size as the icon, not yet offset."""
     rgb = tuple(int(tint.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
     shape = Image.new("RGBA", im.size, rgb + (255,))
@@ -80,7 +80,7 @@ def shape_layer(im, tint="E9D7AC"):
     return shape
 
 
-def wash(path, tint="E9D7AC", offset=0.06, d=None):
+def wash(path, tint="E9D4A0", offset=0.042, d=None):
     """Line icon with its shape under it, moved down and right by d px (default offset x box)."""
     im = Image.open(path).convert("RGBA") if isinstance(path, str) else path
     im = im.crop(im.getbbox())
@@ -91,7 +91,7 @@ def wash(path, tint="E9D7AC", offset=0.06, d=None):
     return out
 
 
-def strip(paths, out, size=120, offset=0.06):
+def strip(paths, out, size=120, offset=0.042):
     cell = size + 60
     cv = Image.new("RGB", (cell * len(paths), cell * len(TINTS)), (250, 247, 240))
     for r, t in enumerate(TINTS.values()):
@@ -109,7 +109,7 @@ def main():
     p.add_argument("-o", "--out-dir")
     p.add_argument("--strip")
     p.add_argument("--tint", default=TINTS["light"])
-    p.add_argument("--offset", type=float, default=0.06)
+    p.add_argument("--offset", type=float, default=0.042)
     a = p.parse_args()
     if a.strip:
         strip(a.icons, a.strip, offset=a.offset); print("strip ->", a.strip); return

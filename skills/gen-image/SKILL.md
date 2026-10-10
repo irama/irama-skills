@@ -114,7 +114,7 @@ off a perfect grid; a cut that still crosses ink is printed, so check those cell
 
 **House look.** A fine hand-drawn ink line: two or three light overlapping passes, little
 interior detail, no hatching or shading. On light backgrounds a flat light gold shape
-(#E9D7AC) sits under the line: a copy of the icon's main silhouette, offset down and right by
+(#E9D4A0) sits under the line: a copy of the icon's main silhouette, offset down and right by
 one fixed share of the icon box, like a print whose colour plate is slightly out of register.
 On dark backgrounds the line turns cream and has no wash.
 
@@ -128,7 +128,7 @@ On dark backgrounds the line turns cream and has no wash.
   It closes small gaps in the line, fills enclosed holes, then erodes and dilates so thin
   strokes drop out and the shape follows the main body. A separate thin part (a dash, an
   arrow shaft) takes a modest thickening of its own stroke instead. The shape is flat and
-  opaque with an anti-aliased edge, offset 6 % of the box (`--offset`), tint by `--tint`.
+  opaque with an anti-aliased edge, offset 4.2 % of the box (`--offset`), tint by `--tint`.
   Apply it to the light copies only; the `-dark` copies stay line only.
 - For a drawing assembled from several icons, wash each piece at its own offset and lay every
   shape under every line. One shift for the whole drawing doubles thin dashed lines.
