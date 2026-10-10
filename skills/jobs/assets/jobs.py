@@ -299,6 +299,14 @@ def cmd_claim(a):
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     if sid:
         body["session"] = {"id": sid, "dir": os.environ.get("JOBS_RUN_DIR") or os.getcwd()}
+    if not os.environ.get("JOBS_RUN_DIR"):
+        # An interactive thread takes the job over, so the poller stops answering its replies.
+        owned = config_dir() / "poller-owned"
+        if owned.exists():
+            keep = [l for l in owned.read_text().splitlines() if l.strip() != str(a.id)]
+            tmp = owned.with_name(f"poller-owned.{os.getpid()}.tmp")
+            tmp.write_text("".join(f"{l}\n" for l in keep))
+            os.replace(tmp, owned)
     status, payload = api("POST", f"/api/jobs/{a.id}/claim", body)
     if status == 400 and "session" in body:
         # ponytail: a hub from before the session field refuses it; drop this retry once

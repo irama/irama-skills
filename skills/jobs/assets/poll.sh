@@ -89,9 +89,18 @@ if awaiting=$("${J[@]}" list --awaiting --all-pages 2>/dev/null); then
 import json, sys
 d = json.load(sys.stdin)["data"]
 ids = [c["id"] for c in d.get("comments", []) if c.get("author") == "you" and c["id"] > (d.get("ack_comment_id") or 0)]
-print(max(ids) if ids else "")
+print(max(ids) if ids else "", d.get("session_id") or "")
 ' 2>/dev/null)
+    read -r last sess <<<"$last"
     [ -n "$last" ] || continue
+    # A thread resumed by hand (the card's Open thread link) writes its transcript; leave it be.
+    if [ -n "$sess" ]; then
+      live=0
+      for t in "$HOME"/.claude/projects/*/"$sess".jsonl; do
+        [ -f "$t" ] && [ $(( $(date +%s) - $(stat -f %m "$t") )) -lt 180 ] && live=1
+      done
+      [ "$live" = 0 ] || continue
+    fi
     grep -qxF "$cid@$last" "$TRIED" && continue
     id=$cid title=$ctitle tried_key="$cid@$last" reply_cid=$last
     if [ "$ctarget" != - ]; then
@@ -112,6 +121,8 @@ def fresh(ts):  # a live heartbeat means some run is already on it
         t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except (AttributeError, ValueError):
         return False
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - t).total_seconds() < 180
 for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"]).zfill(20)):
     if j.get("awaiting") and j.get("claimed") and str(j["id"]) in mine \
@@ -198,17 +209,19 @@ cd "$run_dir" || exit 1
 # Drive for desktop keeps most files online-only, and a headless run reading one gets
 # "Resource deadlock avoided". Download the folders runs need first ("|"-separated paths).
 if [ -n "${JOBS_PREFETCH:-}" ]; then
-  n=0
+  n=0 bad=0 until=$(( $(date +%s) + 300 )) # 60 s a file, 5 minutes in all
   IFS='|' read -r -a pre <<<"$JOBS_PREFETCH"
   for d in "${pre[@]}"; do
     [ -d "$d" ] || continue
     while IFS= read -r -d '' f; do
+      [ "$(date +%s)" -lt "$until" ] || { log "JOB-$id prefetch stopped at 5 minutes"; break 2; }
       case "$(stat -f %Sf "$f" 2>/dev/null)" in
-        *dataless*) cat "$f" >/dev/null 2>&1 && n=$((n + 1)) ;;
+        *dataless*)
+          if perl -e 'alarm 60; exec @ARGV' cat "$f" >/dev/null 2>&1; then n=$((n + 1)); else bad=$((bad + 1)); fi ;;
       esac
     done < <(find "$d" -type f -print0 2>/dev/null)
   done
-  [ "$n" = 0 ] || log "JOB-$id prefetched $n Drive files"
+  [ "$n$bad" = 00 ] || log "JOB-$id prefetched $n Drive files, $bad failed"
 fi
 run_dir=$(pwd -P) # absolute, for trust.py and the claim's session folder
 # A folder that was never trusted drops its permission allow rules in a headless run.
@@ -247,12 +260,14 @@ while kill -0 "$run" 2>/dev/null; do
   # Heartbeat for the card's Agent working sign. Before the run claims the job this fails; quiet.
   if [ "$waited" -gt 0 ] && [ $((waited % 60)) -eq 0 ]; then
     "${J[@]}" patch "$id" --active on >/dev/null 2>&1 & # never stalls the watchdog
+    hb=$!
   fi
   sleep "$STEP"
   waited=$((waited + STEP))
 done
 wait "$run" 2>/dev/null
 rc=$?
+[ -z "${hb:-}" ] || wait "$hb" 2>/dev/null # a late "on" must not land after the "off"
 "${J[@]}" patch "$id" --active off >/dev/null 2>&1 || true
 
 # ── Retag ────────────────────────────────────────────────────────────────────
