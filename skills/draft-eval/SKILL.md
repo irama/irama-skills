@@ -5,6 +5,11 @@ description: Score a draft deck or article against a versioned rubric, then run 
 
 # /draft-eval
 
+**A full round grades every slide in several batches and takes 15 to 30 minutes, so run it only
+for a first full draft or a major change** (more than 20% of slides new, or more than 20% changed
+by the user in claim, argument or evidence; state the call in one line so the user can override it).
+For anything smaller, score only the audit set that `score_round.py audit` selects.
+
 `<skill-dir>` is the folder holding this SKILL.md. `<folder>` is the target's folder (the deck
 folder holding `_gen.py`, or the article's folder), `<run>` the run folder, `<n>` the round.
 
