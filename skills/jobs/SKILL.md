@@ -289,8 +289,9 @@ the target repo.
 ## Background pickup
 
 A launchd agent, `org.<user>.jobs-poller` (`<user>` is `id -un`), runs `<skill-dir>/assets/poll.sh` every 60 seconds.
-Each tick first looks for a job this machine has claimed that has an operator reply it has not
-read (`$J list --awaiting`, then `$J get` for the newest reply). Each reply starts one run, keyed
+Each tick first looks for a job a poller run claimed (ids in `~/.config/jobs/poller-owned`; an
+interactive thread answers replies on its own jobs) that has an operator reply it has not
+read and no live heartbeat (`$J list --awaiting`, then `$J get` for the newest reply). Each reply starts one run, keyed
 `<id>@<comment id>` in `poller-tried`, so a later reply starts another. With none waiting, it
 makes one `$J list --column backlog` call and takes the oldest job, from the board
 or from ZERO, with a tagged target, or with no target and a prompt that starts with a
@@ -324,6 +325,9 @@ would prompt, so an unattended run cannot stall on a question.
   deletes the plist and `poller.env`. It keeps the log and `claims.json`.
 - **Log:** `~/Library/Logs/jobs-poller.log`. A Telegram message (through the `telegram`
   skill's `send.sh`) reports a card that reaches In review, and a run that fails.
+- **Drive prefetch:** `JOBS_PREFETCH` in `poller.env` (`|`-separated folders) is downloaded before
+  each run. Drive for desktop keeps files online-only, and a headless run that reads one gets
+  "Resource deadlock avoided". The installer does not write this line; re-add it after a reinstall.
 - **Heartbeat:** while a run lives, the poller sends `$J patch <id> --active on` every 60 seconds
   and `--active off` when it ends. The card shows Agent working from it. A patch before the run
   has claimed the job fails quietly.

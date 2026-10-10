@@ -156,7 +156,7 @@ elif a[0] == "get":
 elif a[0] == "repos":
     print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
 EOF
-echo '{"8": "tok"}' >"$HOME/.config/jobs/claims.json"
+echo 8 >"$HOME/.config/jobs/poller-owned"
 : >"$HOME/.config/jobs/poller-tried"
 : >"$tmp/calls"
 bash "$here/poll.sh"
@@ -170,6 +170,8 @@ grep -q '^patch 8 --active off$' "$tmp/calls" || fail "no heartbeat off"
 bash "$here/poll.sh"
 grep -q 'JOB-8 ' "$tmp/calls" && fail "same reply started twice"
 grep -q 'JOB-10 --background' "$tmp/calls" || fail "backlog job not taken once the reply was handled"
+grep -q 'JOB-8 reply run failed' "$tmp/sent" || fail "an unacked reply run was not reported as failed"
+grep -qx 10 "$HOME/.config/jobs/poller-owned" || fail "backlog run not recorded as poller-owned"
 : >"$tmp/calls"
 FAKE_LAST=41 bash "$here/poll.sh"
 grep -q 'JOB-8 --background' "$tmp/calls" || fail "a new reply did not start a run"

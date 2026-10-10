@@ -22,6 +22,7 @@ CONF="$CFG_DIR/poller.env"
 LOCK="$CFG_DIR/poller.lock"
 TRIED="$CFG_DIR/poller-tried"
 SKIPPED="$CFG_DIR/poller-skipped" # "<id>:<reason>" lines, so each skip logs once
+OWNED="$CFG_DIR/poller-owned" # ids of jobs a poller run claimed; only these get reply runs
 LOG="${JOBS_POLLER_LOG:-$HOME/Library/Logs/jobs-poller.log}"
 LIMIT="${JOBS_POLLER_LIMIT:-2700}"   # seconds; tests shorten it
 STEP="${JOBS_POLLER_STEP:-5}"        # watchdog check interval, seconds
@@ -69,7 +70,7 @@ mv "$pid_tmp" "$LOCK/pid"
 trap 'rm -rf "$LOCK"' EXIT
 
 # ── Pick ─────────────────────────────────────────────────────────────────────
-touch "$TRIED" "$SKIPPED"
+touch "$TRIED" "$SKIPPED" "$OWNED"
 
 # First, a job this machine claimed that has an operator reply it has not read. One run per
 # reply: the key is "<id>@<newest operator comment id>", so a later reply starts another run.
@@ -80,7 +81,7 @@ m = [r["path"] for r in json.load(sys.stdin)["repos"] if r["target"] == sys.argv
 print(m[0] if m else "")
 ' "$1" 2>/dev/null
 }
-id="" title="" run_dir="$HOME" tried_key=""
+id="" title="" run_dir="$HOME" tried_key="" reply_cid=""
 if awaiting=$("${J[@]}" list --awaiting --all-pages 2>/dev/null); then
   while read -r cid ctarget ctitle; do
     case "$cid" in *[!0-9]*|"") continue ;; esac
@@ -92,7 +93,7 @@ print(max(ids) if ids else "")
 ' 2>/dev/null)
     [ -n "$last" ] || continue
     grep -qxF "$cid@$last" "$TRIED" && continue
-    id=$cid title=$ctitle tried_key="$cid@$last"
+    id=$cid title=$ctitle tried_key="$cid@$last" reply_cid=$last
     if [ "$ctarget" != - ]; then
       run_dir=$(first_target_dir "$ctarget")
     else
@@ -102,17 +103,22 @@ print(max(ids) if ids else "")
     log "JOB-$id has a reply to read (comment $last)"
     break
   done < <(printf '%s' "$awaiting" | "$PYTHON3_BIN" -c '
-import json, os, sys
-try:
-    mine = set(json.load(open(os.path.expanduser("~/.config/jobs/claims.json"))))
-except (OSError, ValueError):
-    mine = set()
+import json, sys
+from datetime import datetime, timezone
+# Only jobs a poller run claimed: an interactive thread answers replies on its own jobs.
+mine = {l.strip() for l in open(sys.argv[1]) if l.strip()}
+def fresh(ts):  # a live heartbeat means some run is already on it
+    try:
+        t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return False
+    return (datetime.now(timezone.utc) - t).total_seconds() < 180
 for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"]).zfill(20)):
     if j.get("awaiting") and j.get("claimed") and str(j["id"]) in mine \
-            and j.get("column") in ("in_progress", "in_review"):
+            and j.get("column") in ("in_progress", "in_review") and not fresh(j.get("active_at")):
         t = j.get("targets") or j.get("targets_picked") or []
         print(j["id"], t[0] if t else "-", (j.get("title") or "")[:120].replace("\n", " "))
-' 2>/dev/null)
+' "$OWNED" 2>/dev/null)
 fi
 
 if [ -z "$id" ]; then
@@ -186,8 +192,24 @@ fi
 # A job is started at most once. A failed run stays in Backlog and is not retried every
 # minute; delete its line from poller-tried to let the poller start it again.
 echo "${tried_key:-$id}" >>"$TRIED"
+[ -n "$tried_key" ] || echo "$id" >>"$OWNED" # this run claims it
 log "JOB-$id start in $run_dir: $title"
 cd "$run_dir" || exit 1
+# Drive for desktop keeps most files online-only, and a headless run reading one gets
+# "Resource deadlock avoided". Download the folders runs need first ("|"-separated paths).
+if [ -n "${JOBS_PREFETCH:-}" ]; then
+  n=0
+  IFS='|' read -r -a pre <<<"$JOBS_PREFETCH"
+  for d in "${pre[@]}"; do
+    [ -d "$d" ] || continue
+    while IFS= read -r -d '' f; do
+      case "$(stat -f %Sf "$f" 2>/dev/null)" in
+        *dataless*) cat "$f" >/dev/null 2>&1 && n=$((n + 1)) ;;
+      esac
+    done < <(find "$d" -type f -print0 2>/dev/null)
+  done
+  [ "$n" = 0 ] || log "JOB-$id prefetched $n Drive files"
+fi
 run_dir=$(pwd -P) # absolute, for trust.py and the claim's session folder
 # A folder that was never trusted drops its permission allow rules in a headless run.
 [ "$run_dir" = "$HOME" ] || "$PYTHON3_BIN" "$SKILL_DIR/assets/trust.py" "$run_dir" >>"$LOG" 2>&1 \
@@ -224,7 +246,7 @@ while kill -0 "$run" 2>/dev/null; do
   fi
   # Heartbeat for the card's Agent working sign. Before the run claims the job this fails; quiet.
   if [ "$waited" -gt 0 ] && [ $((waited % 60)) -eq 0 ]; then
-    "${J[@]}" patch "$id" --active on >/dev/null 2>&1 || true
+    "${J[@]}" patch "$id" --active on >/dev/null 2>&1 & # never stalls the watchdog
   fi
   sleep "$STEP"
   waited=$((waited + STEP))
@@ -265,7 +287,18 @@ import json, sys
 print(json.load(sys.stdin)["data"]["column"])
 ' 2>/dev/null || echo unknown)
 log "JOB-$id ended: exit $rc, card in $column"
-if [ "$column" = "in_review" ]; then
+if [ -n "$reply_cid" ]; then
+  # A reply run starts in In review, so the column proves nothing: the ack does.
+  ack=$("${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, sys
+print(json.load(sys.stdin)["data"].get("ack_comment_id") or 0)
+' 2>/dev/null || echo 0)
+  if [ "$rc" = 0 ] && [ "$ack" -ge "$reply_cid" ]; then
+    notify "JOB-$id answered your reply: $title"
+  else
+    notify "JOB-$id reply run failed (exit $rc, reply not acked): $title"
+  fi
+elif [ "$column" = "in_review" ]; then
   notify "JOB-$id is In review: $title"
 else
   notify "JOB-$id run failed (exit $rc, card in $column): $title"
