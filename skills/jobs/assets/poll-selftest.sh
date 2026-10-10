@@ -7,6 +7,8 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# A JOBS_DEFAULT_HOME from the caller's shell would run the untargeted job early.
+unset JOBS_DEFAULT_HOME
 export HOME="$tmp/home" JOBS_POLLER_LOG="$tmp/log" JOBS_POLLER_STEP=1
 mkdir -p "$HOME/.config/jobs" "$tmp/skill/assets"
 py=$(command -v python3)
@@ -52,7 +54,7 @@ printf 'CLAUDE_BIN=%q\nPYTHON3_BIN=%q\nSKILL_DIR=%q\nTELEGRAM_SEND=%q\nPOLLER_PA
 mkdir "$tmp/repo"
 export CALLS="$tmp/calls" SENT="$tmp/sent" FAKE_REPO="$tmp/repo"
 lock="$HOME/.config/jobs/poller.lock"
-fail() { echo "poll selftest FAIL: $*" >&2; cat "$tmp/log" "$tmp/calls" 2>/dev/null >&2; exit 1; }
+fail() { echo "poll selftest FAIL: $*" >&2; cat "$tmp/log" "$tmp/calls" >&2 2>/dev/null; exit 1; }
 
 # i) A stale lock (dead PID) is removed; the oldest ZERO job with a target starts.
 mkdir "$lock"
@@ -119,6 +121,8 @@ bash "$here/poll.sh"
   || fail "non-slash skip not logged exactly once"
 [ "$(grep -c '^get 2$' "$tmp/calls")" = 1 ] || fail "non-slash prompt read more than once"
 grep -q 'JOB-2 --background' "$tmp/calls" && fail "non-slash untargeted job started"
+[ "$(grep -c '^comment 2 --kind event --body Not started by the poller: no target and not a slash command' "$tmp/calls")" = 1 ] \
+  || fail "non-slash skip not said on the card exactly once"
 
 # v) A non-numeric id from the hub is refused, not run.
 cat >"$tmp/skill/assets/jobs.py" <<'EOF'

@@ -183,17 +183,21 @@ cands=$(printf '%s' "$listing" | "$PYTHON3_BIN" -c '
 import json, sys
 tried = [l.strip() for l in open(sys.argv[1]) if l.strip()]
 skip = set(tried)
-skip |= {l.split(":")[0] for l in open(sys.argv[2]) if l.strip().endswith(":not-slash")}
+not_slash = {l.split(":")[0] for l in open(sys.argv[2]) if l.strip().endswith(":not-slash")}
 after = {}
 for l in tried:
     i, _, n = l.partition("~")
     if n.isdigit():
         after[i] = max(after.get(i, 0), int(n))
-def wanted(i):
+def wanted(j):
+    i = str(j.get("id"))
+    # A target tagged after a not-slash skip makes the job runnable again.
+    if i in not_slash and not j.get("targets"):
+        return False
     return i not in skip or i in after
 jobs = [j for j in json.load(sys.stdin).get("jobs", [])
         if j.get("column") == "backlog"
-        and not j.get("claimed") and wanted(str(j.get("id")))]
+        and not j.get("claimed") and wanted(j)]
 for j in sorted(jobs, key=lambda j: str(j["id"]).zfill(20)):
     t = j.get("targets") or []
     i = str(j["id"])
@@ -201,11 +205,14 @@ for j in sorted(jobs, key=lambda j: str(j["id"]).zfill(20)):
           (j.get("title") or "")[:120].replace("\n", " "))
 ' "$TRIED" "$SKIPPED") || { log "could not parse the job list"; exit 1; }
 
-# Log a skip once per job and reason. The line in poller-skipped is the memory.
+# Log a skip once per job and reason, and say it on the card so a job never sits in
+# Backlog with no word. The line in poller-skipped is the memory.
 skip_once() {
   if ! grep -qxF "$1:$2" "$SKIPPED"; then
     echo "$1:$2" >>"$SKIPPED"
     log "JOB-$1 skipped: $3"
+    "${J[@]}" comment "$1" --kind event --body "Not started by the poller: $3. $4" >>"$LOG" 2>&1 \
+      || log "JOB-$1 skip comment failed"
   fi
 }
 
@@ -238,7 +245,8 @@ print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", []) if 
   # home. The list omits the prompt, so read it with get. The title and the email comment
   # are never the trigger.
   if [ -z "${JOBS_DEFAULT_HOME:-}" ] || [ ! -d "$JOBS_DEFAULT_HOME" ]; then
-    skip_once "$cid" no-home "no target and JOBS_DEFAULT_HOME is unset or missing (${JOBS_DEFAULT_HOME:-unset})"
+    skip_once "$cid" no-home "no target and JOBS_DEFAULT_HOME is unset or missing (${JOBS_DEFAULT_HOME:-unset})" \
+      "Tag a target repo to run it."
     continue
   fi
   if ! slash=$("${J[@]}" get "$cid" 2>/dev/null | "$PYTHON3_BIN" -c '
@@ -254,8 +262,9 @@ print("yes" if re.match(r"/[a-z][\w-]*(\s|$)", p.strip()) else "no")
     break
   fi
   # ponytail: a prompt edited into a slash command later stays skipped; delete its line
-  # from poller-skipped to let the poller read it again.
-  skip_once "$cid" not-slash "no target and not a slash command"
+  # from poller-skipped to let the poller read it again. Tagging a target does unblock it.
+  skip_once "$cid" not-slash "no target and not a slash command" \
+    "Tag a target repo, or start the prompt with a slash command, to run it."
 done <<<"$cands"
 fi
 [ -n "$id" ] || exit 0

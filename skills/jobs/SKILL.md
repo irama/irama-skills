@@ -337,7 +337,9 @@ that was never trusted ignores the folder's permission allow rules and stalls.
 links from them, so a background or interactive thread can be picked up later in VS Code.
 An untargeted job that is not a slash command, or that arrives while `JOBS_DEFAULT_HOME` is
 unset or missing, is skipped with one log line per job (`JOB-<id> skipped: <reason>`), kept
-in `~/.config/jobs/poller-skipped`. Delete a job's line there to let the poller look again. `auto` is the permission mode the interactive runs use (the
+in `~/.config/jobs/poller-skipped`, and one event comment on the card ("Not started by the
+poller: <reason>"), so the operator sees why it waits. Tagging a target later makes the job
+runnable again. Delete a job's line there to let the poller look again. `auto` is the permission mode the interactive runs use (the
 `defaultMode` in the user settings). `--permission-prompts none` denies any action that
 would prompt, so an unattended run cannot stall on a question.
 
