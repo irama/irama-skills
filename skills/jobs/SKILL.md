@@ -92,7 +92,9 @@ the prompt, so run `$J get <id>` for each picked job before working it.
 
 **Every result comment ends with a "For you" list:** the actions the operator now takes (check,
 send, approve, reply), one line each, or "Nothing: review and archive." A card in In review always
-flags the operator, so the comment must say what the flag asks for.
+flags the operator, so the comment must say what the flag asks for. Name every file it made or
+changed by its absolute path in backticks (`/Users/...`), never a bare filename: the card shows a
+Copy path button for those, so the operator can open the file from the board.
 
 ## Execution, for each picked job, in order
 
