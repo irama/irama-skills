@@ -101,9 +101,11 @@ the prompt, so run `$J get <id>` for each picked job before working it.
 
 **Every result comment ends with a "For you" list:** the actions the operator now takes (check,
 send, approve, reply), one line each, or "Nothing: review and archive." A card in In review always
-flags the operator, so the comment must say what the flag asks for. Name every file it made or
-changed by its absolute path in backticks (`/Users/...`), never a bare filename: the card shows a
-Copy path button for those, so the operator can open the file from the board. **Every result
+flags the operator, so the comment must say what the flag asks for. Give ONE absolute path in
+backticks per output folder (`/Users/...`), never a bare filename and never a list of the files
+inside it: for an application pack that is the job's folder, one line per job. The card shows a
+Copy path button for it, and the operator finds the files there. A file with no folder of its
+own (a single report) gets its own path. Attach briefs, reports and PDFs with `--file` as well. **Every result
 comment also attaches each HTML brief or report and each PDF the job produced with `--file`**, in
 addition to giving its absolute path in backticks, so the operator can read it on a phone.
 
