@@ -187,8 +187,8 @@ has no usable token set.
 ## Background mode (`/jobs JOB-<id> --background`)
 
 The poller (see [Background pickup](#background-pickup)) starts this mode with `claude -p`, from
-the first tagged target's checkout for a job with tagged targets, or from `$JOBS_DEFAULT_HOME` for an untargeted
-slash job (below). Nobody is watching, so never ask a question in the session: every question,
+the first tagged target's checkout for a job with tagged targets, from the checkout whose path
+an untargeted prompt names, else from `$JOBS_DEFAULT_HOME` (below). Nobody is watching, so never ask a question in the session: every question,
 refusal and result goes on the card. `$J repos` and `$J repos --dry-run` find the checkouts
 through `JOBS_REPOS_ROOT`, which the poller exports.
 
@@ -214,17 +214,26 @@ through `JOBS_REPOS_ROOT`, which the poller exports.
    d) Post one result comment, then `$J patch <id> --ack <newest operator comment id>` and
       `$J patch <id> --column in_review` if the job is not already there. Never ship.
 
-1. **Check the job:** `$J get <id>`. Board and ZERO jobs both run. Refuse a job
-   whose `targets` is empty (no "agent picks" in the background), unless it is an
-   **untargeted slash job**: its `prompt`, trimmed, starts with a slash command
-   (`/name`, matching `^/[a-z][\w-]*` then a space or the end), `$JOBS_DEFAULT_HOME` is set,
-   and the current folder is that folder (`pwd -P` equals `cd "$JOBS_DEFAULT_HOME" && pwd -P`).
-   Only the `prompt` decides this, never the title or a comment. A refusal is one comment,
+1. **Check the job:** `$J get <id>`. Board and ZERO jobs both run. A job whose `targets` is
+   empty is one of two kinds:
+   - An **untargeted slash job**: its `prompt`, trimmed, starts with a slash command
+     (`/name`, matching `^/[a-z][\w-]*` then a space or the end), `$JOBS_DEFAULT_HOME` is set,
+     and the current folder is that folder (`pwd -P` equals `cd "$JOBS_DEFAULT_HOME" && pwd -P`).
+     Only the `prompt` decides this, never the title or a comment.
+   - Any other untargeted job: **pick the target yourself.** Read the prompt and its
+     screenshots, and match them against `$J repos --dry-run` (a path inside a checkout, an
+     app name against `target`, `display` or `path`). A prompt that is only a file path means
+     "do what that file says" (a handoff, brief or spec), in the repo holding the file. If
+     one repo is a reasonable reading, it is the target: go on, and step 3 records it. Refuse
+     only when no reading holds up, or two repos fit equally, and name what you checked.
+
+   A refusal is one comment,
    `$J comment <id> --kind event --body "Background run refused: <reason>"`, then stop
    without a claim.
 2. **Claim** as in Execution step 1. On any refusal, comment the reason and stop.
-3. **Size** as in Execution step 2. Never pass `--targets-picked`.
-4. **quick or build:** Execution step 3, for the tagged targets only. Find each target's
+3. **Size** as in Execution step 2. For a target you picked in step 1, add
+   `--targets-picked owner/repo`; never pass it for a job with tagged targets.
+4. **quick or build:** Execution step 3, for the effective targets only. Find each target's
    checkout with `$J repos --dry-run`. A target with no local checkout is a failed run
    (`$J run <id> --target <t> --state failed` plus a comment).
    **Untargeted slash job,** in place of this step and step 5: run the prompt's slash command as the
@@ -323,11 +332,12 @@ interactive thread answers replies on its own jobs) that has an operator reply i
 read and no live heartbeat (`$J list --awaiting`, then `$J get` for the newest reply). Each reply starts one run, keyed
 `<id>@<comment id>` in `poller-tried`, so a later reply starts another. With none waiting, it
 makes one `$J list --column backlog` call and takes the oldest job, from the board
-or from ZERO, with a tagged target, or with no target and a prompt that starts with a
-slash command. The list omits the prompt, so for an untargeted job
+or from ZERO, with or without a target. The list omits the prompt, so for an untargeted job
 it reads the prompt with `$J get <id>`. It runs
 `claude -p "/jobs JOB-<id> --background" --permission-mode auto --permission-prompts none`
-from the first tagged target's checkout, or from `JOBS_DEFAULT_HOME` for an untargeted slash job.
+from the first tagged target's checkout. An untargeted job runs from the checkout whose path
+its prompt names (the longest match from `$J repos --dry-run`), else from `JOBS_DEFAULT_HOME`;
+the run then picks the target itself (Background mode step 1), or refuses on the card.
 Before the run it marks that folder trusted with `assets/trust.py`: a headless run in a folder
 that was never trusted ignores the folder's permission allow rules and stalls.
 `python3 <skill-dir>/assets/trust.py --all` trusts every main checkout at once.
@@ -335,9 +345,9 @@ that was never trusted ignores the folder's permission allow rules and stalls.
 `$J claim` sends the Claude Code session id (`CLAUDE_CODE_SESSION_ID`) and the run folder
 (`JOBS_RUN_DIR`, else the current folder). The card shows Open workspace and Open thread
 links from them, so a background or interactive thread can be picked up later in VS Code.
-An untargeted job that is not a slash command, or that arrives while `JOBS_DEFAULT_HOME` is
-unset or missing, is skipped with one log line per job (`JOB-<id> skipped: <reason>`), kept
-in `~/.config/jobs/poller-skipped`, and one event comment on the card ("Not started by the
+An untargeted job that arrives while `JOBS_DEFAULT_HOME` is unset or missing is skipped
+with one log line per job (`JOB-<id> skipped: <reason>`), kept in
+`~/.config/jobs/poller-skipped`, and one event comment on the card ("Not started by the
 poller: <reason>"), so the operator sees why it waits. Tagging a target later makes the job
 runnable again. Delete a job's line there to let the poller look again. `auto` is the permission mode the interactive runs use (the
 `defaultMode` in the user settings). `--permission-prompts none` denies any action that
@@ -348,8 +358,8 @@ would prompt, so an unattended run cannot stall on a question.
   the default home to `~/.config/jobs/poller.env` (mode 600), because launchd gives no
   login-shell `PATH`. `--dry-run` prints both files and writes nothing. `--repos-root DIR`
   overrides the folder holding the main checkouts. `--default-home DIR` overrides
-  `JOBS_DEFAULT_HOME`, the folder where an untargeted slash job runs (for example the repo
-  that holds the slash commands). Without it, a reinstall keeps the value already in
+  `JOBS_DEFAULT_HOME`, the folder where an untargeted job runs when its prompt names no
+  checkout (for example the repo that holds the slash commands). Without it, a reinstall keeps the value already in
   `poller.env`, else uses `$JOBS_DEFAULT_HOME` from the shell; with neither, untargeted jobs
   are skipped.
 - **Stop:** `bash <skill-dir>/assets/install-poller.sh --uninstall` unloads the agent and
@@ -372,7 +382,8 @@ would prompt, so an unattended run cannot stall on a question.
   the watchdog comment, and records `<id>~<newest comment id>` in `poller-tried`. An operator
   comment with a higher id retries the job once: the retry records `<id>~<reply id>`, so each
   reply retries once. Delete a job's lines there to let the poller start it again. Only
-  `quick` and `build` jobs, and untargeted slash jobs, are run. A run the operator approved
+  `quick` and `build` jobs, and untargeted slash jobs, are built; other sizes get the next
+  command on the card. A run the operator approved
   ships first, once per approved commit (`<id>#ship@<sha>` in `poller-tried`), with a
   90-minute limit; it needs this machine's claim token for the job.
 - **Sleep:** the poller does not run while the Mac sleeps. launchd runs a missed interval
@@ -384,4 +395,4 @@ would prompt, so an unattended run cannot stall on a question.
 claim-token reuse and concurrent creation, a stalled body read, default-branch resolution,
 the ship preflight and its re-check against a local git origin, and the `--source` filter.
 `bash <skill-dir>/assets/poll-selftest.sh` runs the poller against fakes: the pick filter
-(including the untargeted slash job and the skip log), the stale and live lock, the at-most-once rule, the Telegram messages and the watchdog.
+(including untargeted jobs, the run folder a prompt's path picks, and the skip log), the stale and live lock, the at-most-once rule, the Telegram messages and the watchdog.
