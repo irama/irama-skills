@@ -156,8 +156,10 @@ export JOBS_RUN_DIR="$run_dir"
 # anything that would prompt, so an unattended run cannot stall on a question.
 # Its own process group, so the watchdog can kill the whole tree (claude plus whatever
 # it spawns) by group instead of chasing children one `pkill -P` level deep.
+# A known session id, so the transcript can be found after the run (see Retag).
+sid=$(uuidgen | tr '[:upper:]' '[:lower:]')
 set -m
-"$CLAUDE_BIN" -p "/jobs JOB-$id --background" \
+"$CLAUDE_BIN" -p "/jobs JOB-$id --background" --session-id "$sid" \
   --permission-mode auto --permission-prompts none >>"$LOG" 2>&1 &
 run=$!
 set +m
@@ -182,6 +184,24 @@ while kill -0 "$run" 2>/dev/null; do
 done
 wait "$run" 2>/dev/null
 rc=$?
+
+# ── Retag ────────────────────────────────────────────────────────────────────
+# `claude -p` records its transcript as entrypoint "sdk-cli", and the VS Code extension will
+# not open an SDK session, so the card's Open thread link showed a blank tab. Relabel it "cli".
+# ponytail: relies on the transcript format; drop this if the extension opens sdk-cli sessions.
+for t in "$HOME"/.claude/projects/*/"$sid".jsonl; do
+  [ -f "$t" ] || continue
+  "$PYTHON3_BIN" -c '
+import os, sys, tempfile
+p = sys.argv[1]
+s = open(p).read().replace("\"entrypoint\":\"sdk-cli\"", "\"entrypoint\":\"cli\"")
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p))
+with os.fdopen(fd, "w") as f:
+    f.write(s)
+os.chmod(tmp, 0o600)
+os.replace(tmp, p)
+' "$t" || log "JOB-$id could not retag $t"
+done
 
 # ── Report ───────────────────────────────────────────────────────────────────
 if [ "$killed" = 1 ]; then

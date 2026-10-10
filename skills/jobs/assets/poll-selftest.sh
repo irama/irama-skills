@@ -33,6 +33,8 @@ EOF
 cat >"$tmp/claude" <<'EOF'
 #!/usr/bin/env bash
 echo "claude $* @ $(pwd -P)" >>"$CALLS"
+sid=$(printf '%s\n' "$@" | grep -A1 -x -- --session-id | tail -1)
+mkdir -p "$HOME/.claude/projects/p" && echo '{"entrypoint":"sdk-cli"}' >"$HOME/.claude/projects/p/$sid.jsonl"
 sleep "${FAKE_RUN_SECS:-0}"
 EOF
 cat >"$tmp/send.sh" <<'EOF'
@@ -59,11 +61,13 @@ echo "$dead" >"$lock/pid"
 bash "$here/poll.sh"
 [ ! -d "$lock" ] || fail "lock left after the run"
 grep -q "removed stale lock (pid $dead)" "$tmp/log" || fail "stale lock not logged"
-grep -q 'claude -p /jobs JOB-3 --background --permission-mode auto --permission-prompts none' "$tmp/calls" \
+grep -Eq 'claude -p /jobs JOB-3 --background --session-id [0-9a-f-]{36} --permission-mode auto --permission-prompts none' "$tmp/calls" \
   || fail "JOB-3 not started with the explicit permission mode"
 grep -q 'list --column backlog --all-pages' "$tmp/calls" || fail "list call"
 grep -q 'source' "$tmp/calls" && fail "list still filters by source"
 grep -q 'JOB-3 is In review' "$tmp/sent" || fail "no In review message"
+grep -q sdk-cli "$HOME"/.claude/projects/p/*.jsonl && fail "transcript not retagged"
+grep -q '"entrypoint":"cli"' "$HOME"/.claude/projects/p/*.jsonl || fail "transcript lost its entrypoint"
 repo_real=$(cd "$tmp/repo" && pwd -P)
 grep -q "JOB-3 --background .* @ $repo_real\$" "$tmp/calls" || fail "targeted job not run from its checkout"
 grep -q "^trust $repo_real\$" "$tmp/calls" || fail "run folder not trusted before the run"
@@ -106,7 +110,7 @@ mkdir "$tmp/xcoach"
 printf 'JOBS_DEFAULT_HOME=%q\n' "$tmp/xcoach" >>"$HOME/.config/jobs/poller.env"
 bash "$here/poll.sh"
 xc_real=$(cd "$tmp/xcoach" && pwd -P)
-grep -q "claude -p /jobs JOB-4 --background --permission-mode auto --permission-prompts none @ $xc_real\$" \
+grep -Eq "claude -p /jobs JOB-4 --background --session-id [0-9a-f-]{36} --permission-mode auto --permission-prompts none @ $xc_real\$" \
   "$tmp/calls" || fail "slash JOB-4 not started in JOBS_DEFAULT_HOME"
 bash "$here/poll.sh"
 bash "$here/poll.sh"
