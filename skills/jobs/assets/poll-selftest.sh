@@ -2,7 +2,7 @@
 # Scripted check of poll.sh with a fake HOME, a fake jobs.py, a fake claude and a fake
 # Telegram sender. Covers the pick filter (board jobs included), the run folder and its trust, the untargeted slash job and its default home,
 # the once-per-job skip log, the stale and live lock, the at-most-once rule, the In review
-# message and the watchdog. Touches no hub, no launchd, no real config.
+# message, the watchdog, and the failure comment with its retry on reply. Touches no hub, no launchd, no real config.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
 tmp=$(mktemp -d)
@@ -36,6 +36,7 @@ echo "claude $* @ $(pwd -P)" >>"$CALLS"
 sid=$(printf '%s\n' "$@" | grep -A1 -x -- --session-id | tail -1)
 mkdir -p "$HOME/.claude/projects/p" && echo '{"entrypoint":"sdk-cli"}' >"$HOME/.claude/projects/p/$sid.jsonl"
 sleep "${FAKE_RUN_SECS:-0}"
+exit "${FAKE_RC:-0}"
 EOF
 cat >"$tmp/send.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -208,4 +209,47 @@ grep -q 'JOB-12 ' "$tmp/calls" && fail "same approval shipped twice"
 : >"$tmp/calls"
 FAKE_WHEN=2026-10-10T06:00:00+00:00 bash "$here/poll.sh"
 grep -q 'JOB-12 --background --ship' "$tmp/calls" || fail "a re-approval of the same commit did not ship"
+# x) A Backlog run that leaves the card in Backlog posts one failure comment and records
+# "<id>~<newest comment id>". No reply, no retry; one reply, one retry; the same reply never twice.
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+a = sys.argv[1:]
+if a[0] == "list":
+    print(json.dumps({"jobs": [{"id": 20, "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "flaky"}]}))
+elif a[0] == "get":
+    cs = [{"id": 50, "author": "agent"}]
+    if os.environ.get("FAKE_YOU"):
+        cs.append({"id": int(os.environ["FAKE_YOU"]), "author": "you"})
+    print(json.dumps({"data": {"id": int(a[1]), "column": os.environ.get("FAKE_COLUMN", "in_review"), "comments": cs}}))
+elif a[0] == "repos":
+    print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
+EOF
+: >"$HOME/.config/jobs/poller-tried"
+: >"$tmp/calls"
+FAKE_COLUMN=backlog bash "$here/poll.sh"
+grep -qx 'comment 20 --kind event --body Background run failed: never claimed. Reply on this card to retry.' "$tmp/calls" \
+  || fail "no failure comment for a run that left the card in Backlog"
+grep -qx '20~50' "$HOME/.config/jobs/poller-tried" || fail "failure not recorded with the newest comment id"
+: >"$tmp/calls"
+FAKE_COLUMN=backlog bash "$here/poll.sh"
+grep -q 'JOB-20 ' "$tmp/calls" && fail "failed job retried without a reply"
+: >"$tmp/calls"
+FAKE_YOU=60 FAKE_RC=3 FAKE_COLUMN=backlog bash "$here/poll.sh"
+grep -q 'claude -p /jobs JOB-20 --background' "$tmp/calls" || fail "a reply after the failure did not retry"
+grep -qx '20~60' "$HOME/.config/jobs/poller-tried" || fail "retry key not recorded"
+grep -qx 'comment 20 --kind event --body Background run failed: exit 3. Reply on this card to retry.' "$tmp/calls" \
+  || fail "no failure comment for a non-zero exit"
+: >"$tmp/calls"
+FAKE_YOU=60 FAKE_COLUMN=backlog bash "$here/poll.sh"
+grep -q 'JOB-20 ' "$tmp/calls" && fail "the same reply retried twice"
+: >"$tmp/calls"
+FAKE_YOU=70 FAKE_COLUMN=backlog JOBS_POLLER_LIMIT=2 FAKE_RUN_SECS=60 bash "$here/poll.sh"
+grep -qx 'comment 20 --kind event --body Background run failed: stopped after 0 minutes. Reply on this card to retry.' "$tmp/calls" \
+  || fail "no failure comment for a watchdog kill in Backlog"
+grep -q 'body Stopped after' "$tmp/calls" && fail "watchdog comment doubled up with the failure comment"
+: >"$tmp/calls"
+FAKE_YOU=80 FAKE_COLUMN=in_review bash "$here/poll.sh"
+grep -q 'JOB-20 --background' "$tmp/calls" || fail "a newer reply did not retry"
+grep -q 'Background run failed' "$tmp/calls" && fail "failure comment on a run that left Backlog"
 echo "poll.sh selftest: ok"

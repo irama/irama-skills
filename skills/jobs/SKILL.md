@@ -348,7 +348,12 @@ would prompt, so an unattended run cannot stall on a question.
   (it holds the run's PID; a lock with a dead PID is removed at the next tick). A run stops
   after 45 minutes, with the card comment "Stopped after 45 minutes". The poller starts a
   job at most once: a failed job stays in Backlog, and its id is in
-  `~/.config/jobs/poller-tried`. Delete that line to let the poller start it again. Only
+  `~/.config/jobs/poller-tried`. When a Backlog run ends with the card still in Backlog (the
+  watchdog stopped it, it exited non-zero, or it never claimed the job), the poller posts one
+  event comment, "Background run failed: <reason>. Reply on this card to retry.", in place of
+  the watchdog comment, and records `<id>~<newest comment id>` in `poller-tried`. An operator
+  comment with a higher id retries the job once: the retry records `<id>~<reply id>`, so each
+  reply retries once. Delete a job's lines there to let the poller start it again. Only
   `quick` and `build` jobs, and untargeted slash jobs, are run. A run the operator approved
   ships first, once per approved commit (`<id>#ship@<sha>` in `poller-tried`), with a
   90-minute limit; it needs this machine's claim token for the job.

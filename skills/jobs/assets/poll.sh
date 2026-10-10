@@ -5,8 +5,9 @@
 # ~/.config/jobs/poller.env, which the installer writes. Each tick:
 #   1. Takes the lock (a directory holding the run's PID). A lock whose PID is dead is removed.
 #   2. Makes one `jobs.py list --column backlog` call (board and ZERO jobs alike).
-#   3. Takes the oldest waiting job that was never started here and has either a tagged
-#      target, or no target and a prompt that starts with a slash command (`/name ...`).
+#   3. Takes the oldest waiting job that was never started here (or whose run failed and the
+#      operator has replied since) and has either a tagged target, or no target and a prompt
+#      that starts with a slash command (`/name ...`).
 #   4. Marks the run folder trusted (trust.py), then runs `claude -p "/jobs JOB-<id> --background"`
 #      in the background, from the first target's checkout for a targeted job and from
 #      $JOBS_DEFAULT_HOME for an untargeted slash job, and kills it after 45 minutes (macOS
@@ -173,18 +174,31 @@ if ! listing=$("${J[@]}" list --column backlog --all-pages 2>&1); then
   log "list failed: $(printf '%s' "$listing" | tr '\n' ' ' | cut -c1-300)"
   exit 1
 fi
-# One line per candidate, oldest first: "<id> <T|U> <first target|-> <title>" (T has a
+# One line per candidate, oldest first: "<id> <T|U> <first target|-> <after|-> <title>" (T has a
 # tagged target, U has none). An untargeted job already skipped as "not a slash command" is left out.
+# A started job is left out too, unless its run failed: "<id>~<n>" in poller-tried records the
+# newest comment id at the failure, and <after> carries the highest such n. That job is a
+# retry candidate, retried only when the operator has commented since.
 cands=$(printf '%s' "$listing" | "$PYTHON3_BIN" -c '
 import json, sys
-skip = {l.strip() for l in open(sys.argv[1]) if l.strip()}
+tried = [l.strip() for l in open(sys.argv[1]) if l.strip()]
+skip = set(tried)
 skip |= {l.split(":")[0] for l in open(sys.argv[2]) if l.strip().endswith(":not-slash")}
+after = {}
+for l in tried:
+    i, _, n = l.partition("~")
+    if n.isdigit():
+        after[i] = max(after.get(i, 0), int(n))
+def wanted(i):
+    return i not in skip or i in after
 jobs = [j for j in json.load(sys.stdin).get("jobs", [])
         if j.get("column") == "backlog"
-        and not j.get("claimed") and str(j.get("id")) not in skip]
+        and not j.get("claimed") and wanted(str(j.get("id")))]
 for j in sorted(jobs, key=lambda j: str(j["id"]).zfill(20)):
     t = j.get("targets") or []
-    print(j["id"], "T" if t else "U", t[0] if t else "-", (j.get("title") or "")[:120].replace("\n", " "))
+    i = str(j["id"])
+    print(j["id"], "T" if t else "U", t[0] if t else "-", after[i] if i in skip and i in after else "-",
+          (j.get("title") or "")[:120].replace("\n", " "))
 ' "$TRIED" "$SKIPPED") || { log "could not parse the job list"; exit 1; }
 
 # Log a skip once per job and reason. The line in poller-skipped is the memory.
@@ -195,11 +209,24 @@ skip_once() {
   fi
 }
 
-while read -r cid kind ctarget ctitle; do
+retry_key=""
+while read -r cid kind ctarget cafter ctitle; do
   [ -n "$cid" ] || continue
   case "$cid" in
     *[!0-9]*) log "bad id: refusing ($cid)"; exit 1 ;;
   esac
+  retry_key=""
+  if [ "$cafter" != - ]; then
+    # A failed run: retry it once per operator reply posted after the failure.
+    you=$("${J[@]}" get "$cid" 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, sys
+print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", []) if c.get("author") == "you"], default=0))
+' 2>/dev/null)
+    case "$you" in ""|*[!0-9]*) continue ;; esac
+    [ "$you" -gt "$cafter" ] || continue
+    retry_key="$cid~$you"
+    log "JOB-$cid retries after your reply (comment $you)"
+  fi
   if [ "$kind" = T ]; then
     id=$cid title=$ctitle
     # The first target's checkout, else $HOME (the run then fails that target on the card).
@@ -235,8 +262,9 @@ fi
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 # A job is started at most once. A failed run stays in Backlog and is not retried every
-# minute; delete its line from poller-tried to let the poller start it again.
-echo "${tried_key:-$id}" >>"$TRIED"
+# minute: an operator reply on the card retries it once (see Report), or delete its lines
+# from poller-tried to let the poller start it again.
+echo "${tried_key:-${retry_key:-$id}}" >>"$TRIED"
 [ -n "$tried_key" ] || echo "$id" >>"$OWNED" # this run claims it
 log "JOB-$id start in $run_dir: $title"
 cd "$run_dir" || exit 1
@@ -325,10 +353,37 @@ os.replace(tmp, p)
 done
 
 # ── Report ───────────────────────────────────────────────────────────────────
+job_column() {
+  "${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, sys
+print(json.load(sys.stdin)["data"]["column"])
+' 2>/dev/null || echo unknown
+}
+# A Backlog run (not a reply run, not a ship run) that leaves the card in Backlog failed. Say
+# so on the card, then record "<id>~<newest comment id>" in poller-tried: an operator comment
+# after it retries the job once (see Pick).
+backlog_failed() { # $1 = short reason
+  "${J[@]}" comment "$id" --kind event --body "Background run failed: $1. Reply on this card to retry." >>"$LOG" 2>&1 \
+    || log "JOB-$id could not post the failure comment"
+  newest=$("${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, sys
+print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", [])], default=0))
+' 2>/dev/null)
+  case "$newest" in
+    ""|*[!0-9]*) log "JOB-$id could not read its comments; a reply will not retry it" ;;
+    *) echo "$id~$newest" >>"$TRIED" ;;
+  esac
+}
+backlog_run=""
+[ -n "$ship$reply_cid" ] || backlog_run=1
 if [ "$killed" = 1 ]; then
   mins=$((LIMIT / 60))
-  "${J[@]}" comment "$id" --kind event --body "Stopped after $mins minutes" >>"$LOG" 2>&1 \
-    || log "JOB-$id could not post the watchdog comment"
+  if [ -n "$backlog_run" ] && [ "$(job_column)" = backlog ]; then
+    backlog_failed "stopped after $mins minutes"
+  else
+    "${J[@]}" comment "$id" --kind event --body "Stopped after $mins minutes" >>"$LOG" 2>&1 \
+      || log "JOB-$id could not post the watchdog comment"
+  fi
   if [ -n "$ship" ]; then
     "${J[@]}" comment "$id" --kind event --body "Ship run stopped after $mins minutes, possibly mid-ship. Check in $run_dir: local main against origin (a merge may be unpushed), whether a migration was applied without the deploy, and the conductor merge and push claims (/threads)." >>"$LOG" 2>&1 || true
   fi
@@ -336,11 +391,11 @@ if [ "$killed" = 1 ]; then
   notify "JOB-$id stopped after $mins minutes: $title"
   exit 0
 fi
-column=$("${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
-import json, sys
-print(json.load(sys.stdin)["data"]["column"])
-' 2>/dev/null || echo unknown)
+column=$(job_column)
 log "JOB-$id ended: exit $rc, card in $column"
+if [ -n "$backlog_run" ] && [ "$column" = backlog ]; then
+  if [ "$rc" != 0 ]; then backlog_failed "exit $rc"; else backlog_failed "never claimed"; fi
+fi
 if [ -n "$ship" ]; then
   left=$("${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
 import json, sys
