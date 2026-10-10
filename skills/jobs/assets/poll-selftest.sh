@@ -66,7 +66,7 @@ grep -q 'source' "$tmp/calls" && fail "list still filters by source"
 grep -q 'JOB-3 is In review' "$tmp/sent" || fail "no In review message"
 repo_real=$(cd "$tmp/repo" && pwd -P)
 grep -q "JOB-3 --background .* @ $repo_real\$" "$tmp/calls" || fail "targeted job not run from its checkout"
-grep -q "^trust $tmp/repo\$" "$tmp/calls" || fail "run folder not trusted before the run"
+grep -q "^trust $repo_real\$" "$tmp/calls" || fail "run folder not trusted before the run"
 
 # ii) The next tick does not start JOB-3 again; it takes JOB-5, then board job 6. Untargeted job 2 never starts.
 FAKE_COLUMN=backlog bash "$here/poll.sh"

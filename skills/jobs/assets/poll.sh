@@ -146,6 +146,7 @@ done <<<"$cands"
 echo "$id" >>"$TRIED"
 log "JOB-$id start in $run_dir: $title"
 cd "$run_dir" || exit 1
+run_dir=$(pwd -P) # absolute, for trust.py and the claim's session folder
 # A folder that was never trusted drops its permission allow rules in a headless run.
 [ "$run_dir" = "$HOME" ] || "$PYTHON3_BIN" "$SKILL_DIR/assets/trust.py" "$run_dir" >>"$LOG" 2>&1 \
   || log "JOB-$id could not mark $run_dir trusted"
