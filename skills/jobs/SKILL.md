@@ -232,7 +232,8 @@ stops.
 The operator approves in the hub. That pins each run's `approved_sha`. Ship per target, from
 the target repo.
 
-1. **Preflight, before anything mutates:**
+1. **Preflight, before anything mutates.** Take step 2's conductor claims first, so no other
+   thread can land on the default branch between this check and the push:
 
    ```bash
    $J preflight <id> --target <t> --repo <target repo main checkout> --void

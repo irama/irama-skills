@@ -181,9 +181,10 @@ import json, os, sys
 open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
 a = sys.argv[1:]
 run = {"state": os.environ.get("FAKE_STATE", "approved"), "target": "o/r", "approved_sha": "abc1234"}
+when = os.environ.get("FAKE_WHEN", "2026-10-10T05:00:00+00:00")
 if a[0] == "list" and "--ship-approved" in a:
-    print(json.dumps({"jobs": [{"id": 12, "claimed": True, "title": "ship me", "runs": [run]},
-                               {"id": 13, "claimed": True, "title": "not mine", "runs": [run]}]}))
+    print(json.dumps({"jobs": [{"id": 12, "claimed": True, "title": "ship me", "ship_approved_at": when, "runs": [run]},
+                               {"id": 13, "claimed": True, "title": "not mine", "ship_approved_at": when, "runs": [run]}]}))
 elif a[0] == "list":
     print(json.dumps({"jobs": [{"id": 10, "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "backlog"}]}))
 elif a[0] == "get":
@@ -199,9 +200,12 @@ FAKE_STATE=approved bash "$here/poll.sh"
 grep -q "claude -p /jobs JOB-12 --background --ship .* @ $repo_real\$" "$tmp/calls" || fail "approved job 12 not shipped in its checkout"
 grep -q 'JOB-13 ' "$tmp/calls" && fail "job without this machine's claim shipped"
 grep -q 'JOB-10 ' "$tmp/calls" && fail "backlog started before an approved ship"
-grep -q 'JOB-12 ship failed' "$tmp/sent" || fail "a run still approved was not reported as a failed ship"
-grep -qx '12#ship@abc1234' "$HOME/.config/jobs/poller-tried" || fail "ship key not recorded"
+grep -q 'JOB-12 ship did not complete' "$tmp/sent" || fail "an unshipped run was not reported as incomplete"
+grep -qx '12#ship@2026-10-10T05:00:00+00:00' "$HOME/.config/jobs/poller-tried" || fail "ship key not recorded"
 : >"$tmp/calls"
 bash "$here/poll.sh"
 grep -q 'JOB-12 ' "$tmp/calls" && fail "same approval shipped twice"
+: >"$tmp/calls"
+FAKE_WHEN=2026-10-10T06:00:00+00:00 bash "$here/poll.sh"
+grep -q 'JOB-12 --background --ship' "$tmp/calls" || fail "a re-approval of the same commit did not ship"
 echo "poll.sh selftest: ok"

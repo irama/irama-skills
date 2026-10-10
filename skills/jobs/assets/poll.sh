@@ -85,7 +85,7 @@ id="" title="" run_dir="$HOME" tried_key="" reply_cid="" ship=""
 # Before anything else: a run the operator approved to ship. Approving is the instruction to
 # ship, so the poller ships it unattended. One run per approved commit: "<id>#ship@<sha>".
 if approved=$("${J[@]}" list --ship-approved --all-pages 2>/dev/null); then
-  read -r cid ctarget csha ctitle < <(printf '%s' "$approved" | "$PYTHON3_BIN" -c '
+  read -r cid ctarget capproval csha ctitle < <(printf '%s' "$approved" | "$PYTHON3_BIN" -c '
 import json, os, sys
 tried = {l.strip() for l in open(sys.argv[1]) if l.strip()}
 try:
@@ -96,20 +96,23 @@ for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"])
     runs = [r for r in j.get("runs") or [] if r.get("state") == "approved" and r.get("approved_sha")]
     if not runs or str(j["id"]) not in mine:
         continue
-    key = "%s#ship@%s" % (j["id"], runs[0]["approved_sha"])
+    # The approval time changes with every Approve ship, so a re-approval of the same
+    # commit (after a refused ship voided the first) ships again.
+    key = "%s#ship@%s" % (j["id"], j.get("ship_approved_at") or runs[0]["approved_sha"])
     if key in tried:
         continue
-    print(j["id"], runs[0]["target"], runs[0]["approved_sha"], (j.get("title") or "")[:120].replace("\n", " "))
+    print(j["id"], runs[0]["target"], key.split("@", 1)[1].replace(" ", "_"), runs[0]["approved_sha"][:7],
+          (j.get("title") or "")[:120].replace("\n", " "))
     break
 ' "$TRIED" 2>/dev/null)
   case "$cid" in
     ""|*[!0-9]*) ;;
     *)
-      id=$cid title=$ctitle ship=1 tried_key="$cid#ship@$csha"
+      id=$cid title=$ctitle ship=1 tried_key="$cid#ship@$capproval"
       run_dir=$(first_target_dir "$ctarget")
       [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
       LIMIT="${JOBS_POLLER_SHIP_LIMIT:-5400}" # merge, review, build and deploy take longer
-      log "JOB-$id approved to ship at ${csha:0:7}"
+      log "JOB-$id approved to ship at $csha"
       ;;
   esac
 fi
@@ -324,6 +327,9 @@ if [ "$killed" = 1 ]; then
   mins=$((LIMIT / 60))
   "${J[@]}" comment "$id" --kind event --body "Stopped after $mins minutes" >>"$LOG" 2>&1 \
     || log "JOB-$id could not post the watchdog comment"
+  if [ -n "$ship" ]; then
+    "${J[@]}" comment "$id" --kind event --body "Ship run stopped after $mins minutes, possibly mid-ship. Check in $run_dir: local main against origin (a merge may be unpushed), whether a migration was applied without the deploy, and the conductor merge and push claims (/threads)." >>"$LOG" 2>&1 || true
+  fi
   log "JOB-$id stopped after $mins minutes"
   notify "JOB-$id stopped after $mins minutes: $title"
   exit 0
@@ -336,12 +342,15 @@ log "JOB-$id ended: exit $rc, card in $column"
 if [ -n "$ship" ]; then
   left=$("${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
 import json, sys
-print(sum(1 for r in json.load(sys.stdin)["data"].get("runs") or [] if r.get("state") == "approved"))
+runs = json.load(sys.stdin)["data"].get("runs") or []
+print(sum(1 for r in runs if r.get("state") != "shipped" or not r.get("deployed_sha")) if runs else 1)
 ' 2>/dev/null || echo 1)
+  # Shipped means the hub shows every run shipped with a deployed SHA. A refused or failed
+  # ship moves runs to committed or failed, which is not success.
   if [ "$rc" = 0 ] && [ "$left" = 0 ]; then
     notify "JOB-$id shipped: $title"
   else
-    notify "JOB-$id ship failed (exit $rc, $left run(s) still approved): $title"
+    notify "JOB-$id ship did not complete (exit $rc, $left run(s) not shipped; see the card): $title"
   fi
 elif [ -n "$reply_cid" ]; then
   # A reply run starts in In review, so the column proves nothing: the ack does.
