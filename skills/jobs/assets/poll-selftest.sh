@@ -153,7 +153,7 @@ elif a[0] == "list":
 elif a[0] == "get":
     last = int(os.environ.get("FAKE_LAST", "40"))
     print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "ack_comment_id": 30,
-        "comments": [{"id": 20, "author": "you"}, {"id": last, "author": "you"}, {"id": 35, "author": "agent"}]}}))
+        "comments": [{"id": 20, "author": "you", "kind": "message"}, {"id": last, "author": "you", "kind": "message"}, {"id": 35, "author": "agent"}]}}))
 elif a[0] == "repos":
     print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
 EOF
@@ -220,7 +220,7 @@ if a[0] == "list":
 elif a[0] == "get":
     cs = [{"id": 50, "author": "agent"}]
     if os.environ.get("FAKE_YOU"):
-        cs.append({"id": int(os.environ["FAKE_YOU"]), "author": "you"})
+        cs.append({"id": int(os.environ["FAKE_YOU"]), "author": "you", "kind": "message"})
     print(json.dumps({"data": {"id": int(a[1]), "column": os.environ.get("FAKE_COLUMN", "in_review"), "comments": cs}}))
 elif a[0] == "repos":
     print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))

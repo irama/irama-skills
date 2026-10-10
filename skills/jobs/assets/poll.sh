@@ -220,7 +220,7 @@ while read -r cid kind ctarget cafter ctitle; do
     # A failed run: retry it once per operator reply posted after the failure.
     you=$("${J[@]}" get "$cid" 2>/dev/null | "$PYTHON3_BIN" -c '
 import json, sys
-print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", []) if c.get("author") == "you"], default=0))
+print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", []) if c.get("author") == "you" and c.get("kind") == "message"], default=0))
 ' 2>/dev/null)
     case "$you" in ""|*[!0-9]*) continue ;; esac
     [ "$you" -gt "$cafter" ] || continue
