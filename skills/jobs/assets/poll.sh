@@ -98,10 +98,10 @@ for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"])
         continue
     # The approval time changes with every Approve ship, so a re-approval of the same
     # commit (after a refused ship voided the first) ships again.
-    key = "%s#ship@%s" % (j["id"], j.get("ship_approved_at") or runs[0]["approved_sha"])
+    key = ("%s#ship@%s" % (j["id"], j.get("ship_approved_at") or runs[0]["approved_sha"])).replace(" ", "_")
     if key in tried:
         continue
-    print(j["id"], runs[0]["target"], key.split("@", 1)[1].replace(" ", "_"), runs[0]["approved_sha"][:7],
+    print(j["id"], runs[0]["target"], key.split("@", 1)[1], runs[0]["approved_sha"][:7],
           (j.get("title") or "")[:120].replace("\n", " "))
     break
 ' "$TRIED" 2>/dev/null)

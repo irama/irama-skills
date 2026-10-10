@@ -244,7 +244,7 @@ the target repo.
    as `approved_sha`. It compares trees because `/merge` squashes a multi-commit or wip branch,
    which gives it a new head commit with the same tree. On
    refusal, `--void` comments why and sets the run back to `committed`, which voids the
-   approval. The job stays in In review. **Stop.** Report the reasons to the operator.
+   approval. The job stays in In review. Sign off both verbs `--status incomplete`. **Stop.** Report the reasons to the operator.
 2. **Hold the repo's shipping verbs** in the conductor for the whole sequence, so no other
    thread merges in between:
 
