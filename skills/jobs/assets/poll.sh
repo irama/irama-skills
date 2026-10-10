@@ -70,6 +70,52 @@ trap 'rm -rf "$LOCK"' EXIT
 
 # ── Pick ─────────────────────────────────────────────────────────────────────
 touch "$TRIED" "$SKIPPED"
+
+# First, a job this machine claimed that has an operator reply it has not read. One run per
+# reply: the key is "<id>@<newest operator comment id>", so a later reply starts another run.
+first_target_dir() { # $1 = owner/repo; prints its checkout, or nothing
+  "${J[@]}" repos --dry-run 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, sys
+m = [r["path"] for r in json.load(sys.stdin)["repos"] if r["target"] == sys.argv[1]]
+print(m[0] if m else "")
+' "$1" 2>/dev/null
+}
+id="" title="" run_dir="$HOME" tried_key=""
+if awaiting=$("${J[@]}" list --awaiting --all-pages 2>/dev/null); then
+  while read -r cid ctarget ctitle; do
+    case "$cid" in *[!0-9]*|"") continue ;; esac
+    last=$("${J[@]}" get "$cid" 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, sys
+d = json.load(sys.stdin)["data"]
+ids = [c["id"] for c in d.get("comments", []) if c.get("author") == "you" and c["id"] > (d.get("ack_comment_id") or 0)]
+print(max(ids) if ids else "")
+' 2>/dev/null)
+    [ -n "$last" ] || continue
+    grep -qxF "$cid@$last" "$TRIED" && continue
+    id=$cid title=$ctitle tried_key="$cid@$last"
+    if [ "$ctarget" != - ]; then
+      run_dir=$(first_target_dir "$ctarget")
+    else
+      run_dir=${JOBS_DEFAULT_HOME:-}
+    fi
+    [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
+    log "JOB-$id has a reply to read (comment $last)"
+    break
+  done < <(printf '%s' "$awaiting" | "$PYTHON3_BIN" -c '
+import json, os, sys
+try:
+    mine = set(json.load(open(os.path.expanduser("~/.config/jobs/claims.json"))))
+except (OSError, ValueError):
+    mine = set()
+for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"]).zfill(20)):
+    if j.get("awaiting") and j.get("claimed") and str(j["id"]) in mine \
+            and j.get("column") in ("in_progress", "in_review"):
+        t = j.get("targets") or j.get("targets_picked") or []
+        print(j["id"], t[0] if t else "-", (j.get("title") or "")[:120].replace("\n", " "))
+' 2>/dev/null)
+fi
+
+if [ -z "$id" ]; then
 # --all-pages: without it, a full first page of tried/stuck backlog jobs could hide
 # every newer job behind them.
 if ! listing=$("${J[@]}" list --column backlog --all-pages 2>&1); then
@@ -98,7 +144,6 @@ skip_once() {
   fi
 }
 
-id="" title="" run_dir="$HOME"
 while read -r cid kind ctarget ctitle; do
   [ -n "$cid" ] || continue
   case "$cid" in
@@ -107,11 +152,7 @@ while read -r cid kind ctarget ctitle; do
   if [ "$kind" = T ]; then
     id=$cid title=$ctitle
     # The first target's checkout, else $HOME (the run then fails that target on the card).
-    run_dir=$("${J[@]}" repos --dry-run 2>/dev/null | "$PYTHON3_BIN" -c '
-import json, sys
-m = [r["path"] for r in json.load(sys.stdin)["repos"] if r["target"] == sys.argv[1]]
-print(m[0] if m else "")
-' "$ctarget" 2>/dev/null)
+    run_dir=$(first_target_dir "$ctarget")
     [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
     break
   fi
@@ -138,12 +179,13 @@ print("yes" if re.match(r"/[a-z][\w-]*(\s|$)", p.strip()) else "no")
   # from poller-skipped to let the poller read it again.
   skip_once "$cid" not-slash "no target and not a slash command"
 done <<<"$cands"
+fi
 [ -n "$id" ] || exit 0
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 # A job is started at most once. A failed run stays in Backlog and is not retried every
 # minute; delete its line from poller-tried to let the poller start it again.
-echo "$id" >>"$TRIED"
+echo "${tried_key:-$id}" >>"$TRIED"
 log "JOB-$id start in $run_dir: $title"
 cd "$run_dir" || exit 1
 run_dir=$(pwd -P) # absolute, for trust.py and the claim's session folder
@@ -167,6 +209,7 @@ pid_tmp="$LOCK/pid.$$"
 echo "$run" >"$pid_tmp"
 mv "$pid_tmp" "$LOCK/pid"
 
+"${J[@]}" patch "$id" --active on >/dev/null 2>&1 || true # a reply run is already claimed
 waited=0
 killed=0
 while kill -0 "$run" 2>/dev/null; do
@@ -179,11 +222,16 @@ while kill -0 "$run" 2>/dev/null; do
     kill -KILL "$run" 2>/dev/null
     break
   fi
+  # Heartbeat for the card's Agent working sign. Before the run claims the job this fails; quiet.
+  if [ "$waited" -gt 0 ] && [ $((waited % 60)) -eq 0 ]; then
+    "${J[@]}" patch "$id" --active on >/dev/null 2>&1 || true
+  fi
   sleep "$STEP"
   waited=$((waited + STEP))
 done
 wait "$run" 2>/dev/null
 rc=$?
+"${J[@]}" patch "$id" --active off >/dev/null 2>&1 || true
 
 # ── Retag ────────────────────────────────────────────────────────────────────
 # `claude -p` records its transcript as entrypoint "sdk-cli", and the VS Code extension will

@@ -136,4 +136,41 @@ bash "$here/poll.sh" || rc=$?
 grep -q 'bad id: refusing (x1)' "$tmp/log" || fail "bad id not logged"
 [ "$(grep -c '^claude ' "$tmp/calls" || true)" = "$claude_calls_before" ] || fail "claude ran for a bad id"
 [ ! -d "$lock" ] || fail "lock left after a bad id"
+# viii) A reply on a job this machine claimed starts one run per reply, before any backlog job,
+# in the target's checkout, with heartbeats on and off around it.
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+a = sys.argv[1:]
+if a[0] == "list" and "--awaiting" in a:
+    print(json.dumps({"jobs": [
+        {"id": 8, "column": "in_review", "claimed": True, "awaiting": True, "targets": ["o/r"], "title": "reply job"},
+        {"id": 9, "column": "in_review", "claimed": True, "awaiting": True, "targets": ["o/r"], "title": "not mine"},
+    ]}))
+elif a[0] == "list":
+    print(json.dumps({"jobs": [{"id": 10, "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "backlog"}]}))
+elif a[0] == "get":
+    last = int(os.environ.get("FAKE_LAST", "40"))
+    print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "ack_comment_id": 30,
+        "comments": [{"id": 20, "author": "you"}, {"id": last, "author": "you"}, {"id": 35, "author": "agent"}]}}))
+elif a[0] == "repos":
+    print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
+EOF
+echo '{"8": "tok"}' >"$HOME/.config/jobs/claims.json"
+: >"$HOME/.config/jobs/poller-tried"
+: >"$tmp/calls"
+bash "$here/poll.sh"
+grep -q "claude -p /jobs JOB-8 --background .* @ $repo_real\$" "$tmp/calls" || fail "reply job 8 not started in its checkout"
+grep -q 'JOB-10 ' "$tmp/calls" && fail "backlog job started before the reply"
+grep -q 'JOB-9 ' "$tmp/calls" && fail "job claimed elsewhere started"
+grep -qx '8@40' "$HOME/.config/jobs/poller-tried" || fail "reply key not recorded"
+grep -q '^patch 8 --active on$' "$tmp/calls" || fail "no heartbeat on"
+grep -q '^patch 8 --active off$' "$tmp/calls" || fail "no heartbeat off"
+: >"$tmp/calls"
+bash "$here/poll.sh"
+grep -q 'JOB-8 ' "$tmp/calls" && fail "same reply started twice"
+grep -q 'JOB-10 --background' "$tmp/calls" || fail "backlog job not taken once the reply was handled"
+: >"$tmp/calls"
+FAKE_LAST=41 bash "$here/poll.sh"
+grep -q 'JOB-8 --background' "$tmp/calls" || fail "a new reply did not start a run"
 echo "poll.sh selftest: ok"

@@ -6,7 +6,7 @@
     jobs.py get ID                                one job, runs, last 200 comments
     jobs.py attachments ID                        1-hour signed image URLs
     jobs.py claim ID [--agent LABEL]              claim with this machine's token for the job
-    jobs.py patch ID [--column C] [--size S] [--size-reason R] [--targets-picked a,b] [--ack N]
+    jobs.py patch ID [--column C] [--size S] [--size-reason R] [--targets-picked a,b] [--ack N] [--active on|off]
     jobs.py run ID --target T [--branch B] [--base-sha S] [--head-sha S] [--state claimed|committed|failed]
     jobs.py shipped ID --target T --deployed-sha S
     jobs.py comment ID --kind message|event [--body TEXT | --body-file F | stdin] [--agent LABEL]
@@ -320,6 +320,8 @@ def cmd_patch(a):
         body["targets_picked"] = [t.strip().lower() for t in a.targets_picked.split(",") if t.strip()]
     if a.ack is not None:
         body["ack_comment_id"] = a.ack
+    if a.active:
+        body["active"] = a.active == "on"
     return emit(*api("PATCH", f"/api/jobs/{a.id}", body))
 
 
@@ -791,6 +793,7 @@ def main():
     s.add_argument("--size-reason")
     s.add_argument("--targets-picked")
     s.add_argument("--ack", type=int)
+    s.add_argument("--active", choices=["on", "off"], help="heartbeat: an agent is working now")
     s.set_defaults(fn=cmd_patch)
     s = sub.add_parser("run")
     s.add_argument("id", type=int)
