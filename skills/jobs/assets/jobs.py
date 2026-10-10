@@ -292,7 +292,18 @@ def cmd_attachments(a):
 
 def cmd_claim(a):
     token = claim_token(a.id, create=True)
-    return emit(*api("POST", f"/api/jobs/{a.id}/claim", {"claim_token": token, "agent": agent_label(a.agent)}))
+    body = {"claim_token": token, "agent": agent_label(a.agent)}
+    # The Claude Code thread doing the work, so the card can link back to it in VS Code.
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if sid:
+        body["session"] = {"id": sid, "dir": os.environ.get("JOBS_RUN_DIR") or os.getcwd()}
+    status, payload = api("POST", f"/api/jobs/{a.id}/claim", body)
+    if status == 400 and "session" in body:
+        # ponytail: a hub from before the session field refuses it; drop this retry once
+        # every hub accepts `session`.
+        body.pop("session")
+        status, payload = api("POST", f"/api/jobs/{a.id}/claim", body)
+    return emit(status, payload)
 
 
 def cmd_patch(a):

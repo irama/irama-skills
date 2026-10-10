@@ -4,12 +4,14 @@
 # launchd gives no login-shell environment, so every path comes from
 # ~/.config/jobs/poller.env, which the installer writes. Each tick:
 #   1. Takes the lock (a directory holding the run's PID). A lock whose PID is dead is removed.
-#   2. Makes one `jobs.py list --column backlog --source zero` call.
-#   3. Takes the oldest waiting ZERO job that was never started here and has either a tagged
+#   2. Makes one `jobs.py list --column backlog` call (board and ZERO jobs alike).
+#   3. Takes the oldest waiting job that was never started here and has either a tagged
 #      target, or no target and a prompt that starts with a slash command (`/name ...`).
-#   4. Runs `claude -p "/jobs JOB-<id> --background"` in the background, from $HOME for a
-#      targeted job and from $JOBS_DEFAULT_HOME for an untargeted slash job, and kills it
-#      after 45 minutes (macOS has no `timeout`).
+#   4. Marks the run folder trusted (trust.py), then runs `claude -p "/jobs JOB-<id> --background"`
+#      in the background, from the first target's checkout for a targeted job and from
+#      $JOBS_DEFAULT_HOME for an untargeted slash job, and kills it after 45 minutes (macOS
+#      has no `timeout`). Running in the checkout puts the thread under that repo, so the
+#      card's "Open thread" link finds it from that repo's VS Code window.
 #   5. Sends Telegram when the card reaches In review or the run fails.
 # The tick stays in the foreground while the run lives, so launchd starts no second tick.
 # It never reads or writes claims.json: jobs.py owns that file.
@@ -70,22 +72,22 @@ trap 'rm -rf "$LOCK"' EXIT
 touch "$TRIED" "$SKIPPED"
 # --all-pages: without it, a full first page of tried/stuck backlog jobs could hide
 # every newer job behind them.
-if ! listing=$("${J[@]}" list --column backlog --source zero --all-pages 2>&1); then
+if ! listing=$("${J[@]}" list --column backlog --all-pages 2>&1); then
   log "list failed: $(printf '%s' "$listing" | tr '\n' ' ' | cut -c1-300)"
   exit 1
 fi
-# Client-side check as well, so a hub that ignores ?source can never start a board job.
-# One line per candidate, oldest first: "<id> <T|U> <title>" (T has a tagged target,
-# U has none). An untargeted job already skipped as "not a slash command" is left out.
+# One line per candidate, oldest first: "<id> <T|U> <first target|-> <title>" (T has a
+# tagged target, U has none). An untargeted job already skipped as "not a slash command" is left out.
 cands=$(printf '%s' "$listing" | "$PYTHON3_BIN" -c '
 import json, sys
 skip = {l.strip() for l in open(sys.argv[1]) if l.strip()}
 skip |= {l.split(":")[0] for l in open(sys.argv[2]) if l.strip().endswith(":not-slash")}
 jobs = [j for j in json.load(sys.stdin).get("jobs", [])
-        if j.get("source") == "zero" and j.get("column") == "backlog"
+        if j.get("column") == "backlog"
         and not j.get("claimed") and str(j.get("id")) not in skip]
 for j in sorted(jobs, key=lambda j: str(j["id"]).zfill(20)):
-    print(j["id"], "T" if j.get("targets") else "U", (j.get("title") or "")[:120].replace("\n", " "))
+    t = j.get("targets") or []
+    print(j["id"], "T" if t else "U", t[0] if t else "-", (j.get("title") or "")[:120].replace("\n", " "))
 ' "$TRIED" "$SKIPPED") || { log "could not parse the job list"; exit 1; }
 
 # Log a skip once per job and reason. The line in poller-skipped is the memory.
@@ -97,13 +99,20 @@ skip_once() {
 }
 
 id="" title="" run_dir="$HOME"
-while read -r cid kind ctitle; do
+while read -r cid kind ctarget ctitle; do
   [ -n "$cid" ] || continue
   case "$cid" in
     *[!0-9]*) log "bad id: refusing ($cid)"; exit 1 ;;
   esac
   if [ "$kind" = T ]; then
     id=$cid title=$ctitle
+    # The first target's checkout, else $HOME (the run then fails that target on the card).
+    run_dir=$("${J[@]}" repos --dry-run 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, sys
+m = [r["path"] for r in json.load(sys.stdin)["repos"] if r["target"] == sys.argv[1]]
+print(m[0] if m else "")
+' "$ctarget" 2>/dev/null)
+    [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
     break
   fi
   # No target: run it only when the owner's prompt is a slash command, from the default
@@ -137,6 +146,11 @@ done <<<"$cands"
 echo "$id" >>"$TRIED"
 log "JOB-$id start in $run_dir: $title"
 cd "$run_dir" || exit 1
+# A folder that was never trusted drops its permission allow rules in a headless run.
+[ "$run_dir" = "$HOME" ] || "$PYTHON3_BIN" "$SKILL_DIR/assets/trust.py" "$run_dir" >>"$LOG" 2>&1 \
+  || log "JOB-$id could not mark $run_dir trusted"
+# jobs.py claim sends this folder with the session id, for the card's VS Code links.
+export JOBS_RUN_DIR="$run_dir"
 # auto is the defaultMode the interactive /jobs runs use. --permission-prompts none denies
 # anything that would prompt, so an unattended run cannot stall on a question.
 # Its own process group, so the watchdog can kill the whole tree (claude plus whatever

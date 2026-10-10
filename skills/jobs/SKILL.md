@@ -148,12 +148,12 @@ has no usable token set.
 ## Background mode (`/jobs JOB-<id> --background`)
 
 The poller (see [Background pickup](#background-pickup)) starts this mode with `claude -p`, from
-the home folder for a job with tagged targets, or from `$JOBS_DEFAULT_HOME` for an untargeted
+the first tagged target's checkout for a job with tagged targets, or from `$JOBS_DEFAULT_HOME` for an untargeted
 slash job (below). Nobody is watching, so never ask a question in the session: every question,
 refusal and result goes on the card. `$J repos` and `$J repos --dry-run` find the checkouts
 through `JOBS_REPOS_ROOT`, which the poller exports.
 
-1. **Check the job:** `$J get <id>`. Refuse a job whose `source` is not `zero`. Refuse a job
+1. **Check the job:** `$J get <id>`. Board and ZERO jobs both run. Refuse a job
    whose `targets` is empty (no "agent picks" in the background), unless it is an
    **untargeted slash job**: its `prompt`, trimmed, starts with a slash command
    (`/name`, matching `^/[a-z][\w-]*` then a space or the end), `$JOBS_DEFAULT_HOME` is set,
@@ -252,13 +252,19 @@ the target repo.
 ## Background pickup
 
 A launchd agent, `org.<user>.jobs-poller` (`<user>` is `id -un`), runs `<skill-dir>/assets/poll.sh` every 60 seconds.
-Each tick makes one `$J list --column backlog --source zero` call and takes the oldest job
-that ZERO created with a tagged target, or with no target and a prompt that starts with a
-slash command. It checks `source` and `targets` again on its own side, so a hub that ignores
-`?source` can never start a board job. The list omits the prompt, so for an untargeted job
+Each tick makes one `$J list --column backlog` call and takes the oldest job, from the board
+or from ZERO, with a tagged target, or with no target and a prompt that starts with a
+slash command. The list omits the prompt, so for an untargeted job
 it reads the prompt with `$J get <id>`. It runs
 `claude -p "/jobs JOB-<id> --background" --permission-mode auto --permission-prompts none`
-from the home folder, or from `JOBS_DEFAULT_HOME` for an untargeted slash job.
+from the first tagged target's checkout, or from `JOBS_DEFAULT_HOME` for an untargeted slash job.
+Before the run it marks that folder trusted with `assets/trust.py`: a headless run in a folder
+that was never trusted ignores the folder's permission allow rules and stalls.
+`python3 <skill-dir>/assets/trust.py --all` trusts every main checkout at once.
+
+`$J claim` sends the Claude Code session id (`CLAUDE_CODE_SESSION_ID`) and the run folder
+(`JOBS_RUN_DIR`, else the current folder). The card shows Open workspace and Open thread
+links from them, so a background or interactive thread can be picked up later in VS Code.
 An untargeted job that is not a slash command, or that arrives while `JOBS_DEFAULT_HOME` is
 unset or missing, is skipped with one log line per job (`JOB-<id> skipped: <reason>`), kept
 in `~/.config/jobs/poller-skipped`. Delete a job's line there to let the poller look again. `auto` is the permission mode the interactive runs use (the

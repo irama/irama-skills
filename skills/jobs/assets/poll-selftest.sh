@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Scripted check of poll.sh with a fake HOME, a fake jobs.py, a fake claude and a fake
-# Telegram sender. Covers the pick filter, the untargeted slash job and its default home,
+# Telegram sender. Covers the pick filter (board jobs included), the run folder and its trust, the untargeted slash job and its default home,
 # the once-per-job skip log, the stale and live lock, the at-most-once rule, the In review
 # message and the watchdog. Touches no hub, no launchd, no real config.
 set -euo pipefail
@@ -16,12 +16,14 @@ import json, os, sys
 open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
 if sys.argv[1] == "list":
     print(json.dumps({"jobs": [
-        {"id": 1, "source": "board", "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "board job"},
         {"id": 2, "source": "zero", "column": "backlog", "targets": [], "claimed": False, "title": "/looks-like-one"},
         {"id": 4, "source": "zero", "column": "backlog", "targets": [], "claimed": False, "title": "slash job"},
         {"id": 5, "source": "zero", "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "newer"},
         {"id": 3, "source": "zero", "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "oldest"},
+        {"id": 6, "source": "board", "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "board job"},
     ], "next_cursor": None}))
+elif sys.argv[1] == "repos":
+    print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
 elif sys.argv[1] == "get":
     # Job 2's title looks like a command but its prompt is not one; only the prompt counts.
     prompts = {2: "file this email", 4: "  /apply-for-jobs the role in the email"}
@@ -37,10 +39,15 @@ cat >"$tmp/send.sh" <<'EOF'
 #!/usr/bin/env bash
 echo "$1" >>"$SENT"
 EOF
+cat >"$tmp/skill/assets/trust.py" <<'EOF'
+import os, sys
+open(os.environ["CALLS"], "a").write("trust " + " ".join(sys.argv[1:]) + "\n")
+EOF
 chmod +x "$tmp/claude" "$tmp/send.sh"
 printf 'CLAUDE_BIN=%q\nPYTHON3_BIN=%q\nSKILL_DIR=%q\nTELEGRAM_SEND=%q\nPOLLER_PATH=%q\n' \
   "$tmp/claude" "$py" "$tmp/skill" "$tmp/send.sh" "$PATH" >"$HOME/.config/jobs/poller.env"
-export CALLS="$tmp/calls" SENT="$tmp/sent"
+mkdir "$tmp/repo"
+export CALLS="$tmp/calls" SENT="$tmp/sent" FAKE_REPO="$tmp/repo"
 lock="$HOME/.config/jobs/poller.lock"
 fail() { echo "poll selftest FAIL: $*" >&2; cat "$tmp/log" "$tmp/calls" 2>/dev/null >&2; exit 1; }
 
@@ -54,17 +61,20 @@ bash "$here/poll.sh"
 grep -q "removed stale lock (pid $dead)" "$tmp/log" || fail "stale lock not logged"
 grep -q 'claude -p /jobs JOB-3 --background --permission-mode auto --permission-prompts none' "$tmp/calls" \
   || fail "JOB-3 not started with the explicit permission mode"
-grep -q 'list --column backlog --source zero' "$tmp/calls" || fail "list call"
+grep -q 'list --column backlog --all-pages' "$tmp/calls" || fail "list call"
+grep -q 'source' "$tmp/calls" && fail "list still filters by source"
 grep -q 'JOB-3 is In review' "$tmp/sent" || fail "no In review message"
-home_real=$(cd "$HOME" && pwd -P)
-grep -q "JOB-3 --background .* @ $home_real\$" "$tmp/calls" || fail "targeted job not run from HOME"
+repo_real=$(cd "$tmp/repo" && pwd -P)
+grep -q "JOB-3 --background .* @ $repo_real\$" "$tmp/calls" || fail "targeted job not run from its checkout"
+grep -q "^trust $tmp/repo\$" "$tmp/calls" || fail "run folder not trusted before the run"
 
-# ii) The next tick does not start JOB-3 again; it takes JOB-5. Board job 1 and untargeted job 2 never start.
+# ii) The next tick does not start JOB-3 again; it takes JOB-5, then board job 6. Untargeted job 2 never starts.
 FAKE_COLUMN=backlog bash "$here/poll.sh"
 [ "$(grep -c 'JOB-3 --background' "$tmp/calls")" = 1 ] || fail "JOB-3 started twice"
 grep -q 'JOB-5 run failed' "$tmp/sent" || fail "no failure message for JOB-5"
 bash "$here/poll.sh"
-grep -Eq 'JOB-(1|2|4) ' "$tmp/calls" && fail "board or untargeted job started"
+grep -q 'JOB-6 --background' "$tmp/calls" || fail "board job 6 not started"
+grep -Eq 'JOB-(2|4) ' "$tmp/calls" && fail "untargeted job started"
 # With no JOBS_DEFAULT_HOME, an untargeted job is skipped, logged once, and its prompt is not read.
 [ "$(grep -c 'JOB-4 skipped: no target and JOBS_DEFAULT_HOME is unset' "$tmp/log")" = 1 ] \
   || fail "missing default home not logged exactly once"
