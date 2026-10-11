@@ -351,6 +351,12 @@ def cmd_shipped(a):
                      {"claim_token": claim_token(a.id), "target": a.target, "deployed_sha": a.deployed_sha}))
 
 
+def cmd_repin(a):
+    return emit(*api("POST", f"/api/jobs/{a.id}/runs/repin",
+                     {"claim_token": claim_token(a.id), "target": a.target, "head_sha": a.head_sha,
+                      "comment_id": a.comment, "note": a.note}))
+
+
 def post_comment(job_id, kind, body, agent=None, attachment_ids=None):
     payload = {"kind": kind, "body": body, "agent": agent_label(agent)}
     if attachment_ids:
@@ -924,6 +930,14 @@ def main():
     s.add_argument("--target", required=True)
     s.add_argument("--deployed-sha", required=True)
     s.set_defaults(fn=cmd_shipped)
+    s = sub.add_parser("repin", help="move a run's approval to a fixed head, on operator consent")
+    s.add_argument("id", type=int)
+    s.add_argument("--target", required=True)
+    s.add_argument("--head-sha", required=True)
+    s.add_argument("--comment", type=int, required=True,
+                   help="the newest operator comment: the approve event or a reply asking to ship")
+    s.add_argument("--note", required=True, help="one line: what the fix was")
+    s.set_defaults(fn=cmd_repin)
     s = sub.add_parser("comment")
     s.add_argument("id", type=int)
     s.add_argument("--kind", choices=["message", "event"], default="message")

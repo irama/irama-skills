@@ -210,9 +210,22 @@ through `JOBS_REPOS_ROOT`, which the poller exports.
       it: `$J run <id> --target <t> --branch <b> --head-sha <sha> --state committed`. A new
       commit voids any approval, which is correct. If the change touches UI, attach the
       `/verify-ui` screenshots (375px and desktop) with `--image`.
-   c) A question or a request for a screenshot: answer it, with `--image` where it helps.
+   c) A question or a request for a screenshot: answer it, with `--image` where it helps. If
+      a run is still `approved` (a ship run stopped for this reply), void it with
+      `$J run <id> --target <t> --state committed`, so the operator can approve again.
    d) Post one result comment, then `$J patch <id> --ack <newest operator comment id>` and
-      `$J patch <id> --column in_review` if the job is not already there. Never ship.
+      `$J patch <id> --column in_review` if the job is not already there. Never ship from
+      this run.
+   e) **A reply that asks for a fix and a ship** ("fix it then ship"): do b) but skip its
+      `$J run` call, because a run change makes the reply too old to consent. Get a fresh
+      review of the fix commit (`adversarial-reviewer`, or Codex scoped `--commit <fix-sha>`).
+      If the review is clean and the fix passes the [fix limits](#fix-limits), re-pin the
+      approval on that reply instead of the `$J run` call in b):
+      `$J repin <id> --target <t> --head-sha <sha> --comment <reply id> --note "<the fix>"`.
+      Then do d) and stop. Do not ship from this run: a re-pin on a reply stamps a new
+      approval time, so the poller's next tick starts a normal `--ship` run for it. If the
+      review finds anything, the fix is outside the limits, or `repin` refuses, record the
+      commit with `$J run` as in b), say why on the card, and stop.
 
 1. **Check the job:** `$J get <id>`. Board and ZERO jobs both run. Refuse a job
    whose `targets` is empty (no "agent picks" in the background), unless it is an
@@ -252,6 +265,14 @@ stops.
 The operator approves in the hub. That pins each run's `approved_sha`. Ship per target, from
 the target repo.
 
+0. **An unread reply comes first.** If `$J get <id>` shows an `author='you'`, `kind='message'`
+   comment with an `id` above both `ack_comment_id` and the newest "you approved ship" event,
+   the operator wrote after approving (for example "fix it then ship"). Do not ship the
+   approved head, and do not void the approval: a run change after the reply makes the reply
+   too old to consent to a re-pin (`STALE_CONSENT`). Comment that the reply is handled first,
+   and stop. The poller's next tick picks the reply up as a follow-up run (Background
+   step 0b), which re-pins or voids the approval.
+
 1. **Preflight, before anything mutates.** Take step 2's conductor claims first, so no other
    thread can land on the default branch between this check and the push:
 
@@ -282,6 +303,30 @@ the target repo.
    pre=$(git rev-parse <default>)     # before /merge
    landed=$(git rev-parse <default>)  # after /merge
    ```
+   **A review finding does not stop an approved ship by itself.** The operator's approval
+   already means "ship what the pipeline passes", so `/merge`'s "STOP and ask" on a real defect
+   becomes one fix round here, before anything lands on the default branch:
+   a) Fix the finding on the job branch, in the job's worktree. Commit it. Do not call
+      `$J run`: a new head through `job_run_set` voids the approval.
+   b) Run the repo's gate once, then a fresh review of the fix commit (`adversarial-reviewer`,
+      or Codex scoped `--commit <fix-sha>`). This review always runs, whatever the severity.
+   c) If the gate passes, the review is clean, and the fix passes the
+      [fix limits](#fix-limits), re-pin the approval on the approve event (the newest
+      `author='you'` comment, body `you approved ship`, from `$J get`):
+      `$J repin <id> --target <t> --head-sha <fix-sha> --comment <event id> --note "<the fix>"`.
+      Then continue `/merge` with the fixed branch.
+   d) Otherwise (gate fails, the review finds anything, the fix is outside the limits, or
+      `repin` refuses) stop as step 1 does: `$J preflight ... --void`, comment the finding and
+      what was tried, sign off both verbs `--status incomplete`. **Stop.**
+
+   One fix round per approval: `repin` refuses a second re-pin on the same consent
+   (`CONSENT_USED`), so a second finding always goes back to the operator. `STALE_CONSENT`
+   means the operator commented after approving: read it, and stop.
+
+   <a id="fix-limits"></a>**Fix limits.** A fix ships without the operator only when it
+   touches only files the job's change already touches, and adds no migration, no env var,
+   no new package, and no change to auth, permissions or secrets handling. Anything else goes
+   back to the operator.
 4. **Re-check the approval immediately before the push.** The operator can void it, or edit
    the job, while the merge runs:
 
@@ -312,7 +357,8 @@ the target repo.
 
 - Create or edit a job, its prompt, title, tagged targets or screenshots. There is no route.
 - Approve a ship, or move a job to Backlog. Both belong to the operator. Once the operator
-  approves, the poller ships it with no further prompt.
+  approves, the poller ships it with no further prompt. `$J repin` only moves an approval the
+  operator gave (or a reply asking to ship) to one fixed head, once.
 - Pick up jobs on a timer, except the `--background` mode that the poller starts.
 
 ## Background pickup
