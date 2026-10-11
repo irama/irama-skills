@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Scripted check of poll.sh with a fake HOME, a fake jobs.py, a fake claude and a fake
-# Telegram sender. Covers the pick filter (board jobs included), the run folder and its trust, the untargeted slash job and its default home,
+# Telegram sender. Covers the pick filter (board jobs included), the run folder and its trust, untargeted jobs and their run folder,
 # the once-per-job skip log, the stale and live lock, the at-most-once rule, the In review
 # message, the watchdog, and the failure comment with its retry on reply. Touches no hub, no launchd, no real config.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# A JOBS_DEFAULT_HOME from the caller's shell would run the untargeted job early.
+unset JOBS_DEFAULT_HOME
 export HOME="$tmp/home" JOBS_POLLER_LOG="$tmp/log" JOBS_POLLER_STEP=1
 mkdir -p "$HOME/.config/jobs" "$tmp/skill/assets"
 py=$(command -v python3)
@@ -26,7 +28,8 @@ elif sys.argv[1] == "repos":
     print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
 elif sys.argv[1] == "get":
     # Job 2's title looks like a command but its prompt is not one; only the prompt counts.
-    prompts = {2: "file this email", 4: "  /apply-for-jobs the role in the email"}
+    # Job 2's prompt names a file inside the checkout, so it runs from there.
+    prompts = {2: os.environ["FAKE_REPO"] + "/.scratch/handoff.md", 4: "  /apply-for-jobs the role in the email"}
     print(json.dumps({"data": {"id": int(sys.argv[2]), "column": os.environ.get("FAKE_COLUMN", "in_review"),
                                "prompt": prompts.get(int(sys.argv[2]), "")}}))
 EOF
@@ -52,7 +55,7 @@ printf 'CLAUDE_BIN=%q\nPYTHON3_BIN=%q\nSKILL_DIR=%q\nTELEGRAM_SEND=%q\nPOLLER_PA
 mkdir "$tmp/repo"
 export CALLS="$tmp/calls" SENT="$tmp/sent" FAKE_REPO="$tmp/repo"
 lock="$HOME/.config/jobs/poller.lock"
-fail() { echo "poll selftest FAIL: $*" >&2; cat "$tmp/log" "$tmp/calls" 2>/dev/null >&2; exit 1; }
+fail() { echo "poll selftest FAIL: $*" >&2; cat "$tmp/log" "$tmp/calls" >&2 2>/dev/null; exit 1; }
 
 # i) A stale lock (dead PID) is removed; the oldest ZERO job with a target starts.
 mkdir "$lock"
@@ -105,20 +108,17 @@ bash "$here/poll.sh"
 grep -q 'JOB-5 --background' "$tmp/calls" || fail "tagged JOB-5 not started"
 grep -Eq 'JOB-4 --background' "$tmp/calls" && fail "JOB-4 started with a missing default home"
 
-# vii) With the default home present, the untargeted slash job starts there. The
-# untargeted job whose prompt is not a slash command is skipped and logged once.
+# vii) With the default home present, untargeted jobs run. JOB-2's prompt names a file in
+# the checkout, so it starts there; the slash job JOB-4 starts in JOBS_DEFAULT_HOME.
 mkdir "$tmp/xcoach"
 printf 'JOBS_DEFAULT_HOME=%q\n' "$tmp/xcoach" >>"$HOME/.config/jobs/poller.env"
+bash "$here/poll.sh"
+grep -q "JOB-2 --background .* @ $repo_real\$" "$tmp/calls" || fail "JOB-2 not run from the checkout its prompt names"
 bash "$here/poll.sh"
 xc_real=$(cd "$tmp/xcoach" && pwd -P)
 grep -Eq "claude -p /jobs JOB-4 --background --session-id [0-9a-f-]{36} --permission-mode auto --permission-prompts none @ $xc_real\$" \
   "$tmp/calls" || fail "slash JOB-4 not started in JOBS_DEFAULT_HOME"
-bash "$here/poll.sh"
-bash "$here/poll.sh"
-[ "$(grep -c 'JOB-2 skipped: no target and not a slash command' "$tmp/log")" = 1 ] \
-  || fail "non-slash skip not logged exactly once"
-[ "$(grep -c '^get 2$' "$tmp/calls")" = 1 ] || fail "non-slash prompt read more than once"
-grep -q 'JOB-2 --background' "$tmp/calls" && fail "non-slash untargeted job started"
+grep -q 'not a slash command' "$tmp/log" && fail "untargeted job still skipped as not a slash command"
 
 # v) A non-numeric id from the hub is refused, not run.
 cat >"$tmp/skill/assets/jobs.py" <<'EOF'

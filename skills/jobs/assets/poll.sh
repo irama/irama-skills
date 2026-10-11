@@ -6,11 +6,11 @@
 #   1. Takes the lock (a directory holding the run's PID). A lock whose PID is dead is removed.
 #   2. Makes one `jobs.py list --column backlog` call (board and ZERO jobs alike).
 #   3. Takes the oldest waiting job that was never started here (or whose run failed and the
-#      operator has replied since) and has either a tagged target, or no target and a prompt
-#      that starts with a slash command (`/name ...`).
+#      operator has replied since). An untargeted job runs too: the run picks its repo.
 #   4. Marks the run folder trusted (trust.py), then runs `claude -p "/jobs JOB-<id> --background"`
-#      in the background, from the first target's checkout for a targeted job and from
-#      $JOBS_DEFAULT_HOME for an untargeted slash job, and kills it after 45 minutes (macOS
+#      in the background, from the first target's checkout for a targeted job, from the checkout
+#      whose path the prompt names for an untargeted job that names one, else from
+#      $JOBS_DEFAULT_HOME, and kills it after 45 minutes (macOS
 #      has no `timeout`). Running in the checkout puts the thread under that repo, so the
 #      card's "Open thread" link finds it from that repo's VS Code window.
 #   5. Sends Telegram when the card reaches In review or the run fails.
@@ -175,7 +175,7 @@ if ! listing=$("${J[@]}" list --column backlog --all-pages 2>&1); then
   exit 1
 fi
 # One line per candidate, oldest first: "<id> <T|U> <first target|-> <after|-> <title>" (T has a
-# tagged target, U has none). An untargeted job already skipped as "not a slash command" is left out.
+# tagged target, U has none).
 # A started job is left out too, unless its run failed: "<id>~<n>" in poller-tried records the
 # newest comment id at the failure, and <after> carries the highest such n. That job is a
 # retry candidate, retried only when the operator has commented since.
@@ -183,29 +183,32 @@ cands=$(printf '%s' "$listing" | "$PYTHON3_BIN" -c '
 import json, sys
 tried = [l.strip() for l in open(sys.argv[1]) if l.strip()]
 skip = set(tried)
-skip |= {l.split(":")[0] for l in open(sys.argv[2]) if l.strip().endswith(":not-slash")}
 after = {}
 for l in tried:
     i, _, n = l.partition("~")
     if n.isdigit():
         after[i] = max(after.get(i, 0), int(n))
-def wanted(i):
+def wanted(j):
+    i = str(j.get("id"))
     return i not in skip or i in after
 jobs = [j for j in json.load(sys.stdin).get("jobs", [])
         if j.get("column") == "backlog"
-        and not j.get("claimed") and wanted(str(j.get("id")))]
+        and not j.get("claimed") and wanted(j)]
 for j in sorted(jobs, key=lambda j: str(j["id"]).zfill(20)):
     t = j.get("targets") or []
     i = str(j["id"])
     print(j["id"], "T" if t else "U", t[0] if t else "-", after[i] if i in skip and i in after else "-",
           (j.get("title") or "")[:120].replace("\n", " "))
-' "$TRIED" "$SKIPPED") || { log "could not parse the job list"; exit 1; }
+' "$TRIED") || { log "could not parse the job list"; exit 1; }
 
-# Log a skip once per job and reason. The line in poller-skipped is the memory.
+# Log a skip once per job and reason, and say it on the card so a job never sits in
+# Backlog with no word. The line in poller-skipped is the memory.
 skip_once() {
   if ! grep -qxF "$1:$2" "$SKIPPED"; then
     echo "$1:$2" >>"$SKIPPED"
     log "JOB-$1 skipped: $3"
+    "${J[@]}" comment "$1" --kind event --body "Not started by the poller: $3. $4" >>"$LOG" 2>&1 \
+      || log "JOB-$1 skip comment failed"
   fi
 }
 
@@ -234,28 +237,31 @@ print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", []) if 
     [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
     break
   fi
-  # No target: run it only when the owner's prompt is a slash command, from the default
-  # home. The list omits the prompt, so read it with get. The title and the email comment
-  # are never the trigger.
+  # No target: the run works out the repo from the prompt (Background mode in SKILL.md), and
+  # refuses on the card only when it cannot. Run it from the checkout whose path the prompt
+  # names, so the thread and that repo's permission rules belong to it; else from the
+  # default home. The title and the email comment are never read for this.
   if [ -z "${JOBS_DEFAULT_HOME:-}" ] || [ ! -d "$JOBS_DEFAULT_HOME" ]; then
-    skip_once "$cid" no-home "no target and JOBS_DEFAULT_HOME is unset or missing (${JOBS_DEFAULT_HOME:-unset})"
+    skip_once "$cid" no-home "no target and JOBS_DEFAULT_HOME is unset or missing (${JOBS_DEFAULT_HOME:-unset})" \
+      "Tag a target repo to run it."
     continue
   fi
-  if ! slash=$("${J[@]}" get "$cid" 2>/dev/null | "$PYTHON3_BIN" -c '
+  if ! named=$("${J[@]}" get "$cid" 2>/dev/null | "$PYTHON3_BIN" -c '
 import json, re, sys
-p = json.load(sys.stdin)["data"].get("prompt") or ""
-print("yes" if re.match(r"/[a-z][\w-]*(\s|$)", p.strip()) else "no")
-' 2>/dev/null); then
+p = (json.load(sys.stdin)["data"].get("prompt") or "").strip()
+if re.match(r"/[a-z][\w-]*(\s|$)", p):
+    print("-")  # a slash command runs in the default home
+    sys.exit()
+repos = json.load(open(sys.argv[1]))["repos"]
+hits = [r["path"] for r in repos if re.search(re.escape(r["path"]) + r"(/|\s|$)", p)]
+print(max(hits, key=len) if hits else "-")
+' <("${J[@]}" repos --dry-run 2>/dev/null) 2>/dev/null); then
     log "JOB-$cid could not read the prompt"
     continue
   fi
-  if [ "$slash" = yes ]; then
-    id=$cid title=$ctitle run_dir=$JOBS_DEFAULT_HOME
-    break
-  fi
-  # ponytail: a prompt edited into a slash command later stays skipped; delete its line
-  # from poller-skipped to let the poller read it again.
-  skip_once "$cid" not-slash "no target and not a slash command"
+  id=$cid title=$ctitle run_dir=$JOBS_DEFAULT_HOME
+  [ "$named" != - ] && [ -d "$named" ] && run_dir=$named
+  break
 done <<<"$cands"
 fi
 [ -n "$id" ] || exit 0
