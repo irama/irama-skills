@@ -95,12 +95,12 @@ open, rather than only detectable afterwards.
    curl -s -X PUT https://<prod-domain>/api/inngest
    ```
 
-   `{"message":"Successfully registered","modified":true}` means the function list **changed** — i.e. something was previously unregistered. `modified:false` means it was already in sync. Report which.
+   Success is `"message":"Successfully registered"`. Report it. **Do not read `modified` as evidence on its own.** Some apps return `modified:true` on every sync, even with no code change. Before you report drift, PUT a second time. If the second call also says `true`, the flag is noise for that app: say so, and report "registered" only. A `false` on the second call is what proves the first call changed something.
 
    **Why this is a step and not a footnote (2026-08-07):** a newly-shipped Inngest function was never registered, so `inngest.send()` fired an event with no consumer. The row sat at `queued` — not `failed` — for 30+ minutes, looking exactly like work in progress. Every gate was green, the deploy was healthy, and the feature was silently inert. A function that is not registered does not error; it simply never runs. The same applies to any other platform needing an explicit post-deploy registration (cron/webhook registration endpoints) — sync it here, and say so.
 
 ## Report
 
-End with: migrations applied (or "none pending"), build result, push SHA range, deploy status/URL, any dev server stopped for the build and whether it is back up, and the background-job sync result (`modified: true/false`, or "no Inngest endpoint"). (The Codex review verdict is reported at `/merge`.)
+End with: migrations applied (or "none pending"), build result, push SHA range, deploy status/URL, any dev server stopped for the build and whether it is back up, and the background-job sync result ("registered", drift only if the second PUT confirmed it, or "no Inngest endpoint"). (The Codex review verdict is reported at `/merge`.)
 
 State explicitly that **the tree you built is the tree you pushed** (step 4's check), and list the commits shipped. If the range contained anything beyond this thread's own work, say whose it was and that the user approved shipping it.
