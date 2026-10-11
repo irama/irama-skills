@@ -219,12 +219,13 @@ through `JOBS_REPOS_ROOT`, which the poller exports.
    e) **A reply that asks for a fix and a ship** ("fix it then ship"): do b) but skip its
       `$J run` call, because a run change makes the reply too old to consent. Get a fresh
       review of the fix commit (`adversarial-reviewer`, or Codex scoped `--commit <fix-sha>`).
-      If the review is clean and the fix passes the [fix limits](#fix-limits), re-pin the
-      approval on that reply instead of the `$J run` call in b):
+      If the review finds more, loop as Ship step 3 does (at most three fix rounds). When the
+      review is clean and no fix crossed the [fix limits](#fix-limits), re-pin the approval
+      once, on the final head, on that reply instead of the `$J run` call in b):
       `$J repin <id> --target <t> --head-sha <sha> --comment <reply id> --note "<the fix>"`.
       Then do d) and stop. Do not ship from this run: a re-pin on a reply stamps a new
       approval time, so the poller's next tick starts a normal `--ship` run for it. If the
-      review finds anything, the fix is outside the limits, or `repin` refuses, record the
+      loop hits three rounds, a fix crosses the limits, or `repin` refuses, record the
       commit with `$J run` as in b), say why on the card, and stop.
 
 1. **Check the job:** `$J get <id>`. Board and ZERO jobs both run. A job whose `targets` is
@@ -312,30 +313,37 @@ the target repo.
    pre=$(git rev-parse <default>)     # before /merge
    landed=$(git rev-parse <default>)  # after /merge
    ```
-   **A review finding does not stop an approved ship by itself.** The operator's approval
-   already means "ship what the pipeline passes", so `/merge`'s "STOP and ask" on a real defect
-   becomes one fix round here, before anything lands on the default branch:
-   a) Fix the finding on the job branch, in the job's worktree. Commit it. Do not call
-      `$J run`: a new head through `job_run_set` voids the approval.
-   b) Run the repo's gate once, then a fresh review of the fix commit (`adversarial-reviewer`,
-      or Codex scoped `--commit <fix-sha>`). This review always runs, whatever the severity.
-   c) If the gate passes, the review is clean, and the fix passes the
-      [fix limits](#fix-limits), re-pin the approval on the approve event (the newest
-      `author='you'` comment, body `you approved ship`, from `$J get`):
-      `$J repin <id> --target <t> --head-sha <fix-sha> --comment <event id> --note "<the fix>"`.
+   **A review finding does not stop an approved ship.** The operator's approval means "fix
+   what the review finds and ship it". Only a directional question goes back to them. So
+   `/merge`'s "STOP and ask" on a real defect becomes a fix loop here, before anything lands
+   on the default branch:
+   a) Fix the finding on the job branch. Commit it. Do not call `$J run`: a new head through
+      `job_run_set` voids the approval. If a hook refuses a commit on the job branch because
+      this session did not create it, add a worktree on a new branch from the job branch,
+      commit there, and fast-forward the job branch to it (`git merge --ff-only`).
+   b) Run the repo's gate once, then a fresh review of the fix (`adversarial-reviewer`, or
+      Codex scoped `--commit <fix-sha>`). This review always runs, whatever the severity.
+   c) If that review finds more, fix it and go back to b). Stop the loop after three fix
+      rounds: three rounds of findings say the approach is the problem, which is directional.
+   d) When the gate passes, the review is clean, and no fix crossed the
+      [fix limits](#fix-limits), re-pin the approval once, on the final head, on the approve
+      event (the newest `author='you'` comment, body `you approved ship`, from `$J get`):
+      `$J repin <id> --target <t> --head-sha <final-sha> --comment <event id> --note "<the fixes>"`.
       Then continue `/merge` with the fixed branch.
-   d) Otherwise (gate fails, the review finds anything, the fix is outside the limits, or
-      `repin` refuses) stop as step 1 does: `$J preflight ... --void`, comment the finding and
-      what was tried, sign off both verbs `--status incomplete`. **Stop.**
+   e) Otherwise (the gate stays red, the loop hits three rounds, a fix crosses the limits, or
+      `repin` refuses) stop as step 1 does: `$J preflight ... --void`, comment the finding,
+      what was tried and the one question for the operator, sign off both verbs
+      `--status incomplete`. **Stop.**
 
-   One fix round per approval: `repin` refuses a second re-pin on the same consent
-   (`CONSENT_USED`), so a second finding always goes back to the operator. `STALE_CONSENT`
-   means the operator commented after approving: read it, and stop.
+   `repin` refuses a second re-pin on the same consent (`CONSENT_USED`), so commit every fix
+   round first and re-pin once, on the final head. `STALE_CONSENT` means the operator
+   commented after approving: read it, and stop.
 
-   <a id="fix-limits"></a>**Fix limits.** A fix ships without the operator only when it
-   touches only files the job's change already touches, and adds no migration, no env var,
-   no new package, and no change to auth, permissions or secrets handling. Anything else goes
-   back to the operator.
+   <a id="fix-limits"></a>**Fix limits.** A fix ships without the operator unless it needs
+   one of these, which are directional: a product or design choice between real
+   alternatives, a new env var or anything else that needs the operator's hands, a change to
+   auth, permissions or secrets handling, or new spend. A fix that touches new files, edits
+   the job's own migration or adds a package still ships.
 4. **Re-check the approval immediately before the push.** The operator can void it, or edit
    the job, while the merge runs:
 
