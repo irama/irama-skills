@@ -214,8 +214,8 @@ through `JOBS_REPOS_ROOT`, which the poller exports.
       a run is still `approved` (a ship run stopped for this reply), void it with
       `$J run <id> --target <t> --state committed`, so the operator can approve again.
    d) Post one result comment, then `$J patch <id> --ack <newest operator comment id>` and
-      `$J patch <id> --column in_review` if the job is not already there. Never ship from
-      this run.
+      `$J patch <id> --column in_review` if the job is not already there and has no live
+      approval (an approved job waits In progress for its ship run). Never ship from this run.
    e) **A reply that asks for a fix and a ship** ("fix it then ship"): do b) but skip its
       `$J run` call, because a run change makes the reply too old to consent. Get a fresh
       review of the fix commit (`adversarial-reviewer`, or Codex scoped `--commit <fix-sha>`).
