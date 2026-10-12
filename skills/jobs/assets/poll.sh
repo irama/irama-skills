@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# One tick of the /jobs background poller. launchd runs it every 60 s (install-poller.sh).
+# One tick of the /jobs background poller. launchd (install-poller.sh, macOS) or a systemd
+# user timer (install-poller-linux.sh, Linux) runs it every 60 s.
 #
-# launchd gives no login-shell environment, so every path comes from
+# Neither gives a login-shell environment, so every path comes from
 # ~/.config/jobs/poller.env, which the installer writes. Each tick:
 #   1. Takes the lock (a directory holding the run's PID). A lock whose PID is dead is removed.
 #   2. Makes one `jobs.py list --column backlog` call (board and ZERO jobs alike).
@@ -14,8 +15,18 @@
 #      has no `timeout`). Running in the checkout puts the thread under that repo, so the
 #      card's "Open thread" link finds it from that repo's VS Code window.
 #   5. Sends Telegram when the card reaches In review or the run fails.
-# The tick stays in the foreground while the run lives, so launchd starts no second tick.
-# It never reads or writes claims.json: jobs.py owns that file.
+# The tick stays in the foreground while the run lives, so the timer starts no second tick.
+# It writes nothing to claims.json: jobs.py owns that file.
+#
+# Optional, for a machine that shares the board with another poller (all unset by default):
+#   POLLER_SKIP_UNTARGETED=1  never pick a job with no target, on any of the three pick paths
+#   POLLER_SKIP_LOCAL=1       never pick a job with a local/* target, likewise
+#   POLLER_MIRROR_SYNC=<cmd>  before a targeted run: `sudo -n -u broker <cmd> <target>`, which
+#                             prints {"mirror": <path>}; then clone that mirror into the
+#                             target's manifest path (JOBS_TARGET_MANIFEST) when it is missing
+#   POLLER_SHIP_CMD=<cmd>     a ship-approved job is handed to
+#                             `sudo -n -u broker <cmd> --job <id>` with the claim token, then a
+#                             git bundle of the job branch, on stdin, in place of a claude run
 set -uo pipefail
 
 CFG_DIR="$HOME/.config/jobs"
@@ -24,10 +35,16 @@ LOCK="$CFG_DIR/poller.lock"
 TRIED="$CFG_DIR/poller-tried"
 SKIPPED="$CFG_DIR/poller-skipped" # "<id>:<reason>" lines, so each skip logs once
 OWNED="$CFG_DIR/poller-owned" # ids of jobs a poller run claimed; only these get reply runs
-LOG="${JOBS_POLLER_LOG:-$HOME/Library/Logs/jobs-poller.log}"
+if [ "$(uname -s)" = Darwin ]; then
+  LOG="${JOBS_POLLER_LOG:-$HOME/Library/Logs/jobs-poller.log}"
+else
+  LOG="${JOBS_POLLER_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/jobs-poller.log}"
+fi
 LIMIT="${JOBS_POLLER_LIMIT:-2700}"   # seconds; tests shorten it
 STEP="${JOBS_POLLER_STEP:-5}"        # watchdog check interval, seconds
 
+# mtime in epoch seconds. GNU stat first: on Linux `stat -f` is filesystem status and prints.
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG"; }
 
 mkdir -p "$(dirname "$LOG")" "$CFG_DIR"
@@ -40,6 +57,9 @@ done
 export PATH="${POLLER_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 [ -n "${JOBS_REPOS_ROOT:-}" ] && export JOBS_REPOS_ROOT
 [ -n "${JOBS_DEFAULT_HOME:-}" ] && export JOBS_DEFAULT_HOME
+[ -n "${JOBS_TARGET_MANIFEST:-}" ] && export JOBS_TARGET_MANIFEST
+[ -n "${JOBS_REPOS_READONLY:-}" ] && export JOBS_REPOS_READONLY
+export POLLER_SKIP_UNTARGETED="${POLLER_SKIP_UNTARGETED:-}" POLLER_SKIP_LOCAL="${POLLER_SKIP_LOCAL:-}"
 J=("$PYTHON3_BIN" "$SKILL_DIR/assets/jobs.py")
 
 notify() {
@@ -57,7 +77,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   if [ -z "$held" ]; then
     # The pid file is written just below, after mkdir, so a lock dir that still has no
     # pid file can be another tick mid-creation rather than abandoned. Give it ~5s.
-    age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
+    age=$(( $(date +%s) - $(mtime "$LOCK") ))
     [ "$age" -ge 5 ] || exit 0 # another tick is still writing its pid
   fi
   # ponytail: a reused PID reads as alive and holds the lock until that process ends.
@@ -72,6 +92,27 @@ trap 'rm -rf "$LOCK"' EXIT
 
 # ── Pick ─────────────────────────────────────────────────────────────────────
 touch "$TRIED" "$SKIPPED" "$OWNED"
+# Python prelude for the three pickers: left(targets) is true for a job this machine leaves to
+# another poller (POLLER_SKIP_*). It runs inside the pick, before any side effect.
+LEFT='
+import os
+def left(targets):
+    targets = [t for t in targets or [] if t]
+    if os.environ.get("POLLER_SKIP_UNTARGETED") == "1" and not targets:
+        return True
+    return os.environ.get("POLLER_SKIP_LOCAL") == "1" and any(t.startswith("local/") for t in targets)
+'
+
+# Log a skip once per job and reason, and say it on the card so a job never sits in
+# Backlog with no word. The line in poller-skipped is the memory.
+skip_once() {
+  if ! grep -qxF "$1:$2" "$SKIPPED"; then
+    echo "$1:$2" >>"$SKIPPED"
+    log "JOB-$1 skipped: $3"
+    "${J[@]}" comment "$1" --kind event --body "Not started by the poller: $3. $4" >>"$LOG" 2>&1 \
+      || log "JOB-$1 skip comment failed"
+  fi
+}
 
 # First, a job this machine claimed that has an operator reply it has not read. One run per
 # reply: the key is "<id>@<newest operator comment id>", so a later reply starts another run.
@@ -82,11 +123,11 @@ m = [r["path"] for r in json.load(sys.stdin)["repos"] if r["target"] == sys.argv
 print(m[0] if m else "")
 ' "$1" 2>/dev/null
 }
-id="" title="" run_dir="$HOME" tried_key="" reply_cid="" ship=""
+id="" title="" run_dir="$HOME" tried_key="" reply_cid="" ship="" target="" branch=""
 # Before anything else: a run the operator approved to ship. Approving is the instruction to
 # ship, so the poller ships it unattended. One run per approved commit: "<id>#ship@<sha>".
 if approved=$("${J[@]}" list --ship-approved --all-pages 2>/dev/null); then
-  read -r cid ctarget capproval csha ctitle < <(printf '%s' "$approved" | "$PYTHON3_BIN" -c '
+  read -r cid ctarget capproval csha cbranch ctitle < <(printf '%s' "$approved" | "$PYTHON3_BIN" -c "$LEFT"'
 import json, os, sys
 tried = {l.strip() for l in open(sys.argv[1]) if l.strip()}
 try:
@@ -95,7 +136,7 @@ except (OSError, ValueError):
     mine = set()  # shipping needs this machine claim token
 for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"]).zfill(20)):
     runs = [r for r in j.get("runs") or [] if r.get("state") == "approved" and r.get("approved_sha")]
-    if not runs or str(j["id"]) not in mine:
+    if not runs or str(j["id"]) not in mine or left([r.get("target") for r in runs]):
         continue
     # The approval time changes with every Approve ship, so a re-approval of the same
     # commit (after a refused ship voided the first) ships again.
@@ -103,13 +144,13 @@ for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"])
     if key in tried:
         continue
     print(j["id"], runs[0]["target"], key.split("@", 1)[1], runs[0]["approved_sha"][:7],
-          (j.get("title") or "")[:120].replace("\n", " "))
+          runs[0].get("branch") or "-", (j.get("title") or "")[:120].replace("\n", " "))
     break
 ' "$TRIED" 2>/dev/null)
   case "$cid" in
     ""|*[!0-9]*) ;;
     *)
-      id=$cid title=$ctitle ship=1 tried_key="$cid#ship@$capproval"
+      id=$cid title=$ctitle ship=1 tried_key="$cid#ship@$capproval" target=$ctarget branch=$cbranch
       run_dir=$(first_target_dir "$ctarget")
       [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
       LIMIT="${JOBS_POLLER_SHIP_LIMIT:-5400}" # merge, review, build and deploy take longer
@@ -132,13 +173,14 @@ print(max(ids) if ids else "", d.get("session_id") or "")
     if [ -n "$sess" ]; then
       live=0
       for t in "$HOME"/.claude/projects/*/"$sess".jsonl; do
-        [ -f "$t" ] && [ $(( $(date +%s) - $(stat -f %m "$t") )) -lt 180 ] && live=1
+        [ -f "$t" ] && [ $(( $(date +%s) - $(mtime "$t") )) -lt 180 ] && live=1
       done
       [ "$live" = 0 ] || continue
     fi
     grep -qxF "$cid@$last" "$TRIED" && continue
     id=$cid title=$ctitle tried_key="$cid@$last" reply_cid=$last
     if [ "$ctarget" != - ]; then
+      target=$ctarget
       run_dir=$(first_target_dir "$ctarget")
     else
       run_dir=${JOBS_DEFAULT_HOME:-}
@@ -146,7 +188,7 @@ print(max(ids) if ids else "", d.get("session_id") or "")
     [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
     log "JOB-$id has a reply to read (comment $last)"
     break
-  done < <(printf '%s' "$awaiting" | "$PYTHON3_BIN" -c '
+  done < <(printf '%s' "$awaiting" | "$PYTHON3_BIN" -c "$LEFT"'
 import json, sys
 from datetime import datetime, timezone
 # Only jobs a poller run claimed: an interactive thread answers replies on its own jobs.
@@ -163,6 +205,8 @@ for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"])
     if j.get("awaiting") and j.get("claimed") and str(j["id"]) in mine \
             and j.get("column") in ("in_progress", "in_review") and not fresh(j.get("active_at")):
         t = j.get("targets") or j.get("targets_picked") or []
+        if left(t):
+            continue
         print(j["id"], t[0] if t else "-", (j.get("title") or "")[:120].replace("\n", " "))
 ' "$OWNED" 2>/dev/null)
 fi
@@ -179,7 +223,7 @@ fi
 # A started job is left out too, unless its run failed: "<id>~<n>" in poller-tried records the
 # newest comment id at the failure, and <after> carries the highest such n. That job is a
 # retry candidate, retried only when the operator has commented since.
-cands=$(printf '%s' "$listing" | "$PYTHON3_BIN" -c '
+cands=$(printf '%s' "$listing" | "$PYTHON3_BIN" -c "$LEFT"'
 import json, sys
 tried = [l.strip() for l in open(sys.argv[1]) if l.strip()]
 skip = set(tried)
@@ -193,24 +237,13 @@ def wanted(j):
     return i not in skip or i in after
 jobs = [j for j in json.load(sys.stdin).get("jobs", [])
         if j.get("column") == "backlog"
-        and not j.get("claimed") and wanted(j)]
+        and not j.get("claimed") and wanted(j) and not left(j.get("targets"))]
 for j in sorted(jobs, key=lambda j: str(j["id"]).zfill(20)):
     t = j.get("targets") or []
     i = str(j["id"])
     print(j["id"], "T" if t else "U", t[0] if t else "-", after[i] if i in skip and i in after else "-",
           (j.get("title") or "")[:120].replace("\n", " "))
 ' "$TRIED") || { log "could not parse the job list"; exit 1; }
-
-# Log a skip once per job and reason, and say it on the card so a job never sits in
-# Backlog with no word. The line in poller-skipped is the memory.
-skip_once() {
-  if ! grep -qxF "$1:$2" "$SKIPPED"; then
-    echo "$1:$2" >>"$SKIPPED"
-    log "JOB-$1 skipped: $3"
-    "${J[@]}" comment "$1" --kind event --body "Not started by the poller: $3. $4" >>"$LOG" 2>&1 \
-      || log "JOB-$1 skip comment failed"
-  fi
-}
 
 retry_key=""
 while read -r cid kind ctarget cafter ctitle; do
@@ -231,7 +264,7 @@ print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", []) if 
     log "JOB-$cid retries after your reply (comment $you)"
   fi
   if [ "$kind" = T ]; then
-    id=$cid title=$ctitle
+    id=$cid title=$ctitle target=$ctarget
     # The first target's checkout, else $HOME (the run then fails that target on the card).
     run_dir=$(first_target_dir "$ctarget")
     [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
@@ -266,6 +299,58 @@ done <<<"$cands"
 fi
 [ -n "$id" ] || exit 0
 
+# ── Mirror and clone (POLLER_MIRROR_SYNC) ────────────────────────────────────
+# The clone path comes from the target manifest, which this user cannot write, so a target
+# runs only where the manifest already says; a target outside it fails mirror-sync.
+# ponytail: a failing sync leaves the job unpicked and blocks the jobs behind it every tick;
+# record it in poller-tried if one broken target ever holds the queue up.
+if [ -n "${POLLER_MIRROR_SYNC:-}" ] && [ -n "$target" ] && [ "$target" != - ]; then
+  if ! [[ $target =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+    skip_once "$id" bad-target "target $target is not owner/repo" "Fix the target to run it."
+    exit 0
+  fi
+  if ! synced=$(sudo -n -u broker "$POLLER_MIRROR_SYNC" "$target" 2>&1); then
+    skip_once "$id" "mirror-sync" "mirror-sync for $target failed: $(printf '%s' "$synced" | tr '\n' ' ' | cut -c1-200)" \
+      "The poller tries again every minute."
+    exit 0
+  fi
+  dest=$(first_target_dir "$target")
+  if [ -n "$dest" ] && [ ! -d "$dest" ]; then
+    mirror=$(printf '%s' "$synced" | "$PYTHON3_BIN" -c 'import json, sys; print(json.load(sys.stdin)["mirror"])' 2>/dev/null)
+    # The mirror belongs to another user, and git refuses a repo it does not own unless
+    # safe.directory names it; the local clone and every later fetch need it.
+    up="git -c safe.directory=$mirror upload-pack"
+    if [ -z "$mirror" ] || ! { mkdir -p "$(dirname "$dest")" && git -c safe.directory="$mirror" clone -q \
+        -c remote.origin.uploadpack="$up" -u "$up" -- "$mirror" "$dest" >>"$LOG" 2>&1; }; then
+      skip_once "$id" "clone" "could not clone ${mirror:-the mirror} into $dest" "The poller tries again every minute."
+      rm -rf "$dest"
+      exit 0
+    fi
+    log "JOB-$id cloned $target into $dest"
+  fi
+  [ -n "$dest" ] && [ -d "$dest" ] && run_dir=$dest
+fi
+
+# ── Ship through the broker (POLLER_SHIP_CMD) ────────────────────────────────
+# The broker ships; this machine only hands over the claim token and the job branch's commits.
+# ship-request spools the request and returns at once; the broker reports the result itself.
+if [ -n "$ship" ] && [ -n "${POLLER_SHIP_CMD:-}" ]; then
+  echo "$tried_key" >>"$TRIED"
+  case "$branch" in -|"") bundle_ref="" ;; *) bundle_ref="refs/heads/$branch" ;; esac
+  # Only commits origin lacks; none (already on origin) sends the token alone.
+  # shellcheck disable=SC2024 # the log is this user's; sudo is only for the broker command
+  if { "${J[@]}" claim-token "$id" && { [ -z "$bundle_ref" ] \
+        || git -C "$run_dir" bundle create - "$bundle_ref" --not --remotes=origin 2>>"$LOG" || true; }; } \
+      | sudo -n -u broker "$POLLER_SHIP_CMD" --job "$id" >>"$LOG" 2>&1; then
+    log "JOB-$id ship request sent to the broker"
+    notify "JOB-$id ship request sent to the broker: $title"
+  else
+    log "JOB-$id ship request failed"
+    notify "JOB-$id ship request to the broker failed (see the poller log): $title"
+  fi
+  exit 0
+fi
+
 # ── Run ──────────────────────────────────────────────────────────────────────
 # A job is started at most once. A failed run stays in Backlog and is not retried every
 # minute: an operator reply on the card retries it once (see Report), or delete its lines
@@ -276,7 +361,7 @@ log "JOB-$id start in $run_dir: $title"
 cd "$run_dir" || exit 1
 # Drive for desktop keeps most files online-only, and a headless run reading one gets
 # "Resource deadlock avoided". Download the folders runs need first ("|"-separated paths).
-if [ -n "${JOBS_PREFETCH:-}" ]; then
+if [ -n "${JOBS_PREFETCH:-}" ] && [ "$(uname -s)" = Darwin ]; then # dataless files are macOS only
   n=0 bad=0 seen=0 until=$(( $(date +%s) + 300 )) # 60 s a file, 5 minutes in all
   IFS='|' read -r -a pre <<<"$JOBS_PREFETCH"
   for d in "${pre[@]}"; do
@@ -304,7 +389,7 @@ export JOBS_RUN_DIR="$run_dir"
 # Its own process group, so the watchdog can kill the whole tree (claude plus whatever
 # it spawns) by group instead of chasing children one `pkill -P` level deep.
 # A known session id, so the transcript can be found after the run (see Retag).
-sid=$(uuidgen | tr '[:upper:]' '[:lower:]')
+sid=$("$PYTHON3_BIN" -c 'import uuid; print(uuid.uuid4())')
 set -m
 "$CLAUDE_BIN" -p "/jobs JOB-$id --background${ship:+ --ship}" --session-id "$sid" \
   --permission-mode auto --permission-prompts none >>"$LOG" 2>&1 &
