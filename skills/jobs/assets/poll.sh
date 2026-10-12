@@ -315,12 +315,24 @@ if [ -n "${POLLER_MIRROR_SYNC:-}" ] && [ -n "$target" ] && [ "$target" != - ]; t
     exit 0
   fi
   dest=$(first_target_dir "$target")
-  if [ -n "$dest" ] && [ ! -d "$dest" ]; then
+  if [ -z "$dest" ]; then
+    skip_once "$id" "no-dest" "target $target is not in the target manifest" "Add it to the manifest to run it."
+    exit 0
+  fi
+  if [ ! -d "$dest" ]; then
     mirror=$(printf '%s' "$synced" | "$PYTHON3_BIN" -c 'import json, sys; print(json.load(sys.stdin)["mirror"])' 2>/dev/null)
+    # The mirror path comes from the broker and git runs uploadpack through a shell, so it must
+    # be a plain absolute path under the mirror root, with no "..", and is quoted below.
+    mroot="${POLLER_MIRROR_ROOT:-/srv/mirrors}"
+    if [[ $mirror != "$mroot"/* ]] || ! [[ $mirror =~ ^/[A-Za-z0-9._/-]+\.git$ ]] || [[ $mirror == *..* ]]; then
+      skip_once "$id" "bad-mirror" "mirror path from the broker is not a plain path under $mroot" "Check mirror-sync."
+      exit 0
+    fi
     # The mirror belongs to another user, and git refuses a repo it does not own unless
     # safe.directory names it; the local clone and every later fetch need it.
-    up="git -c safe.directory=$mirror upload-pack"
-    if [ -z "$mirror" ] || ! { mkdir -p "$(dirname "$dest")" && git -c safe.directory="$mirror" clone -q \
+    printf -v qmirror '%q' "$mirror"
+    up="git -c safe.directory=$qmirror upload-pack"
+    if  ! { mkdir -p "$(dirname "$dest")" && git -c safe.directory="$mirror" clone -q \
         -c remote.origin.uploadpack="$up" -u "$up" -- "$mirror" "$dest" >>"$LOG" 2>&1; }; then
       skip_once "$id" "clone" "could not clone ${mirror:-the mirror} into $dest" "The poller tries again every minute."
       rm -rf "$dest"
@@ -328,7 +340,7 @@ if [ -n "${POLLER_MIRROR_SYNC:-}" ] && [ -n "$target" ] && [ "$target" != - ]; t
     fi
     log "JOB-$id cloned $target into $dest"
   fi
-  [ -n "$dest" ] && [ -d "$dest" ] && run_dir=$dest
+  [ -d "$dest" ] && run_dir=$dest
 fi
 
 # ── Ship through the broker (POLLER_SHIP_CMD) ────────────────────────────────
@@ -337,6 +349,13 @@ fi
 if [ -n "$ship" ] && [ -n "${POLLER_SHIP_CMD:-}" ]; then
   echo "$tried_key" >>"$TRIED"
   case "$branch" in -|"") bundle_ref="" ;; *) bundle_ref="refs/heads/$branch" ;; esac
+  # A branch that is a ref expression (job~1, a^, x..y) would bundle another commit.
+  if [ -n "$bundle_ref" ] && { ! git check-ref-format --branch "$branch" >/dev/null 2>&1 \
+      || [[ $branch == *[~^:\?\*\[]* ]] || [[ $branch == *..* ]] || [[ $branch == *@\{* ]]; }; then
+    log "JOB-$id ship refused: branch '$branch' is not a plain branch name"
+    notify "JOB-$id ship refused: branch '$branch' is not a plain branch name: $title"
+    exit 0
+  fi
   # Only commits origin lacks; none (already on origin) sends the token alone.
   # shellcheck disable=SC2024 # the log is this user's; sudo is only for the broker command
   if { "${J[@]}" claim-token "$id" && { [ -z "$bundle_ref" ] \

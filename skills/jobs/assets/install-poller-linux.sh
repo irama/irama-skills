@@ -37,16 +37,24 @@ done
 
 if [ "$mode" = uninstall ]; then
   if [ "$dry" = 1 ]; then
-    echo "would disable jobs-poller.timer and delete its units and $CONF"
+    echo "would stop jobs-poller.timer and jobs-poller.service, and delete its units and $CONF"
     exit 0
   fi
   systemctl --user disable --now jobs-poller.timer 2>/dev/null || true
+  systemctl --user stop jobs-poller.service 2>/dev/null || true
   rm -f "$UNIT_DIR/jobs-poller.timer" "$UNIT_DIR/jobs-poller.service" "$CONF"
   systemctl --user daemon-reload
   echo "removed jobs-poller. The log and ~/.config/jobs/claims.json are kept."
   exit 0
 fi
 
+# Default repos root as install-poller.sh does: the folder holding the main checkouts.
+if [ -z "$repos_root" ]; then
+  top=$(git -C "$SKILL_DIR" rev-parse --show-toplevel 2>/dev/null) || {
+    echo "skill is not in a git checkout; pass --repos-root DIR" >&2; exit 1; }
+  common=$(cd "$top" && cd "$(git rev-parse --git-common-dir)" && pwd -P)
+  repos_root=$(dirname "$(dirname "$common")")
+fi
 claude_bin=$(command -v claude) || { echo "claude is not on PATH" >&2; exit 1; }
 python_bin=$(command -v python3) || { echo "python3 is not on PATH" >&2; exit 1; }
 [ -z "$env_file" ] || [ -f "$env_file" ] || { echo "no such file: $env_file" >&2; exit 1; }
@@ -61,7 +69,7 @@ env_body=$(
   printf 'PYTHON3_BIN=%q\n' "$python_bin"
   printf 'SKILL_DIR=%q\n' "$SKILL_DIR"
   printf 'TELEGRAM_SEND=%q\n' "$send"
-  [ -z "$repos_root" ] || printf 'JOBS_REPOS_ROOT=%q\n' "$repos_root"
+  printf 'JOBS_REPOS_ROOT=%q\n' "$repos_root"
   printf 'JOBS_DEFAULT_HOME=%q\n' "$default_home"
   printf 'POLLER_PATH=%q\n' "$PATH"
   [ -z "$env_file" ] || cat "$env_file"
@@ -69,13 +77,15 @@ env_body=$(
 # Type=oneshot with no start timeout: the tick stays in the foreground for the whole run (the
 # 45 or 90 minute watchdog is poll.sh's own). The timer fires 10 s after it starts (boot or
 # enable), then 60 s after each tick ends, so ticks never overlap.
+# Quote the path for systemd: double quotes, with \ " and % escaped (% is a specifier).
+unit_path=$(printf '%s' "$SKILL_DIR/assets/poll.sh" | sed 's/[\\"]/\\&/g; s/%/%%/g')
 service_body="[Unit]
 Description=One tick of the /jobs board poller
 
 [Service]
 Type=oneshot
 TimeoutStartSec=infinity
-ExecStart=/bin/bash $SKILL_DIR/assets/poll.sh"
+ExecStart=/bin/bash \"$unit_path\""
 timer_body="[Unit]
 Description=Run the /jobs board poller every 60 s
 

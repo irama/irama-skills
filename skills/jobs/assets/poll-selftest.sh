@@ -335,7 +335,7 @@ cat >"$tmp/skill/assets/jobs.py" <<'EOF'
 import json, os, sys
 open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
 a = sys.argv[1:]
-run = {"state": "approved", "target": "o/r", "approved_sha": "abc1234", "branch": "job-50"}
+run = {"state": "approved", "target": "o/r", "approved_sha": "abc1234", "branch": os.environ.get("FAKE_BRANCH", "job-50")}
 if a[0] == "list" and "--ship-approved" in a and os.environ.get("FAKE_PATH") == "ship":
     print(json.dumps({"jobs": [{"id": 50, "claimed": True, "title": "ship me", "ship_approved_at": "w", "runs": [run]}]}))
 elif a[0] == "list" and "--column" in a and os.environ.get("FAKE_PATH") == "backlog":
@@ -345,16 +345,29 @@ elif a[0] == "list":
 elif a[0] == "get":
     print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "runs": [run]}}))
 elif a[0] == "repos":
-    print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_CLONE"]}]}))
+    print(json.dumps({"repos": [] if os.environ.get("FAKE_NODEST") else [{"target": "o/r", "display": "r", "path": os.environ["FAKE_CLONE"]}]}))
 elif a[0] == "claim-token":
     print({"50": "tok-50"}[a[1]])
 EOF
 echo '{"50": "tok-50"}' >"$HOME/.config/jobs/claims.json"
 printf 'POLLER_PATH=%q\nPOLLER_MIRROR_SYNC=%q\nPOLLER_SHIP_CMD=%q\n' \
   "$tmp/bin:$PATH" "$tmp/mirror-sync" "$tmp/ship-request" >>"$HOME/.config/jobs/poller.env"
-export FAKE_MIRROR="$tmp/mirror.git" FAKE_CLONE="$tmp/repos/o/r" SHIPPED_STDIN="$tmp/shipped"
+export POLLER_MIRROR_ROOT="$tmp" FAKE_MIRROR="$tmp/mirror.git" FAKE_CLONE="$tmp/repos/o/r" SHIPPED_STDIN="$tmp/shipped"
 : >"$HOME/.config/jobs/poller-tried"
 : >"$tmp/calls"
+# A target missing from the manifest is a logged skip, and nothing is cloned or run.
+: >"$tmp/calls"; : >"$tmp/log"
+FAKE_PATH=backlog FAKE_NODEST=1 bash "$here/poll.sh"
+grep -q 'JOB-50 skipped: target o/r is not in the target manifest' "$tmp/log" || fail "empty dest not logged as a skip"
+grep -q '^claude ' "$tmp/calls" && fail "claude ran for a target outside the manifest"
+# A mirror path with shell metacharacters, or outside the mirror root, is refused before any clone.
+for bad in "$tmp/m;touch $tmp/pwned.git" "$tmp/../x.git" "/elsewhere/m.git"; do
+  : >"$tmp/calls"; : >"$tmp/log"; rm -f "$HOME/.config/jobs/poller-skipped"
+  FAKE_MIRROR=$bad FAKE_PATH=backlog bash "$here/poll.sh"
+  grep -q 'JOB-50 skipped: mirror path' "$tmp/log" || fail "bad mirror path not refused: $bad"
+  if [ -e "$tmp/pwned.git" ] || [ -d "$tmp/repos/o/r" ]; then fail "bad mirror path was used: $bad"; fi
+done
+: >"$tmp/calls"; : >"$tmp/log"; rm -f "$HOME/.config/jobs/poller-skipped"
 FAKE_PATH=backlog bash "$here/poll.sh"
 grep -qx 'sudo -n -u broker .*/mirror-sync o/r' "$tmp/calls" || fail "mirror-sync not called through sudo for the target"
 [ -d "$tmp/repos/o/r/.git" ] || fail "mirror not cloned into the manifest path"
@@ -364,6 +377,14 @@ grep -q 'safe.directory' "$tmp/repos/o/r/.git/config" || fail "clone fetches wou
 # The run committed on its job branch; now the job is approved to ship.
 g -C "$tmp/repos/o/r" checkout -q -b job-50
 g -C "$tmp/repos/o/r" commit -q --allow-empty -m "job work"
+# A branch that is a ref expression is refused before any bundle is made.
+for bad in 'job-50~1' 'job-50^' 'a..b' 'x@{1}' 'a:b'; do
+  : >"$tmp/calls"; : >"$tmp/log"; rm -f "$tmp/shipped" "$HOME/.config/jobs/poller-tried"
+  FAKE_BRANCH=$bad FAKE_PATH=ship bash "$here/poll.sh"
+  grep -q 'ship refused' "$tmp/log" || fail "branch $bad not refused"
+  [ -e "$tmp/shipped" ] && fail "branch $bad was bundled and shipped"
+done
+: >"$HOME/.config/jobs/poller-tried"
 : >"$tmp/calls"
 FAKE_PATH=ship bash "$here/poll.sh"
 grep -qx 'sudo -n -u broker .*/ship-request --job 50' "$tmp/calls" || fail "ship not handed to POLLER_SHIP_CMD through sudo"
