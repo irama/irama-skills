@@ -63,6 +63,8 @@ The full flag list is in the script header. Generate mode prints the `metadata` 
   copy the template by hand and point its icon paths at the app's own files.
   The template's test runs in the Node environment: a browser-like test environment
   drops `Sec-*` request headers.
+  The route must be public: add it to the auth gate's public paths and to any route
+  register the app keeps (an access-policy map, for example), or the gate or CI fails.
 - **Never pick a maskable inset by eye.** When used, it is a fixed multiple of the standard mark.
 - **Standard icons: pad 12% a side on an opaque background.** The OS masks the
   corners. A finished-art tile is already padded: resize it, do not pad it again.
