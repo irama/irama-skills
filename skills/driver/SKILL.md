@@ -318,14 +318,14 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
 5. **Review the ticket's diff before it goes anywhere** — `--base` is the integration branch's
    current tip, so the review sees exactly what this ticket adds. This is the **only**
    per-ticket review pass, not layered on top of anything else.
-   - Codex available → review, fix P1/security/data-loss findings on the ticket branch (capped at
-     2 re-runs, same discipline as `/merge`).
-   - Codex unavailable → fall back to `adversarial-reviewer` (probe with `codex-available` first,
-     don't discover the limit by hitting it). **A completed fallback review satisfies the gate —
-     land the ticket, whatever it touches.** No quarantine, no waiting for Codex: it can be down
-     for days, and blocking migration/auth/payments tickets on it stalls exactly the work the
-     fallback exists to unblock. Record `--reviewer adversarial-reviewer` and name the degraded
-     gate in the final summary.
+   - **The per-ticket reviewer is `adversarial-reviewer`**, not Codex. Fix P1/security/data-loss
+     findings on the ticket branch (capped at 2 re-runs, same discipline as `/merge`), and record
+     `--reviewer adversarial-reviewer`. **A completed review satisfies the gate: land the ticket,
+     whatever it touches.**
+   - Codex is kept for the plan review before the run and the `/merge` gate after it, one review
+     per branch. Per-ticket Codex reviews across parallel runs exhausted the shared Codex quota in
+     a morning (2026-10-12), so they are opt-in: use Codex per ticket only when the invocation asks
+     for it, and then fall back to `adversarial-reviewer` when `codex-available` fails.
    - **Diff is a brief, report or decision document** (a rendered brief, a plans document, a
      `.md` carrying a brief id) → the review prompt also asks three things: does the top of the
      document state what the body proves, is any `Recommended` option consistent with the
