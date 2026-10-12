@@ -378,7 +378,7 @@ if [ -n "$ship" ] && [ -n "${POLLER_SHIP_CMD:-}" ]; then
   bdir=$(mktemp -d) || failed "no temp folder"
   trap 'rm -rf "$bdir" "$LOCK"' EXIT # keeps the lock release
   bundle="$bdir/job.bundle"
-  : >"$bundle"
+  : >"$bundle" || failed "no temp file"
   # Only commits origin lacks; none (already on origin) sends the token alone. Any other git
   # error (no such branch, not a repo) fails the hand-off rather than sending the token alone.
   if [ -n "$bundle_ref" ]; then
