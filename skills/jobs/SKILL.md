@@ -198,7 +198,8 @@ through `JOBS_REPOS_ROOT`, which the poller exports.
    section for every `approved` run on the job, from the target repo, with all its checks
    (preflight, conductor claims, review at `/merge`, the re-check before the push, `/push`
    with its migrations, build and deploy check). Any refusal stops that run and goes on the
-   card. Do nothing else in this session.
+   card. Do nothing else in this session. With `--broker` as well, follow
+   [Ship through a broker](#ship-through-a-broker---broker) instead.
 
 0b. **Follow-up on your reply.** If this machine already holds the job's claim (the job is
    claimed, `$J patch` would not refuse `CLAIM_MISMATCH`, and `~/.config/jobs/claims.json` has
@@ -370,6 +371,51 @@ the target repo.
 6. **Record the deploy:** `$J shipped <id> --target <t> --deployed-sha <sha>`. When every run is
    shipped, `$J patch <id> --column done`. A failed ship is `$J run <id> --target <t> --state
    failed` plus a comment, and the job stays in In review.
+
+## Ship through a broker (`--broker`)
+
+On a machine where a broker service owns production, the broker starts two sandboxed sessions
+per ship and does everything around them itself: the approval check, the tree check, the push,
+the deploy check by SHA and `$J shipped`. The session has no GitHub credential, and `origin` is
+unreachable on purpose. Never fetch, pull or push.
+
+**Phase 1, merge and review** (`/jobs JOB-<id> --background --ship --broker`, or
+`/jobs --background --ship --broker --branch <b> --sha <sha>` for a ship with no job). The work
+tree is ready: `<default>` at origin's tip, the job branch at the approved SHA. There is no
+production env.
+
+1. A board ship does Ship step 0 (an unread reply comes first). Skip steps 1, 2 and 4: the
+   broker checked the approval, ancestry and tree before this session, and it holds the only ship.
+   A ship with no job makes no `$J` call at all.
+2. Do Ship step 3 (the `/merge` procedure onto local `<default>`, with the review and its fix
+   loop), with two changes:
+   - Commit every fix on the job branch, then merge the job branch. Never change `<default>`
+     except by that merge. The broker refuses a merged tree that differs from a clean merge
+     of the job branch.
+   - Do not run `$J repin`. Any change to the tree after approval needs a re-pin and a fresh
+     approval tap, and the broker does both when its tree check sees a change. The fix limits
+     still decide whether a fix is directional, and a directional fix stops as step 3e does.
+3. Stop before migrations. Do not apply migrations, build, run `/push` or `$J shipped`.
+
+**Phase 2, migrate and build** (the same command plus `--phase 2`). This is a fresh tree with
+`<default>` at the merged commit. This repo's production env is in the process environment,
+and there is no `.env.local` file.
+
+1. Install dependencies from the lockfile (frozen; no lockfile change).
+2. Do `/push` step 2: apply migrations through the repo's own route (its applier script, else
+   the CLI). Skip 2d's commit. If type generation changes tracked files, leave them and say so.
+3. Do `/push` step 3: the production build. A red build stops the phase; do not fix it here.
+4. Make no commit, stage nothing, push nothing, and write no `.env*` file. The broker refuses
+   the ship if HEAD or `<default>` moved.
+
+**Both phases end with exactly one result line as the last line of the final message**, because
+the broker cannot read success from the exit code:
+
+    BROKER-PHASE-RESULT: ok
+    BROKER-PHASE-RESULT: failed <one-line reason>
+
+A board ship also posts one comment on the card with what the phase did. The broker posts the
+ship result.
 
 ## What this skill never does
 
