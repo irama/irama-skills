@@ -355,7 +355,13 @@ function buildIco(frames) {
   });
   return Buffer.concat([header, dir, ...body]);
 }
-const buildFaviconIco = async () => buildIco(await Promise.all([16, 32, 48].map(async (size) => ({ size, data: await renderFavicon(size) }))));
+// One page renders everything, so frames must render one after another: parallel
+// renders race on the viewport and mislabel the frames (a 48 entry holding 32px).
+async function buildFaviconIco() {
+  const frames = [];
+  for (const size of [16, 32, 48]) frames.push({ size, data: await renderFavicon(size) });
+  return buildIco(frames);
+}
 
 if (cfg.inPlace) {
   // Rewrite every existing icon file at its own pixel size; the manifest and
