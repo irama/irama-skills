@@ -61,8 +61,9 @@ The full flag list is in the script header. Generate mode prints the `metadata` 
   `src/app/manifest.webmanifest/route.ts` with its test; delete any static
   `public/manifest.webmanifest` or `app/manifest.ts`, which would shadow it. In place,
   copy the template by hand and point its icon paths at the app's own files.
-  The template's test runs in the Node environment: a browser-like test environment
-  drops `Sec-*` request headers.
+  The template's test hands the route a plain `Headers` object: building a `Request` in a
+  browser-like test environment drops `Sec-*` headers, and some apps' test setup needs
+  that DOM environment.
   The route must be public: add it to the auth gate's public paths and to any route
   register the app keeps (an access-policy map, for example), or the gate or CI fails.
 - **Never pick a maskable inset by eye.** When used, it is a fixed multiple of the standard mark.

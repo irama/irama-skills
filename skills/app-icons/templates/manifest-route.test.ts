@@ -1,7 +1,5 @@
-// @vitest-environment node
-// Node, not happy-dom: a browser-like Headers drops Sec-* request headers.
 import { describe, expect, it } from 'vitest';
-import { NextRequest } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { GET } from './route';
 
 const MAC_CHROME =
@@ -12,7 +10,9 @@ const ANDROID_CHROME =
   'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36';
 
 const purposes = async (headers: Record<string, string>) => {
-  const res = GET(new NextRequest('http://localhost/manifest.webmanifest', { headers }));
+  // A plain Headers object: building a Request in a browser-like test environment
+  // drops Sec-* headers, and the route only reads the headers.
+  const res = GET({ headers: new Headers(headers) } as unknown as NextRequest);
   const body = (await res.json()) as { icons: { purpose: string }[] };
   return body.icons.map((i) => i.purpose);
 };
@@ -37,7 +37,7 @@ describe('GET /manifest.webmanifest', () => {
   });
 
   it('is a manifest that caches per platform', () => {
-    const res = GET(new NextRequest('http://localhost/manifest.webmanifest'));
+    const res = GET({ headers: new Headers() } as unknown as NextRequest);
     expect(res.headers.get('content-type')).toBe('application/manifest+json');
     expect(res.headers.get('vary')).toBe('Sec-CH-UA-Platform, User-Agent');
   });
