@@ -266,6 +266,25 @@ import subprocess, sys
 log = open(sys.argv[1], "ab")
 subprocess.Popen(["npm", "run", "dev"], stdout=log, stderr=log, start_new_session=True)
 PYEOF
+  # A repo's own dev script may bind a different port than $PORT: one that only
+  # binds a CORS allowlist ignores a $PORT outside it. Printing $PORT then sent
+  # the user to a dead port while the app ran elsewhere (2026-10-12). So report
+  # the port this repo's server actually LISTENS on, and re-pin it. If nothing
+  # binds within 20s, fall back to $PORT and let the log explain.
+  local bound="" pid _
+  for _ in $(seq 1 20); do
+    for p in $(scan_ports); do
+      for pid in $(lsof -ti tcp:"$p" -sTCP:LISTEN 2>/dev/null); do
+        [ "$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)" = "$REPO" ] && bound=$p
+      done
+    done
+    [ -n "$bound" ] && break
+    sleep 1
+  done
+  if [ -n "$bound" ] && [ "$bound" != "$PORT" ]; then
+    printf '%s' "$bound" > "$PORTFILE"
+    PORT=$bound
+  fi
   echo "http://localhost:$PORT"
 }
 
