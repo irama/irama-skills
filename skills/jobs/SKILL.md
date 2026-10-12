@@ -499,7 +499,9 @@ would prompt, so an unattended run cannot stall on a question.
   the target's manifest path (`JOBS_TARGET_MANIFEST`) when that folder is missing.
   `POLLER_SHIP_CMD=<cmd>` hands a ship-approved job to `sudo -n -u broker <cmd> --job <id>`,
   with `$J claim-token <id>` and then a git bundle of the job branch (commits origin lacks) on
-  stdin, in place of a `--ship` run. The broker reports the ship result itself.
+  stdin, in place of a `--ship` run. The broker reports the ship result itself. A job with more
+  than one approved run is refused, since the broker ships one run per job. A hand-off that fails
+  (no claim token, a git error, the broker refusing it) is retried every tick.
 - **Log:** `~/Library/Logs/jobs-poller.log`. A Telegram message (through the `telegram`
   skill's `send.sh`) reports a card that reaches In review, and a run that fails.
 - **Drive prefetch:** `JOBS_PREFETCH` in `poller.env` (`|`-separated folders) is downloaded before

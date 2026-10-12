@@ -324,6 +324,7 @@ EOF
 cat >"$tmp/ship-request" <<'EOF'
 #!/usr/bin/env bash
 echo "ship-request $*" >>"$CALLS"
+[ -z "${FAKE_SHIP_FAIL:-}" ] || { cat >/dev/null; exit 1; }
 cat >"$SHIPPED_STDIN"
 EOF
 chmod +x "$tmp/bin/sudo" "$tmp/mirror-sync" "$tmp/ship-request"
@@ -335,11 +336,13 @@ cat >"$tmp/skill/assets/jobs.py" <<'EOF'
 import json, os, sys
 open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
 a = sys.argv[1:]
-run = {"state": "approved", "target": "o/r", "approved_sha": "abc1234", "branch": os.environ.get("FAKE_BRANCH", "job-50")}
+t = os.environ.get("FAKE_TARGET", "o/r")
+run = {"state": "approved", "target": t, "approved_sha": "abc1234", "branch": os.environ.get("FAKE_BRANCH", "job-50")}
+runs = [run, dict(run, target="o/s")][: int(os.environ.get("FAKE_RUNS", "1"))]
 if a[0] == "list" and "--ship-approved" in a and os.environ.get("FAKE_PATH") == "ship":
-    print(json.dumps({"jobs": [{"id": 50, "claimed": True, "title": "ship me", "ship_approved_at": "w", "runs": [run]}]}))
+    print(json.dumps({"jobs": [{"id": 50, "claimed": True, "title": "ship me", "ship_approved_at": "w", "runs": runs}]}))
 elif a[0] == "list" and "--column" in a and os.environ.get("FAKE_PATH") == "backlog":
-    print(json.dumps({"jobs": [{"id": 50, "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "box job"}]}))
+    print(json.dumps({"jobs": [{"id": 50, "column": "backlog", "targets": [t], "claimed": False, "title": "box job"}]}))
 elif a[0] == "list":
     print(json.dumps({"jobs": []}))
 elif a[0] == "get":
@@ -384,7 +387,26 @@ for bad in 'job-50~1' 'job-50^' 'a..b' 'x@{1}' 'a:b'; do
   grep -q 'ship refused' "$tmp/log" || fail "branch $bad not refused"
   [ -e "$tmp/shipped" ] && fail "branch $bad was bundled and shipped"
 done
-: >"$HOME/.config/jobs/poller-tried"
+tried="$HOME/.config/jobs/poller-tried"
+# A broker that does not accept the hand-off leaves the approval untried, so the next tick retries.
+: >"$tried"; : >"$tmp/calls"; : >"$tmp/log"
+FAKE_SHIP_FAIL=1 FAKE_PATH=ship bash "$here/poll.sh"
+grep -q 'ship-request' "$tmp/calls" || fail "broker not called"
+grep -qx '50#ship@w' "$tried" && fail "failed hand-off recorded as tried, so it never retries"
+grep -q 'JOB-50 ship request failed: the broker did not accept it' "$tmp/log" || fail "failed hand-off not logged"
+# A branch missing from the clone fails the hand-off; the token is never sent without the bundle.
+: >"$tmp/calls"; : >"$tmp/log"
+FAKE_BRANCH=no-such-branch FAKE_PATH=ship bash "$here/poll.sh"
+grep -q 'ship-request' "$tmp/calls" && fail "token sent alone for a branch that is not in the clone"
+grep -qx '50#ship@w' "$tried" && fail "git error recorded as tried"
+grep -q 'JOB-50 ship request failed: branch no-such-branch' "$tmp/log" || fail "missing branch not logged"
+# A job with two approved runs is refused, not shipped in part, and is not retried.
+: >"$tmp/calls"; : >"$tmp/log"
+FAKE_RUNS=2 FAKE_PATH=ship bash "$here/poll.sh"
+grep -q 'ship-request' "$tmp/calls" && fail "a two-run job was handed to the broker"
+grep -q 'JOB-50 ship refused: 2 approved runs' "$tmp/log" || fail "two-run job not refused"
+grep -qx '50#ship@w' "$tried" || fail "refusal not recorded"
+: >"$tried"
 : >"$tmp/calls"
 FAKE_PATH=ship bash "$here/poll.sh"
 grep -qx 'sudo -n -u broker .*/ship-request --job 50' "$tmp/calls" || fail "ship not handed to POLLER_SHIP_CMD through sudo"
@@ -399,4 +421,16 @@ grep -q 'JOB-50 ship request sent to the broker' "$tmp/sent" || fail "no broker 
 : >"$tmp/calls"
 FAKE_PATH=ship bash "$here/poll.sh"
 grep -q 'ship-request' "$tmp/calls" && fail "same approval sent to the broker twice"
+# Mirror mode takes every target jobs.py takes ("." and "_" in the owner too), and no "." or ".." part.
+for t in 'o.x/r_y' 'O_x/r.y'; do
+  : >"$tmp/calls"; : >"$tmp/log"; rm -f "$HOME/.config/jobs/poller-skipped"
+  FAKE_TARGET=$t FAKE_PATH=backlog bash "$here/poll.sh"
+  grep -qx "sudo -n -u broker .*/mirror-sync $t" "$tmp/calls" || fail "valid target $t refused"
+done
+for t in '../r' 'o/..' './r'; do
+  : >"$tmp/calls"; : >"$tmp/log"; rm -f "$HOME/.config/jobs/poller-skipped"
+  FAKE_TARGET=$t FAKE_PATH=backlog bash "$here/poll.sh"
+  grep -q 'mirror-sync' "$tmp/calls" && fail "target $t reached mirror-sync"
+  grep -q "target $t is not owner/repo" "$tmp/log" || fail "target $t not refused"
+done
 echo "poll.sh selftest: ok"

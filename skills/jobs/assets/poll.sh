@@ -123,11 +123,11 @@ m = [r["path"] for r in json.load(sys.stdin)["repos"] if r["target"] == sys.argv
 print(m[0] if m else "")
 ' "$1" 2>/dev/null
 }
-id="" title="" run_dir="$HOME" tried_key="" reply_cid="" ship="" target="" branch=""
+id="" title="" run_dir="$HOME" tried_key="" reply_cid="" ship="" target="" branch="" ship_runs=1
 # Before anything else: a run the operator approved to ship. Approving is the instruction to
 # ship, so the poller ships it unattended. One run per approved commit: "<id>#ship@<sha>".
 if approved=$("${J[@]}" list --ship-approved --all-pages 2>/dev/null); then
-  read -r cid ctarget capproval csha cbranch ctitle < <(printf '%s' "$approved" | "$PYTHON3_BIN" -c "$LEFT"'
+  read -r cid ctarget capproval csha cbranch cruns ctitle < <(printf '%s' "$approved" | "$PYTHON3_BIN" -c "$LEFT"'
 import json, os, sys
 tried = {l.strip() for l in open(sys.argv[1]) if l.strip()}
 try:
@@ -144,13 +144,13 @@ for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"])
     if key in tried:
         continue
     print(j["id"], runs[0]["target"], key.split("@", 1)[1], runs[0]["approved_sha"][:7],
-          runs[0].get("branch") or "-", (j.get("title") or "")[:120].replace("\n", " "))
+          runs[0].get("branch") or "-", len(runs), (j.get("title") or "")[:120].replace("\n", " "))
     break
 ' "$TRIED" 2>/dev/null)
   case "$cid" in
     ""|*[!0-9]*) ;;
     *)
-      id=$cid title=$ctitle ship=1 tried_key="$cid#ship@$capproval" target=$ctarget branch=$cbranch
+      id=$cid title=$ctitle ship=1 tried_key="$cid#ship@$capproval" target=$ctarget branch=$cbranch ship_runs=$cruns
       run_dir=$(first_target_dir "$ctarget")
       [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
       LIMIT="${JOBS_POLLER_SHIP_LIMIT:-5400}" # merge, review, build and deploy take longer
@@ -305,7 +305,8 @@ fi
 # ponytail: a failing sync leaves the job unpicked and blocks the jobs behind it every tick;
 # record it in poller-tried if one broken target ever holds the queue up.
 if [ -n "${POLLER_MIRROR_SYNC:-}" ] && [ -n "$target" ] && [ "$target" != - ]; then
-  if ! [[ $target =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+  # The same characters as jobs.py TARGET_RE, either case; a "." or ".." part is no repo name.
+  if ! [[ $target =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || [[ /$target/ =~ /\.\.?/ ]]; then
     skip_once "$id" bad-target "target $target is not owner/repo" "Fix the target to run it."
     exit 0
   fi
@@ -347,26 +348,52 @@ fi
 # The broker ships; this machine only hands over the claim token and the job branch's commits.
 # ship-request spools the request and returns at once; the broker reports the result itself.
 if [ -n "$ship" ] && [ -n "${POLLER_SHIP_CMD:-}" ]; then
-  echo "$tried_key" >>"$TRIED"
+  # A refusal is final for this approval, so it is recorded; a failed hand-off is not, so the
+  # next tick tries again. The operator hears about a failure once per approval.
+  refuse() {
+    echo "$tried_key" >>"$TRIED"
+    log "JOB-$id ship refused: $1"
+    notify "JOB-$id ship refused: $1: $title"
+    exit 0
+  }
+  failed() {
+    log "JOB-$id ship request failed: $1"
+    if ! grep -qxF "$tried_key:ship-failed" "$SKIPPED"; then
+      echo "$tried_key:ship-failed" >>"$SKIPPED"
+      notify "JOB-$id ship request to the broker failed, retrying every minute (see the poller log): $title"
+    fi
+    exit 0
+  }
+  # The broker ships one approved run per job (its runs[0]) from one bundle, so a job with more
+  # would ship only part of its approval. Ship those by hand, run by run.
+  [ "$ship_runs" = 1 ] || refuse "$ship_runs approved runs, and the broker ships one run per job"
   case "$branch" in -|"") bundle_ref="" ;; *) bundle_ref="refs/heads/$branch" ;; esac
   # A branch that is a ref expression (job~1, a^, x..y) would bundle another commit.
   if [ -n "$bundle_ref" ] && { ! git check-ref-format --branch "$branch" >/dev/null 2>&1 \
       || [[ $branch == *[~^:\?\*\[]* ]] || [[ $branch == *..* ]] || [[ $branch == *@\{* ]]; }; then
-    log "JOB-$id ship refused: branch '$branch' is not a plain branch name"
-    notify "JOB-$id ship refused: branch '$branch' is not a plain branch name: $title"
-    exit 0
+    refuse "branch '$branch' is not a plain branch name"
   fi
-  # Only commits origin lacks; none (already on origin) sends the token alone.
+  token=$("${J[@]}" claim-token "$id" 2>>"$LOG") && [ -n "$token" ] || failed "no claim token"
+  bundle=$(mktemp) || failed "no temp file"
+  trap 'rm -f "$bundle"; rm -rf "$LOCK"' EXIT # keeps the lock release
+  # Only commits origin lacks; none (already on origin) sends the token alone. Any other git
+  # error (no such branch, not a repo) fails the hand-off rather than sending the token alone.
+  if [ -n "$bundle_ref" ]; then
+    git -C "$run_dir" rev-parse -q --verify "$bundle_ref^{commit}" >/dev/null 2>>"$LOG" \
+      || failed "branch $branch is not in $run_dir"
+    ahead=$(git -C "$run_dir" rev-list -n 1 "$bundle_ref" --not --remotes=origin 2>>"$LOG") \
+      || failed "could not list the commits of $branch in $run_dir"
+    if [ -n "$ahead" ]; then
+      git -C "$run_dir" bundle create -q "$bundle" "$bundle_ref" --not --remotes=origin 2>>"$LOG" \
+        || failed "could not bundle $branch in $run_dir"
+    fi
+  fi
   # shellcheck disable=SC2024 # the log is this user's; sudo is only for the broker command
-  if { "${J[@]}" claim-token "$id" && { [ -z "$bundle_ref" ] \
-        || git -C "$run_dir" bundle create - "$bundle_ref" --not --remotes=origin 2>>"$LOG" || true; }; } \
-      | sudo -n -u broker "$POLLER_SHIP_CMD" --job "$id" >>"$LOG" 2>&1; then
-    log "JOB-$id ship request sent to the broker"
-    notify "JOB-$id ship request sent to the broker: $title"
-  else
-    log "JOB-$id ship request failed"
-    notify "JOB-$id ship request to the broker failed (see the poller log): $title"
-  fi
+  { printf '%s\n' "$token"; cat "$bundle"; } | sudo -n -u broker "$POLLER_SHIP_CMD" --job "$id" >>"$LOG" 2>&1 \
+    || failed "the broker did not accept it"
+  echo "$tried_key" >>"$TRIED"
+  log "JOB-$id ship request sent to the broker"
+  notify "JOB-$id ship request sent to the broker: $title"
   exit 0
 fi
 
