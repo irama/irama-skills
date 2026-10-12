@@ -16,12 +16,16 @@
                                                 shares the 6 per comment with --image
     jobs.py repos [--root DIR] [--dry-run]        report sibling git repos (PUT /api/jobs/repos);
                                                   outside a repo, --root defaults to $JOBS_REPOS_ROOT
+    jobs.py claim-token ID                        print this machine's claim token for one job
     jobs.py preflight ID --target T --repo PATH [--void] [--recheck]   ship preflight; --recheck before the push
     jobs.py --selftest
 
 Config: JOBS_BASE_URL, JOBS_AGENT_TOKEN and JOBS_ORCHESTRATORS from ~/.config/jobs/env.
 A variable already in the process environment wins over the file (a dry run points
 JOBS_BASE_URL at a dev hub that way). Claim tokens live in ~/.config/jobs/claims.json.
+JOBS_REPOS_READONLY=1 makes `repos` a dry run always, so this machine never replaces the hub's
+repo registry. JOBS_TARGET_MANIFEST=<file> maps targets to paths from that JSON file only
+({"owner/repo": "/abs/path"}), never from git config.
 Output is JSON on stdout. Exit 0 on success, 1 on an API or preflight refusal, 2 on
 a usage or config error.
 """
@@ -33,6 +37,7 @@ import json
 import os
 import re
 import socket
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -206,8 +211,30 @@ def target_from_url(url, dirname):
     return f"local/{local}"
 
 
+def target_manifest():
+    """{target: path} from $JOBS_TARGET_MANIFEST, or None when it is unset. A git remote can be
+    rewritten by insteadOf, so with a manifest set no target ever comes from git config."""
+    path = os.environ.get("JOBS_TARGET_MANIFEST")
+    if not path:
+        return None
+    try:
+        m = json.loads(Path(path).read_text())
+    except (OSError, ValueError) as e:
+        die(f"JOBS_TARGET_MANIFEST {path}: {e}")
+    if not isinstance(m, dict) or not all(
+            isinstance(k, str) and TARGET_RE.match(k) and isinstance(v, str) and v.startswith("/")
+            for k, v in m.items()):
+        die(f"JOBS_TARGET_MANIFEST {path}: want {{\"owner/repo\": \"/abs/path\"}}")
+    return m
+
+
 def target_of(repo):
     root = repo_root(repo) or Path(repo)
+    m = target_manifest()
+    if m is not None:
+        real = os.path.realpath(root)
+        hits = [t for t, p in m.items() if os.path.realpath(p) == real]
+        return hits[0] if hits else target_from_url(None, root.name)
     return target_from_url(git(root, "remote", "get-url", "origin", check=False), root.name)
 
 
@@ -227,6 +254,9 @@ def sibling_repos(root):
     skipped, and so are folders named archive or starting with '_' or '.', which hold
     retired copies. Each entry carries its local path so a target maps to a checkout."""
     out = []
+    m = target_manifest()
+    if m is not None:
+        return [{"target": t, "display": Path(p).name[:100], "path": p} for t, p in sorted(m.items())][:200]
     for d in sorted(Path(root).iterdir()):
         if not d.is_dir() or d.name.startswith(("_", ".")) or d.name.lower() == "archive":
             continue
@@ -246,10 +276,11 @@ def cmd_repos(a):
     # The background poller runs from the home folder, so it names the root in the env.
     fallback = os.environ.get("JOBS_REPOS_ROOT")
     root = Path(a.root) if a.root else (here.parent if here else (Path(fallback) if fallback else None))
-    if not root or not root.is_dir():
+    if target_manifest() is None and (not root or not root.is_dir()):
         die("not in a git repo and no --root given")
     repos = sibling_repos(root)
-    if a.dry_run:
+    # Set on a machine that must never replace the hub's registry, whatever the caller asked.
+    if a.dry_run or os.environ.get("JOBS_REPOS_READONLY") == "1":
         print(json.dumps({"repos": repos}, indent=1))
         return 0
     # The hub stores target and display only; a local path means nothing to it.
@@ -292,6 +323,25 @@ def cmd_get(a):
 
 def cmd_attachments(a):
     return emit(*api("GET", f"/api/jobs/{a.id}/attachments"))
+
+
+def cmd_claim_token(a):
+    """This machine's claim token for one job, read under the claims lock; exit 1 if none."""
+    p = claims_path()
+    if not p.exists():
+        print(json.dumps({"error": f"no claim token for JOB-{a.id} on this machine"}))
+        return 1
+    lock_fd = os.open(p.with_suffix(".lock"), os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_SH)
+        token = read_claims().get(str(a.id))
+    finally:
+        os.close(lock_fd)
+    if not token:
+        print(json.dumps({"error": f"no claim token for JOB-{a.id} on this machine"}))
+        return 1
+    print(token)
+    return 0
 
 
 def cmd_claim(a):
@@ -373,25 +423,33 @@ IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", 
 
 
 def image_bytes(path, out_dir):
-    """The image to upload: downscaled to 1600px on the long edge with macOS sips, never
-    upscaled. The original when sips is missing or cannot read or write the file."""
+    """The image to upload: downscaled to 1600px on the long edge with macOS sips, or with
+    ImageMagick (magick, then convert) where sips is missing; never upscaled. The original when
+    neither tool exists or the tool cannot read or write the file."""
     src = Path(path)
     if not src.is_file():
         die(f"image not found: {path}")
     mime = IMAGE_MIME.get(src.suffix.lower())
     if not mime:
         die(f"not a PNG, JPEG or WebP image: {path}")
+    out = Path(out_dir) / f"{len(list(Path(out_dir).iterdir()))}{src.suffix.lower()}"
+    im = None if shutil.which("sips") else (shutil.which("magick") or shutil.which("convert"))
     try:
-        dims = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(src)],
-                              capture_output=True, text=True, timeout=60, check=True).stdout
-        long_edge = max(int(n) for n in re.findall(r"pixel(?:Width|Height): (\d+)", dims))
+        if im:
+            dims = subprocess.run([im, str(src), "-format", "%w %h", "info:"],
+                                  capture_output=True, text=True, timeout=60, check=True).stdout
+            long_edge = max(int(n) for n in dims.split()[:2])
+            resize = [im, str(src), "-resize", f"{LONG_EDGE}x{LONG_EDGE}>", str(out)]
+        else:
+            dims = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(src)],
+                                  capture_output=True, text=True, timeout=60, check=True).stdout
+            long_edge = max(int(n) for n in re.findall(r"pixel(?:Width|Height): (\d+)", dims))
+            resize = ["sips", "-Z", str(LONG_EDGE), str(src), "--out", str(out)]
         if long_edge > LONG_EDGE:
-            out = Path(out_dir) / f"{len(list(Path(out_dir).iterdir()))}{src.suffix.lower()}"
-            subprocess.run(["sips", "-Z", str(LONG_EDGE), str(src), "--out", str(out)],
-                           capture_output=True, timeout=60, check=True)
+            subprocess.run(resize, capture_output=True, timeout=60, check=True)
             return out.read_bytes(), mime
     except (OSError, ValueError, subprocess.SubprocessError):
-        pass  # no sips, or it could not read the file: send the original
+        pass  # no tool, or it could not read the file: send the original
     return src.read_bytes(), mime
 
 
@@ -904,6 +962,9 @@ def main():
         s = sub.add_parser(name)
         s.add_argument("id", type=int)
         s.set_defaults(fn=fn)
+    s = sub.add_parser("claim-token")
+    s.add_argument("id", type=int)
+    s.set_defaults(fn=cmd_claim_token)
     s = sub.add_parser("claim")
     s.add_argument("id", type=int)
     s.add_argument("--agent")
