@@ -1,128 +1,99 @@
 ---
 name: app-icons
-description: Generate a complete PWA icon set, favicon.ico, and OpenGraph/Twitter image from a single source mark (SVG or raster), then wire them into a Next.js App Router app so they work signed-out. Use for any "add a favicon / app icon / PWA icons / touch icon / OG image / social preview" task, rebranding an app's icons, or fixing a missing/blurry favicon or broken social card.
+description: Generate or replace a web app's whole icon set (PWA icons, maskable icons, apple-touch, favicons, adaptive SVG favicon, OpenGraph/Twitter image, title-bar colour) and wire it into a Next.js App Router app so it works signed-out. Takes either one source mark or designer-finished art (an opaque tile plus a transparent glyph), and can rewrite an app's existing icon files in place at their current sizes. Use for any "add a favicon / app icon / PWA icons / touch icon / OG image / social preview" task, rebranding icons across one or many apps, icons that look a different size in different browsers, a title bar that does not match the app, or a missing/blurry favicon.
 ---
 
-# App icons — one mark → full icon + social set
+# App icons
 
-Feed one source mark, get every icon a modern web app needs, rendered
-pixel-accurate (rounded corners, gradients, real fonts) and wired into Next.js
-metadata. No design tools, no online generators, no per-size hand-export.
+One skill, one script: `scripts/generate-icons.mjs`. It renders with Chromium via
+Playwright, so gradients, masks and fonts come out pixel-accurate. This is the only
+copy: do not vendor it into an app's `.claude/skills/`, because vendored copies drift.
 
-**Default action:** run the bundled script against the project's mark, drop the
-output into `public/` + `src/app/`, paste the printed metadata block into the
-root layout, confirm the auth middleware lets static assets through.
+## Pick the mode
 
-## What it produces
+| You have | Mode | Flags |
+|---|---|---|
+| One mark (SVG or raster), no finished icons | **Generate** the default file set | `--src` |
+| A designer's finished art: an opaque square tile already padded, plus the transparent glyph SVG on the same frame | **Finished art**: the tile is resized pro rata, never re-padded | `--tile <png> --src <glyph.svg>` |
+| An app that already ships its own icon ladder and manifest | **In place**: every existing icon file is rewritten at its current pixel size; URLs, manifest and layout stay as they are | add `--in-place` (and `--exclude <str>` for an alternative icon set to leave alone) |
 
-Into `public/` (or `--out`):
-
-- `favicon.ico` — PNG-in-ICO, 16/32/48 frames; tiny sizes get a **stroked/bold**
-  treatment so thin line-art still reads at 16px.
-- `favicon-16x16.png`, `favicon-32x32.png`, `favicon-48x48.png`
-- `icon.svg` — scalable favicon (SVG sources only)
-- `apple-touch-icon.png` (180)
-- `icon-192.png`, `icon-512.png`
-- `icon-maskable-192.png`, `icon-maskable-512.png` — 30% safe-zone padding for
-  Android adaptive masks
-- `manifest.webmanifest`
-
-Into `src/app/` (or `--app`):
-
-- `opengraph-image.png` + `twitter-image.png` (1200×630) — Next auto-wires the
-  `og:image` / `twitter:card` tags from these filenames.
-
-## Prerequisite
-
-The script renders with Chromium via Playwright. If the project already runs
-Playwright E2E, there's nothing to install. Otherwise, once:
-
-    npm i -D playwright && npx playwright install chromium
+Keep the source art in the repo (for example `brand/`). A download folder is not a
+source: on 2026-10-11 the 1200px fleet tiles were deleted from `~/Downloads` a day
+after the rollout, and only 512px derivatives survived.
 
 ## Run it
 
-From the project root:
+From the app's root (Playwright must resolve from its `package.json`). `<skill-dir>` is
+the folder this skill loaded from:
 
-    node .claude/skills/app-icons/scripts/generate-icons.mjs \
-      --src brand/mark.svg \
-      --bg '#1a1614' --accent '#b89944' --fg '#f0e9dd' --muted '#b8ad9d' \
-      --recolor '#ffffff' \
-      --title 'App Name' \
-      --tagline 'One-line pitch.' \
-      --name 'App Name' --short 'App'
+    node <skill-dir>/scripts/generate-icons.mjs \
+      --src brand/glyph.svg --tile brand/tile-1200.png \
+      --bg '#1A1614' --fav-transparent --fav-light '#1A1614' \
+      --theme-dark '#121c30' --theme-light '#fbfaf5' \
+      --in-place
 
-Key flags (full list in the script header):
+Without Playwright: `pnpm add -D playwright && pnpm exec playwright install chromium`.
+The full flag list is in the script header. Generate mode prints the `metadata` and
+`viewport` block to paste into `src/app/layout.tsx`.
 
-- `--src` **(required)** — SVG (inlined, recolourable) or raster (`.png/.jpg/.webp`).
-- `--bg` — background for the maskable safe zone, the OG card, and SVG marks.
-  Pick a solid brand colour; a dark ink reads well on both light and dark tabs.
-  Not painted behind a transparent raster mark (that stays transparent).
-- `--recolor` — recolour every SVG fill (e.g. `#ffffff` for a white mark on a dark
-  `--bg`). SVG sources only; also enables the bold small-favicon stroke.
-- `--accent` / `--fg` / `--muted` — OG glow-rule / title / tagline colours.
-- `--title` / `--tagline` — OG text. Omit `--tagline` to drop the subline + rule.
-- `--name` / `--short` — manifest `name` / `short_name`.
-- `--trim` / `--no-trim` — auto-crop the source's dead border so the mark fills
-  the frame. **On by default for raster** (marks routinely ship baked-in margin),
-  off for SVG. `--trim-tol <0..1>` sets the colour-distance threshold from the
-  corner background (default `0.06`; raise it to shave a soft glow/shadow, lower
-  it to keep faint edges). `--trim-pad` re-adds breathing room (default `0`).
-- `--no-og`, `--no-manifest` — skip those outputs.
+## What each platform reads
 
-The script prints the exact `metadata` + `viewport` block to paste into
-`src/app/layout.tsx`.
+| Surface | File it uses | What it does to it |
+|---|---|---|
+| Browser tab, Chrome/Firefox/Edge | `icon.svg` / `favicon.svg` when linked | Honours `prefers-color-scheme` inside the SVG |
+| Browser tab, Safari | PNG / ICO favicon | Ignores SVG favicons |
+| Installed app, Chromium on macOS | The `maskable` manifest icon | Crops it to the central 80% (measured: a 61% glyph showed at 75%) |
+| Installed app, Android | The `maskable` manifest icon | Crops to the safe zone and applies its own mask shape |
+| Safari "Add to Dock" (macOS) | A manifest icon. One fleet reinstall showed it uses the **maskable** icon, uncropped. Not yet re-tested. | Places it in a squircle |
+| iOS "Add to Home Screen" | `apple-touch-icon` | Rounds the corners |
+| Installed-app title bar | `viewport.themeColor` (per scheme), else manifest `theme_color` | Paints the title bar |
 
-## Wire-up (after running)
+## Rules
 
-1.  Paste the printed `metadata.icons` + `metadata.manifest` + `viewport.themeColor`
-    into the root layout. Import `Viewport` from `next` alongside `Metadata`.
-2.  `opengraph-image.png` / `twitter-image.png` in `src/app/` need no wiring —
-    Next detects them.
-3.  **Signed-out access** — icons must serve without auth. Confirm the auth
-    middleware `matcher` excludes static assets and the manifest:
+- **Maskable icons.** Chromium crops maskable icons and Safari (as observed) does not,
+  so no single maskable file shows the same glyph size in both. `--maskable-scale 0.8`
+  (default, the spec) is right for Chromium and Android. `--maskable-scale 1` (maskable
+  equals standard) is right for Safari, and Chromium then shows the glyph about 1.25x
+  larger. Choose per fleet and apply it to every app. Never mix the two across apps.
+  One fleet chose `1` on 2026-10-11, to match Safari exactly.
+- **Never pick a maskable inset by eye.** It is a fixed multiple of the standard mark.
+- **Standard icons: pad 12% a side on an opaque background.** The OS masks the
+  corners. A finished-art tile is already padded: resize it, do not pad it again.
+- **Never bake a corner radius.** Every platform rounds app icons itself.
+- **Favicons fill the frame.** `--fav-transparent` gives the glyph alone with no tile.
+  A light glyph alone disappears on a light tab bar, so always ship the adaptive SVG
+  favicon (light glyph on dark tabs, `--fav-light` on light tabs) and link it first.
+  Safari still uses the PNG, so a transparent light PNG is faint in Safari's light mode.
+- **Title bar = the bar directly below it.** Set `--theme-dark` / `--theme-light` to
+  the colour of the app's own top bar (often the header or context bar, not the page).
+- **Signed-out access.** Every icon URL must return 200 with no session. Check the auth
+  gate's matcher or public-path list includes each file, including a newly added
+  `favicon.svg`. A 307 to the login page means a broken icon.
 
-        '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)'
+## Verify (do every step)
 
-    Files in `public/` and the `src/app` image conventions are static, so this is
-    the only gate that can block them.
+- Render check: open the outputs and compare glyph sizes across apps.
+- Live check per app, signed-out: `curl -s -o /dev/null -w '%{http_code} %{content_type}' <url>`
+  for each icon. Then compare the live bytes with the committed file (`curl -s <url> | md5`
+  against `md5 -q <file>`). A deploy can "succeed" and still serve the old file.
+- Vercel's bot checkpoint can answer scripts with a 403 page; check the deployment
+  status instead.
 
-## Design guidance
+## Installed apps do not refresh icons
 
-- **Pad every app icon; fill the frame only for favicons.** Favicons (16/32/48 +
-  `favicon.ico`) fill edge to edge — they're tiny and have no pixels to waste on
-  whitespace. Every **app icon** (apple-touch, `icon-192`/`icon-512`, the whole
-  64→512 ladder) gets ~12% padding each side on an opaque background: iOS/macOS
-  mask the corners themselves, and a full-bleed mark loses its corners to that
-  mask. Trim the source's baked-in margin first (`--trim`), then pad
-  deliberately — that way the inset is a known 12%, not whatever the artboard
-  happened to have. Bump `--trim-tol` if a soft glow/shadow left the crop loose.
-- **Padding needs an opaque background.** Pad a transparent mark and iOS
-  composites the gap on black anyway — pick the brand `--bg` so the inset reads
-  as intentional rather than as a hole.
-- **Never bake a corner radius.** Every platform (iOS, Android, Windows tiles,
-  macOS dock) masks app-icon corners itself. A baked radius double-rounds, and on
-  a transparent mark it leaves blank/white triangles in the corners — the exact
-  bug this rule prevents. Ship square; the OS rounds.
-- **Transparency in → transparency out.** A transparent-background source (PNG/SVG
-  alpha) produces transparent icons — no `--bg` is painted behind it, so it sits
-  cleanly on any surface. An **opaque** source already carries its own background,
-  so it goes full-bleed (`cover`) — scaled to fill the frame, no letterbox, no
-  added fill. `--bg` then only backs the maskable safe zone and the OG card.
-  (Caveat: iOS composites transparent apple-touch icons on black; supply an opaque
-  mark if that matters.)
-- **Contrast the mark against `--bg`.** White/light mark on a dark ink background
-  is the safe default — legible on any tab colour, no theme flicker.
-- **Wordmarks squash.** A wide logo shrinks to nothing in a square. Prefer a
-  compact glyph/monogram; if only a wordmark exists, expect faint 16px favicons —
-  the bold stroke helps but can't fully rescue fine detail.
-- **Maskable ≠ standard.** The maskable variants pad to the Android safe zone on
-  purpose; that inset is spec, not decoration — don't "fix" it, and don't confuse
-  it with the fill-the-frame rule above.
-- Keep the source mark in the repo (e.g. `brand/`) so a rebrand is one re-run.
+Chromium on desktop does not update an installed app's icon from the site. Safari Dock
+apps keep the icon they were created with. To see new icons:
 
-## Verify
+- Chromium: uninstall the app (app menu > Uninstall, or right-click it in
+  `chrome://apps`), hard-reload the site, install it again.
+- Safari: delete the app from `~/Applications` (the folder in the home folder, not
+  `/Applications`), then File > Add to Dock again. The app loses its cookies.
+- Chromium apps live in `~/Applications/<Browser> Apps.localized/`.
+- If the Dock still shows the old icon, run `killall Dock`.
 
-- Hard-refresh (Cmd+Shift+R) → browser-tab favicon.
-- DevTools → Application → Manifest → icons load, no errors.
-- Paste the deployed URL into a social-card debugger to confirm the OG image.
-- iOS: Share → Add to Home Screen → apple-touch-icon shows.
+## Rolling out across many apps
+
+- Push one app at a time. Several CI gates running at once on one machine caused
+  timing-test failures that do not occur when run alone.
+- Check who else holds a repo's shipping verb before pushing (the conductor).
+- Apps not hosted on Vercel need their own deploy step after the push.

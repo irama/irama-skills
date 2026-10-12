@@ -4,7 +4,7 @@
 // CSS gradients, rounded corners, and real fonts come out pixel-accurate.
 //
 // Usage (run from the project root):
-//   node .claude/skills/app-icons/scripts/generate-icons.mjs \
+//   node <skill-dir>/scripts/generate-icons.mjs \
 //     --src brand/mark.svg \
 //     --bg '#1a1614' --accent '#b89944' --fg '#f0e9dd' --muted '#b8ad9d' \
 //     --recolor '#ffffff' \
@@ -35,11 +35,32 @@
 //                       after trimming.                          [default: 0]
 //   --no-og             Skip the OpenGraph/Twitter image.
 //   --no-manifest       Skip manifest.webmanifest.
+//   --tile <png>        Finished-art mode: an opaque square app-icon tile a
+//                       designer already padded. Standard icons are this tile
+//                       resized pro rata (no re-padding); --src must then be the
+//                       transparent glyph SVG drawn on the same frame as the tile.
+//   --in-place          Rewrite the app's EXISTING icon files under --out (and
+//                       --app) at their current pixel sizes, instead of writing
+//                       the default file set. Use when an app already has its own
+//                       ladder and manifest. Prints nothing to paste.
+//   --exclude <str>     With --in-place, skip paths containing this substring
+//                       (e.g. an alternative icon set the user can switch to).
+//   --fav-dark <hex>    Favicon glyph colour on dark tab bars. [default: --recolor or #ffffff]
+//   --fav-light <hex>   Favicon glyph colour on light tab bars.     [default: --bg]
+//   --fav-transparent   PNG/ICO favicons with no background (the glyph alone).
+//                       Default paints --bg behind SVG marks so Safari, which
+//                       ignores SVG favicons, shows the glyph on any tab colour.
+//   --theme-dark <hex>  Title-bar colour in dark mode (installed-app title bar).
+//                       Use the colour of the app's own top bar.  [default: --bg]
+//   --theme-light <hex> Title-bar colour in light mode.  [default: --theme-dark]
+//   --maskable-scale <n> Maskable mark size as a multiple of the standard mark.
+//                       0.8 = spec (cropped by Chromium/Android); 1 = equal files.
+//                                                                 [default: 0.8]
 //
 // After running, paste the metadata block it prints into your root layout.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { extname, resolve } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
+import { extname, resolve, join, basename } from 'node:path';
 import { createRequire } from 'node:module';
 
 // ---- args ----
@@ -80,8 +101,29 @@ const cfg = {
   trimPad: args['trim-pad'] != null ? Number(args['trim-pad']) : 0,
   og: args.og !== false,
   manifest: args.manifest !== false,
+  tile: typeof args.tile === 'string' ? resolve(args.tile) : null,
+  inPlace: args['in-place'] === true,
+  exclude: typeof args.exclude === 'string' ? args.exclude : null,
+  favTransparent: args['fav-transparent'] === true,
 };
 cfg.title = cfg.title === true ? cfg.name : cfg.title;
+cfg.favDark = typeof args['fav-dark'] === 'string' ? args['fav-dark'] : cfg.recolor || '#ffffff';
+cfg.favLight = typeof args['fav-light'] === 'string' ? args['fav-light'] : cfg.bg;
+cfg.themeDark = typeof args['theme-dark'] === 'string' ? args['theme-dark'] : cfg.bg;
+cfg.themeLight = typeof args['theme-light'] === 'string' ? args['theme-light'] : cfg.themeDark;
+
+// Standard app icons inset the mark 12% a side. The maskable mark is a fixed
+// multiple of the standard mark, never an inset picked by eye (SKILL.md, "Maskable
+// icons"). 0.8 follows the spec: Chromium and Android crop maskable icons to their
+// central 80%, so 0.8 shows the glyph at the standard size there. 1 makes the
+// maskable file equal the standard one, for browsers that use it uncropped.
+const STD_PAD = 0.24;
+const MASKABLE_SCALE = args['maskable-scale'] != null ? Number(args['maskable-scale']) : 0.8;
+const MASK_PAD = 1 - MASKABLE_SCALE * (1 - STD_PAD); // 0.392
+if (cfg.tile && !existsSync(cfg.tile)) {
+  console.error(`Error: tile not found: ${cfg.tile}`);
+  process.exit(1);
+}
 
 if (!existsSync(cfg.src)) {
   console.error(`Error: source not found: ${cfg.src}`);
@@ -99,12 +141,14 @@ catch {
   catch {
     console.error(
       'Error: Playwright not found. Install it once:\n' +
-      '  npm i -D playwright && npx playwright install chromium\n' +
-      '(or `npm i -D @playwright/test`). Then re-run this script.'
+      '  pnpm add -D playwright && pnpm exec playwright install chromium\n' +
+      '(or `pnpm add -D @playwright/test`). Then re-run this script.'
     );
     process.exit(1);
   }
 }
+
+const stripScheme = (svg) => svg.replace(/<style>[^<]*prefers-color-scheme[^<]*<\/style>/g, '');
 
 // ---- build the mark markup (inline SVG, or embedded raster) ----
 const isSvg = extname(cfg.src).toLowerCase() === '.svg';
@@ -112,7 +156,7 @@ let markPlain; // as-authored colours
 let markBold;  // stroked, for tiny favicons (SVG + recolour only)
 
 if (isSvg) {
-  let svg = readFileSync(cfg.src, 'utf8')
+  let svg = stripScheme(readFileSync(cfg.src, 'utf8'))
     .replace(/<\?xml[\s\S]*?\?>/, '')
     .replace(/<!DOCTYPE[\s\S]*?>/, '')
     .trim();
@@ -249,49 +293,51 @@ if (!isSvg) {
 // Per-source render mode. `iconBg` null → transparent output (omitBackground).
 const iconBg = isSvg ? cfg.bg : null;
 const iconFit = isSvg || srcHasAlpha ? 'contain' : 'cover';
-const iconOmit = !isSvg; // raster: shoot on transparency; keep alpha through
 if (!isSvg) console.log(`source is ${srcHasAlpha ? 'transparent → transparent icons' : 'opaque → full-bleed icons'}`);
 
-const pngs = {};
+// ---- renderers (shared by the default file set and --in-place) ----
+const dataUrl = (file, mime) => `data:${mime};base64,${readFileSync(file).toString('base64')}`;
+const tileUrl = cfg.tile ? dataUrl(cfg.tile, 'image/png') : null;
+// Render from the glyph's base colours: drop any colour-scheme rule a source may
+// already carry (an adaptive favicon.svg reused as --src), or headless Chromium's
+// light scheme paints the glyph in its light-tab colour.
+const glyphUrl = isSvg ? `data:image/svg+xml;base64,${Buffer.from(stripScheme(readFileSync(cfg.src, 'utf8'))).toString('base64')}` : null;
 
-// PWA + apple + standard icons — 24% inset (12% a side) so the OS corner mask
-// never eats the mark, on a filled --bg; NO baked radius (platforms round corners
-// themselves). Maskables go further: their 30% inset is the Android safe zone.
-// Favicons below stay full-bleed — too small to spend pixels on padding.
-const iconTargets = [
-  ['icon-192.png', 192, 0.24, cfg.bg, 'contain', false],
-  ['icon-512.png', 512, 0.24, cfg.bg, 'contain', false],
-  ['apple-touch-icon.png', 180, 0.24, cfg.bg, 'contain', false],
-  ['icon-maskable-192.png', 192, 0.30, cfg.bg, 'contain', false], // safe-zone, filled bg
-  ['icon-maskable-512.png', 512, 0.30, cfg.bg, 'contain', false],
-];
-for (const [name, size, pad, bg, fit, omit] of iconTargets) {
-  const buf = await shoot(iconHtml(markPlain, size, size * (1 - pad), bg, fit), size, '.icon', omit);
-  writeFileSync(`${cfg.out}/${name}`, buf);
-  console.log('wrote', name);
+// Finished-art mode: draw on a canvas in the page so the tile keeps its own
+// background. The maskable background is one glyph-free column of the tile (3% in
+// from the left edge) stretched across, so a vertical gradient carries over exactly.
+async function canvasPng(size, kind) {
+  const url = await page.evaluate(async ({ tile, glyph, size, kind, scale }) => {
+    const load = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+    const c = document.createElement('canvas'); c.width = size; c.height = size;
+    const x = c.getContext('2d'); x.imageSmoothingQuality = 'high';
+    const t = await load(tile);
+    if (kind === 'standard') { x.drawImage(t, 0, 0, size, size); return c.toDataURL('image/png'); }
+    x.drawImage(t, Math.round(t.naturalWidth * 0.03), 0, 1, t.naturalHeight, 0, 0, size, size);
+    const g = await load(glyph); const gs = size * scale;
+    x.drawImage(g, (size - gs) / 2, (size - gs) / 2, gs, gs);
+    return c.toDataURL('image/png');
+  }, { tile: tileUrl, glyph: glyphUrl, size, kind, scale: MASKABLE_SCALE });
+  return Buffer.from(url.split(',')[1], 'base64');
 }
 
-// Tiny favicons (bold mark) — fill the frame edge to edge, same transparency rule.
-for (const [name, size] of [['favicon-16x16.png', 16], ['favicon-32x32.png', 32], ['favicon-48x48.png', 48]]) {
-  const buf = await shoot(iconHtml(markBold, size, size, iconBg, iconFit), size, '.icon', iconOmit);
-  writeFileSync(`${cfg.out}/${name}`, buf);
-  pngs[size] = buf;
-  console.log('wrote', name);
-}
+const favBg = cfg.favTransparent ? null : iconBg;
+const renderStandard = (size) => cfg.tile ? canvasPng(size, 'standard')
+  : shoot(iconHtml(markPlain, size, size * (1 - STD_PAD), cfg.bg, 'contain'), size);
+const renderMaskable = (size) => cfg.tile ? canvasPng(size, 'maskable')
+  : shoot(iconHtml(markPlain, size, size * (1 - MASK_PAD), cfg.bg, 'contain'), size);
+const renderFavicon = (size) => shoot(iconHtml(markBold, size, size, favBg, iconFit), size, '.icon', favBg == null);
 
-// Scalable favicon.svg (only meaningful for SVG sources)
-if (isSvg) {
-  const AR_M = markPlain.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
-  const vbW = AR_M ? Number(AR_M[1]) : 100;
-  const vbH = AR_M ? Number(AR_M[2]) : 100;
-  const S = 512, boxW = S, markH = boxW * (vbH / vbW); // full-bleed, no padding
-  const x = (S - boxW) / 2, y = (S - markH) / 2;
-  const scalable = `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
-  <rect width="${S}" height="${S}" fill="${cfg.bg}"/>
-  <svg x="${x}" y="${y}" width="${boxW}" height="${markH}" viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="xMidYMid meet">${markPlain}</svg>
-</svg>`;
-  writeFileSync(`${cfg.out}/icon.svg`, scalable);
-  console.log('wrote icon.svg');
+// Scalable favicon: the glyph alone, no tile, recoloured per colour scheme so it
+// reads on dark AND light tab bars. A gradient-filled glyph swaps its stop colours;
+// a flat one swaps its fills (never inside <mask>, which would break the cut-outs).
+function adaptiveSvg() {
+  let svg = stripScheme(readFileSync(cfg.src, 'utf8')).replace(/<\?xml[\s\S]*?\?>/, '').replace(/<!DOCTYPE[\s\S]*?>/, '').trim();
+  const shapes = ':is(path,circle,rect,polygon,ellipse,polyline,text):not(mask *)';
+  const css = /<(linear|radial)Gradient/.test(svg)
+    ? `@media (prefers-color-scheme: light){stop{stop-color:${cfg.favLight} !important}}`
+    : `${shapes}{fill:${cfg.favDark} !important}@media (prefers-color-scheme: light){${shapes}{fill:${cfg.favLight} !important}}`;
+  return svg.replace(/(<svg\b[^>]*>)/, `$1<style>${css}</style>`);
 }
 
 // favicon.ico (PNG-in-ICO, 16/32/48 — supported by all modern browsers)
@@ -309,9 +355,58 @@ function buildIco(frames) {
   });
   return Buffer.concat([header, dir, ...body]);
 }
-writeFileSync(`${cfg.out}/favicon.ico`, buildIco([
-  { size: 16, data: pngs[16] }, { size: 32, data: pngs[32] }, { size: 48, data: pngs[48] },
-]));
+const buildFaviconIco = async () => buildIco(await Promise.all([16, 32, 48].map(async (size) => ({ size, data: await renderFavicon(size) }))));
+
+if (cfg.inPlace) {
+  // Rewrite every existing icon file at its own pixel size; the manifest and
+  // layout keep pointing at the same URLs, so nothing else changes.
+  const pngWidth = (f) => readFileSync(f).readUInt32BE(16); // IHDR width
+  const files = [];
+  const walk = (dir) => { if (!existsSync(dir)) return; for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const f = join(dir, e.name);
+    if (e.isDirectory()) { if (e.name !== 'node_modules') walk(f); continue; }
+    if (/(icon|favicon|apple)[^/]*\.(png|ico|svg)$/i.test(e.name) && !(cfg.exclude && f.includes(cfg.exclude))) files.push(f);
+  } };
+  walk(cfg.out); walk(cfg.app);
+  for (const f of files) {
+    const n = basename(f).toLowerCase();
+    let buf, kind;
+    if (n.endsWith('.svg')) { if (!isSvg) continue; buf = adaptiveSvg(); kind = 'adaptive svg'; }
+    else if (n.endsWith('.ico')) { buf = await buildFaviconIco(); kind = 'ico'; }
+    else {
+      const w = pngWidth(f);
+      if (n.includes('maskable')) { buf = await renderMaskable(w); kind = 'maskable'; }
+      else if (n.includes('favicon') || w <= 48) { buf = await renderFavicon(w); kind = 'favicon'; }
+      else { buf = await renderStandard(w); kind = 'standard'; }
+      kind += ` ${w}px`;
+    }
+    writeFileSync(f, buf);
+    console.log(`rewrote ${f} (${kind})`);
+  }
+  await browser.close();
+  console.log(`\nDone: ${files.length} files. Check the layout links an SVG favicon and the auth gate serves every icon signed-out.`);
+  process.exit(0);
+}
+
+const pngs = {};
+for (const [name, size] of [['icon-192.png', 192], ['icon-512.png', 512], ['apple-touch-icon.png', 180]]) {
+  writeFileSync(`${cfg.out}/${name}`, await renderStandard(size));
+  console.log('wrote', name);
+}
+for (const [name, size] of [['icon-maskable-192.png', 192], ['icon-maskable-512.png', 512]]) {
+  writeFileSync(`${cfg.out}/${name}`, await renderMaskable(size));
+  console.log('wrote', name);
+}
+for (const [name, size] of [['favicon-16x16.png', 16], ['favicon-32x32.png', 32], ['favicon-48x48.png', 48]]) {
+  pngs[size] = await renderFavicon(size);
+  writeFileSync(`${cfg.out}/${name}`, pngs[size]);
+  console.log('wrote', name);
+}
+if (isSvg) {
+  writeFileSync(`${cfg.out}/icon.svg`, adaptiveSvg());
+  console.log('wrote icon.svg (adapts to light/dark tab bars)');
+}
+writeFileSync(`${cfg.out}/favicon.ico`, buildIco([16, 32, 48].map((size) => ({ size, data: pngs[size] }))));
 console.log('wrote favicon.ico');
 
 // manifest.webmanifest
@@ -323,7 +418,7 @@ if (cfg.manifest) {
     start_url: '/',
     display: 'standalone',
     background_color: cfg.bg,
-    theme_color: cfg.bg,
+    theme_color: cfg.themeDark,
     icons: [
       { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
@@ -387,7 +482,13 @@ export const metadata: Metadata = {
   },
 };
 
-export const viewport: Viewport = { themeColor: '${cfg.bg}' };
+// Title bar of the installed app: match the app's own top bar, per scheme.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: dark)', color: '${cfg.themeDark}' },
+    { media: '(prefers-color-scheme: light)', color: '${cfg.themeLight}' },
+  ],
+};
 
 // opengraph-image.png / twitter-image.png in src/app/ are auto-wired by Next.
 // Ensure your auth middleware matcher excludes static assets, e.g.:
