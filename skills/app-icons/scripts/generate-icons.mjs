@@ -53,8 +53,12 @@
 //   --theme-dark <hex>  Title-bar colour in dark mode (installed-app title bar).
 //                       Use the colour of the app's own top bar.  [default: --bg]
 //   --theme-light <hex> Title-bar colour in light mode.  [default: --theme-dark]
-//   --maskable-scale <n> Maskable mark size as a multiple of the standard mark.
-//                       0.8 = spec (cropped by Chromium/Android); 1 = equal files.
+//   --maskable          Also write maskable icons and list them in the manifest.
+//                       OFF by default: Safari and Chromium both read a maskable
+//                       icon and only Chromium crops it, so listing one makes the
+//                       same app a different size in each. Turn on for Android-first apps.
+//   --maskable-scale <n> With --maskable: maskable mark size as a multiple of the
+//                       standard mark (0.8 = spec, cropped by Chromium/Android).
 //                                                                 [default: 0.8]
 //
 // After running, paste the metadata block it prints into your root layout.
@@ -105,6 +109,7 @@ const cfg = {
   inPlace: args['in-place'] === true,
   exclude: typeof args.exclude === 'string' ? args.exclude : null,
   favTransparent: args['fav-transparent'] === true,
+  maskable: args.maskable === true,
 };
 cfg.title = cfg.title === true ? cfg.name : cfg.title;
 cfg.favDark = typeof args['fav-dark'] === 'string' ? args['fav-dark'] : cfg.recolor || '#ffffff';
@@ -385,6 +390,7 @@ if (cfg.inPlace) {
   }
   await browser.close();
   console.log(`\nDone: ${files.length} files. Check the layout links an SVG favicon and the auth gate serves every icon signed-out.`);
+  if (!cfg.maskable) console.log('Remove any purpose "maskable" entries from the manifest (SKILL.md, "Maskable icons").');
   process.exit(0);
 }
 
@@ -393,7 +399,7 @@ for (const [name, size] of [['icon-192.png', 192], ['icon-512.png', 512], ['appl
   writeFileSync(`${cfg.out}/${name}`, await renderStandard(size));
   console.log('wrote', name);
 }
-for (const [name, size] of [['icon-maskable-192.png', 192], ['icon-maskable-512.png', 512]]) {
+if (cfg.maskable) for (const [name, size] of [['icon-maskable-192.png', 192], ['icon-maskable-512.png', 512]]) {
   writeFileSync(`${cfg.out}/${name}`, await renderMaskable(size));
   console.log('wrote', name);
 }
@@ -422,8 +428,10 @@ if (cfg.manifest) {
     icons: [
       { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      { src: '/icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-      { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ...(cfg.maskable ? [
+        { src: '/icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+        { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ] : []),
     ],
   };
   writeFileSync(`${cfg.out}/manifest.webmanifest`, JSON.stringify(manifest, null, 2) + '\n');
