@@ -42,7 +42,7 @@ The full flag list is in the script header. Generate mode prints the `metadata` 
 |---|---|---|
 | Browser tab, Chrome/Firefox/Edge | `icon.svg` / `favicon.svg` when linked | Honours `prefers-color-scheme` inside the SVG |
 | Browser tab, Safari | PNG / ICO favicon | Ignores SVG favicons |
-| Installed app, Chromium on macOS | The `maskable` manifest icon if listed, else the standard one | Crops a maskable icon to the central 80% (a 61% glyph showed at 75%); uses a standard icon as is |
+| Installed app, Chromium on macOS | The `maskable` manifest icon if listed, else the standard one (the route lists none for desktop) | Crops a maskable icon to the central 80% (a 61% glyph showed at 75%); uses a standard icon as is |
 | Installed app, Android | The `maskable` manifest icon | Crops to the safe zone and applies its own mask shape |
 | Safari "Add to Dock" (macOS) | The **maskable** manifest icon if listed, even when an `any` icon and an apple-touch icon exist (verified 2026-10-12: baked glyph 0.541; maskable art 0.54, standard 0.68), else the standard one | Does not crop; places it in a squircle as is |
 | iOS "Add to Home Screen" | `apple-touch-icon` | Rounds the corners |
@@ -50,14 +50,19 @@ The full flag list is in the script header. Generate mode prints the `metadata` 
 
 ## Rules
 
-- **Maskable icons: leave them out by default.** Chromium and Safari both read the
-  maskable icon when the manifest lists one, and only Chromium crops it, so the same app
-  shows a different glyph size in each. With no maskable icon, both use the standard
-  icon uncropped and match (verified 2026-10-12: glyph 0.677 of the tile in Safari,
-  0.676 in Chromium). The cost is Android, which then shows the standard icon in a
-  plain shape. For Android-first apps pass `--maskable` (default scale 0.8, the spec).
-  With `--in-place`, delete the manifest's `purpose: "maskable"` entries by hand.
-  Whatever you choose, apply it to every app in a fleet.
+- **Maskable icons: write them, list them for Android only.** Chromium and Safari both
+  read a listed maskable icon and only Chromium crops it, so listing one makes the same
+  app a different size in each. With none listed, both use the standard icon uncropped
+  and match (verified 2026-10-12: glyph 0.677 of the tile in Safari, 0.676 in
+  Chromium). Android launchers need the maskable icon to fill their shapes. So the
+  manifest is a route, not a file: `templates/manifest-route.ts` lists the maskable
+  icons only when `Sec-CH-UA-Platform` (or, failing that, the user agent) says
+  Android, and sends `Vary` so a CDN never mixes the two. Generate mode writes it to
+  `src/app/manifest.webmanifest/route.ts` with its test; delete any static
+  `public/manifest.webmanifest` or `app/manifest.ts`, which would shadow it. In place,
+  copy the template by hand and point its icon paths at the app's own files.
+  The template's test runs in the Node environment: a browser-like test environment
+  drops `Sec-*` request headers.
 - **Never pick a maskable inset by eye.** When used, it is a fixed multiple of the standard mark.
 - **Standard icons: pad 12% a side on an opaque background.** The OS masks the
   corners. A finished-art tile is already padded: resize it, do not pad it again.

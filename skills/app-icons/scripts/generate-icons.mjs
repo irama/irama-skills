@@ -34,7 +34,7 @@
 //   --trim-pad <0..0.2> Fraction of the detected mark re-added as breathing room
 //                       after trimming.                          [default: 0]
 //   --no-og             Skip the OpenGraph/Twitter image.
-//   --no-manifest       Skip manifest.webmanifest.
+//   --no-manifest       Skip the manifest route (src/app/manifest.webmanifest/route.ts).
 //   --tile <png>        Finished-art mode: an opaque square app-icon tile a
 //                       designer already padded. Standard icons are this tile
 //                       resized pro rata (no re-padding); --src must then be the
@@ -53,12 +53,8 @@
 //   --theme-dark <hex>  Title-bar colour in dark mode (installed-app title bar).
 //                       Use the colour of the app's own top bar.  [default: --bg]
 //   --theme-light <hex> Title-bar colour in light mode.  [default: --theme-dark]
-//   --maskable          Also write maskable icons and list them in the manifest.
-//                       OFF by default: Safari and Chromium both read a maskable
-//                       icon and only Chromium crops it, so listing one makes the
-//                       same app a different size in each. Turn on for Android-first apps.
-//   --maskable-scale <n> With --maskable: maskable mark size as a multiple of the
-//                       standard mark (0.8 = spec, cropped by Chromium/Android).
+//   --maskable-scale <n> Maskable mark size as a multiple of the standard mark
+//                       (0.8 = spec: Android crops maskable icons to the central 80%).
 //                                                                 [default: 0.8]
 //
 // After running, paste the metadata block it prints into your root layout.
@@ -109,7 +105,6 @@ const cfg = {
   inPlace: args['in-place'] === true,
   exclude: typeof args.exclude === 'string' ? args.exclude : null,
   favTransparent: args['fav-transparent'] === true,
-  maskable: args.maskable === true,
 };
 cfg.title = cfg.title === true ? cfg.name : cfg.title;
 cfg.favDark = typeof args['fav-dark'] === 'string' ? args['fav-dark'] : cfg.recolor || '#ffffff';
@@ -390,7 +385,7 @@ if (cfg.inPlace) {
   }
   await browser.close();
   console.log(`\nDone: ${files.length} files. Check the layout links an SVG favicon and the auth gate serves every icon signed-out.`);
-  if (!cfg.maskable) console.log('Remove any purpose "maskable" entries from the manifest (SKILL.md, "Maskable icons").');
+  console.log('Serve the manifest from templates/manifest-route.ts so maskable icons are listed for Android only (SKILL.md, "Maskable icons").');
   process.exit(0);
 }
 
@@ -399,7 +394,7 @@ for (const [name, size] of [['icon-192.png', 192], ['icon-512.png', 512], ['appl
   writeFileSync(`${cfg.out}/${name}`, await renderStandard(size));
   console.log('wrote', name);
 }
-if (cfg.maskable) for (const [name, size] of [['icon-maskable-192.png', 192], ['icon-maskable-512.png', 512]]) {
+for (const [name, size] of [['icon-maskable-192.png', 192], ['icon-maskable-512.png', 512]]) {
   writeFileSync(`${cfg.out}/${name}`, await renderMaskable(size));
   console.log('wrote', name);
 }
@@ -415,9 +410,10 @@ if (isSvg) {
 writeFileSync(`${cfg.out}/favicon.ico`, buildIco([16, 32, 48].map((size) => ({ size, data: pngs[size] }))));
 console.log('wrote favicon.ico');
 
-// manifest.webmanifest
+// Manifest as a route: maskable icons are listed for Android only, so desktop Safari
+// and Chromium both use the standard icon at the same size (SKILL.md, "Maskable icons").
 if (cfg.manifest) {
-  const manifest = {
+  const base = {
     name: cfg.name,
     short_name: cfg.short,
     ...(cfg.tagline ? { description: cfg.tagline } : {}),
@@ -425,17 +421,14 @@ if (cfg.manifest) {
     display: 'standalone',
     background_color: cfg.bg,
     theme_color: cfg.themeDark,
-    icons: [
-      { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      ...(cfg.maskable ? [
-        { src: '/icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-        { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-      ] : []),
-    ],
   };
-  writeFileSync(`${cfg.out}/manifest.webmanifest`, JSON.stringify(manifest, null, 2) + '\n');
-  console.log('wrote manifest.webmanifest');
+  const tpl = (f) => readFileSync(new URL(`../templates/${f}`, import.meta.url), 'utf8');
+  const dir = `${cfg.app}/manifest.webmanifest`;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(`${dir}/route.ts`, tpl('manifest-route.ts').replace('__BASE__', JSON.stringify(base, null, 2)));
+  writeFileSync(`${dir}/route.test.ts`, tpl('manifest-route.test.ts'));
+  console.log('wrote manifest.webmanifest/route.ts + route.test.ts');
+  if (existsSync(`${cfg.out}/manifest.webmanifest`)) console.log(`DELETE ${cfg.out}/manifest.webmanifest: a static file shadows the route.`);
 }
 
 // OpenGraph + Twitter image (1200x630)
