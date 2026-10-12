@@ -374,10 +374,10 @@ the target repo.
 
 ## Ship through a broker (`--broker`)
 
-On a machine where a broker service owns production, the broker starts two sandboxed sessions
-per ship and does everything around them itself: the approval check, the tree check, the push,
-the deploy check by SHA and `$J shipped`. The session has no GitHub credential, and `origin` is
-unreachable on purpose. Never fetch, pull or push.
+On a machine where a broker service owns production, the broker starts three sandboxed sessions
+per ship and does everything around them itself: the approval check, the tree check, the merge
+commit it pushes, the push, the deploy check by SHA and `$J shipped`. The session has no GitHub
+credential, and `origin` is unreachable on purpose. Never fetch, pull or push.
 
 **Phase 1, merge and review** (`/jobs JOB-<id> --background --ship --broker`, or
 `/jobs --background --ship --broker --branch <b> --sha <sha>` for a ship with no job). The work
@@ -397,18 +397,39 @@ production env.
      still decide whether a fix is directional, and a directional fix stops as step 3e does.
 3. Stop before migrations. Do not apply migrations, build, run `/push` or `$J shipped`.
 
+The broker uses only the tree of your merge and the history of the job branch. It never pushes
+your merge commit: it makes its own, with origin's tip and the approved head as parents.
+
 **Phase 2, migrate and build** (the same command plus `--phase 2`). This is a fresh tree with
 `<default>` at the merged commit. This repo's production env is in the process environment,
 and there is no `.env.local` file.
 
 1. Install dependencies from the lockfile (frozen; no lockfile change).
 2. Do `/push` step 2: apply migrations through the repo's own route (its applier script, else
-   the CLI). Skip 2d's commit. If type generation changes tracked files, leave them and say so.
+   the CLI). Skip 2d's commit.
 3. Do `/push` step 3: the production build. A red build stops the phase; do not fix it here.
 4. Make no commit, stage nothing, push nothing, and write no `.env*` file. The broker refuses
-   the ship if HEAD or `<default>` moved.
+   the ship if HEAD or `<default>` moved, if any tracked file changed, if any untracked file is
+   left, or if an ignored `.env*` or `.gitignore` appeared. Only ignored build outputs may stay.
+5. **Any tracked change is a failed phase.** If type generation (or anything else) changes a
+   tracked file, do not continue to the build. End with `BROKER-PHASE-RESULT: failed tracked
+   files changed: <paths>`. The change must go on the job branch through phase 1, which means a
+   re-pin and a fresh approval tap: commit it on the job branch (on the Mac, or by a phase 1 that
+   can produce it without the production env) and send the ship again.
 
-**Both phases end with exactly one result line as the last line of the final message**, because
+**Phase 3, post-deploy registration** (the same command plus `--phase 3`). The broker starts it
+only after it has confirmed the production deployment of the pushed SHA. It is a fresh tree at
+the pushed commit, with the same env as phase 2.
+
+1. Do `/push` step 7 only: register background-job functions (the Inngest `PUT`, and any cron or
+   webhook registration endpoint) against the production domain, with the second-`PUT` rule for
+   `modified`. A repo with none of these ends `ok` and says "no post-deploy registration".
+2. Do not migrate, build, commit or write any file. Report what was registered.
+3. A registration that needs a credential beyond this repo's production env cannot be done here.
+   End with `BROKER-PHASE-RESULT: failed needs <what>`, so the operator does it by hand. The
+   ship itself already stands: the broker reports a failed phase 3 and does not undo the push.
+
+**Every phase ends with exactly one result line as the last line of the final message**, because
 the broker cannot read success from the exit code:
 
     BROKER-PHASE-RESULT: ok
