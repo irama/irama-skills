@@ -374,8 +374,11 @@ if [ -n "$ship" ] && [ -n "${POLLER_SHIP_CMD:-}" ]; then
     refuse "branch '$branch' is not a plain branch name"
   fi
   token=$("${J[@]}" claim-token "$id" 2>>"$LOG") && [ -n "$token" ] || failed "no claim token"
-  bundle=$(mktemp) || failed "no temp file"
-  trap 'rm -f "$bundle"; rm -rf "$LOCK"' EXIT # keeps the lock release
+  # git bundle writes through a lock file with the umask's mode, so the folder keeps it private.
+  bdir=$(mktemp -d) || failed "no temp folder"
+  trap 'rm -rf "$bdir" "$LOCK"' EXIT # keeps the lock release
+  bundle="$bdir/job.bundle"
+  : >"$bundle"
   # Only commits origin lacks; none (already on origin) sends the token alone. Any other git
   # error (no such branch, not a repo) fails the hand-off rather than sending the token alone.
   if [ -n "$bundle_ref" ]; then
