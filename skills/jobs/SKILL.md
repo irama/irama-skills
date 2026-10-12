@@ -27,7 +27,8 @@ $J comment <id> --kind message --body-file <f> --file <report.html> --file <brie
 ```
 
 `--image` needs this machine's claim token for the job. Each image is downscaled to 1600px on
-the long edge with macOS `sips` (the original goes when `sips` is missing), uploaded to its own
+the long edge with macOS `sips`, or ImageMagick where `sips` is missing (the original goes
+when neither exists), uploaded to its own
 slot, and linked to the comment in one step. If any image fails, no comment is posted. Until
 the hub deploys agent screenshots, the slot route answers 404 or 405 and the client says so
 and exits 1.
