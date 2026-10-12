@@ -371,7 +371,8 @@ if (cfg.inPlace) {
   for (const f of files) {
     const n = basename(f).toLowerCase();
     let buf, kind;
-    if (n.endsWith('.svg')) { if (!isSvg) continue; buf = adaptiveSvg(); kind = 'adaptive svg'; }
+    // Only the favicon SVGs: other SVGs whose names contain "icon" are unrelated art.
+    if (n.endsWith('.svg')) { if (!isSvg || !/^(icon|favicon)\.svg$/.test(n)) continue; buf = adaptiveSvg(); kind = 'adaptive svg'; }
     else if (n.endsWith('.ico')) { buf = await buildFaviconIco(); kind = 'ico'; }
     else {
       const w = pngWidth(f);
