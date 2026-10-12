@@ -486,6 +486,20 @@ would prompt, so an unattended run cannot stall on a question.
   are skipped.
 - **Stop:** `bash <skill-dir>/assets/install-poller.sh --uninstall` unloads the agent and
   deletes the plist and `poller.env`. It keeps the log and `claims.json`.
+- **Linux:** `bash <skill-dir>/assets/install-poller-linux.sh [--env-file FILE]` writes the same
+  `poller.env`, appends FILE (the machine's own settings, kept outside this repo), and enables a
+  systemd user timer, `jobs-poller.timer` (10 s after start, then 60 s after each tick ends).
+  `--dry-run` and `--uninstall` work as on macOS. The log is
+  `~/.local/state/jobs-poller.log`. A user who is never logged in needs
+  `loginctl enable-linger <user>` (root) for the timer to run.
+- **Shared board switches** (in `poller.env`, all off by default): `POLLER_SKIP_UNTARGETED=1`
+  and `POLLER_SKIP_LOCAL=1` leave untargeted and `local/*` jobs to another machine's poller,
+  on all three pick paths and before any side effect. `POLLER_MIRROR_SYNC=<cmd>` runs
+  `sudo -n -u broker <cmd> <target>` before a targeted run and clones the mirror it names into
+  the target's manifest path (`JOBS_TARGET_MANIFEST`) when that folder is missing.
+  `POLLER_SHIP_CMD=<cmd>` hands a ship-approved job to `sudo -n -u broker <cmd> --job <id>`,
+  with `$J claim-token <id>` and then a git bundle of the job branch (commits origin lacks) on
+  stdin, in place of a `--ship` run. The broker reports the ship result itself.
 - **Log:** `~/Library/Logs/jobs-poller.log`. A Telegram message (through the `telegram`
   skill's `send.sh`) reports a card that reaches In review, and a run that fails.
 - **Drive prefetch:** `JOBS_PREFETCH` in `poller.env` (`|`-separated folders) is downloaded before

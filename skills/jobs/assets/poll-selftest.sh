@@ -2,7 +2,9 @@
 # Scripted check of poll.sh with a fake HOME, a fake jobs.py, a fake claude and a fake
 # Telegram sender. Covers the pick filter (board jobs included), the run folder and its trust, untargeted jobs and their run folder,
 # the once-per-job skip log, the stale and live lock, the at-most-once rule, the In review
-# message, the watchdog, and the failure comment with its retry on reply. Touches no hub, no launchd, no real config.
+# message, the watchdog, the failure comment with its retry on reply, the POLLER_SKIP_* switches
+# on all three pick paths, and box mode (mirror-sync, clone, ship through the broker) with a fake
+# sudo. Touches no hub, no launchd or systemd, no real config. Runs on macOS and Linux.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
 tmp=$(mktemp -d)
@@ -252,4 +254,149 @@ grep -q 'body Stopped after' "$tmp/calls" && fail "watchdog comment doubled up w
 FAKE_YOU=80 FAKE_COLUMN=in_review bash "$here/poll.sh"
 grep -q 'JOB-20 --background' "$tmp/calls" || fail "a newer reply did not retry"
 grep -q 'Background run failed' "$tmp/calls" && fail "failure comment on a run that left Backlog"
+# xi) POLLER_SKIP_UNTARGETED and POLLER_SKIP_LOCAL leave untargeted and local/* jobs alone on
+# all three pick paths, before any side effect. Each path is checked with a control tick
+# (switches off: the job starts) and a skip tick (switches on: no call but the listing).
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+a = sys.argv[1:]
+path, t = os.environ.get("FAKE_PATH"), json.loads(os.environ.get("FAKE_TARGETS", "[]"))
+jobs = []
+if a[0] == "list" and "--ship-approved" in a and path == "ship":
+    jobs = [{"id": 40, "claimed": True, "title": "ship", "ship_approved_at": "w",
+             "runs": [{"state": "approved", "target": t[0] if t else "", "approved_sha": "abc1234"}]}]
+elif a[0] == "list" and "--awaiting" in a and path == "awaiting":
+    jobs = [{"id": 40, "column": "in_review", "claimed": True, "awaiting": True, "targets": t, "title": "reply"}]
+elif a[0] == "list" and "--column" in a and path == "backlog":
+    jobs = [{"id": 40, "column": "backlog", "targets": t, "claimed": False, "title": "backlog"}]
+if a[0] == "list":
+    print(json.dumps({"jobs": jobs}))
+elif a[0] == "get":
+    print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "prompt": "do it",
+        "comments": [{"id": 90, "author": "you", "kind": "message"}]}}))
+elif a[0] == "repos":
+    print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
+EOF
+echo '{"40": "tok"}' >"$HOME/.config/jobs/claims.json"
+echo 40 >"$HOME/.config/jobs/poller-owned"
+for path in ship awaiting backlog; do
+  for targets in '[]' '["local/x"]'; do
+    [ "$path" = ship ] && [ "$targets" = '[]' ] && continue # a ship run always names its target
+    : >"$HOME/.config/jobs/poller-tried"
+    : >"$HOME/.config/jobs/poller-skipped"
+    : >"$tmp/calls"
+    FAKE_PATH=$path FAKE_TARGETS=$targets bash "$here/poll.sh"
+    grep -q 'JOB-40 ' "$tmp/calls" || fail "control: $path job with targets $targets did not start"
+    : >"$HOME/.config/jobs/poller-tried"
+    : >"$tmp/calls"
+    FAKE_PATH=$path FAKE_TARGETS=$targets POLLER_SKIP_UNTARGETED=1 POLLER_SKIP_LOCAL=1 bash "$here/poll.sh"
+    if grep -v '^list ' "$tmp/calls" | grep -q .; then
+      fail "$path job with targets $targets had a side effect: $(grep -v '^list ' "$tmp/calls" | head -1)"
+    fi
+    [ -s "$HOME/.config/jobs/poller-tried" ] && fail "$path job with targets $targets recorded as tried"
+  done
+done
+# Set in poller.env (not only the caller's env), the switches still apply.
+printf 'POLLER_SKIP_UNTARGETED=1\nPOLLER_SKIP_LOCAL=1\n' >>"$HOME/.config/jobs/poller.env"
+: >"$tmp/calls"
+FAKE_PATH=backlog FAKE_TARGETS='["local/x"]' bash "$here/poll.sh"
+grep -q 'JOB-40 ' "$tmp/calls" && fail "POLLER_SKIP_LOCAL in poller.env ignored"
+"$py" -c 'import sys; p = sys.argv[1]; k = [l for l in open(p) if not l.startswith("POLLER_SKIP_")]; open(p, "w").writelines(k)' \
+  "$HOME/.config/jobs/poller.env"
+
+# xii) Box mode: before a targeted run, mirror-sync through sudo, then clone the mirror into the
+# manifest path when missing. A ship-approved job then goes to POLLER_SHIP_CMD through sudo,
+# with the claim token on the first stdin line and a bundle of the job branch after it; no claude.
+mkdir -p "$tmp/bin"
+cat >"$tmp/bin/sudo" <<'EOF'
+#!/usr/bin/env bash
+echo "sudo $*" >>"$CALLS"
+[ "$1 $2 $3" = "-n -u broker" ] || { echo "fake sudo: unexpected $*" >&2; exit 1; }
+shift 3
+exec "$@"
+EOF
+cat >"$tmp/mirror-sync" <<'EOF'
+#!/usr/bin/env bash
+echo "mirror-sync $*" >>"$CALLS"
+echo "{\"mirror\": \"$FAKE_MIRROR\"}"
+EOF
+cat >"$tmp/ship-request" <<'EOF'
+#!/usr/bin/env bash
+echo "ship-request $*" >>"$CALLS"
+cat >"$SHIPPED_STDIN"
+EOF
+chmod +x "$tmp/bin/sudo" "$tmp/mirror-sync" "$tmp/ship-request"
+g() { git -c user.name=t -c user.email=t@example.invalid -c init.defaultBranch=main "$@"; }
+g init -q "$tmp/seed"
+g -C "$tmp/seed" commit -q --allow-empty -m base
+g clone -q --bare "$tmp/seed" "$tmp/mirror.git"
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+a = sys.argv[1:]
+run = {"state": "approved", "target": "o/r", "approved_sha": "abc1234", "branch": os.environ.get("FAKE_BRANCH", "job-50")}
+if a[0] == "list" and "--ship-approved" in a and os.environ.get("FAKE_PATH") == "ship":
+    print(json.dumps({"jobs": [{"id": 50, "claimed": True, "title": "ship me", "ship_approved_at": "w", "runs": [run]}]}))
+elif a[0] == "list" and "--column" in a and os.environ.get("FAKE_PATH") == "backlog":
+    print(json.dumps({"jobs": [{"id": 50, "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "box job"}]}))
+elif a[0] == "list":
+    print(json.dumps({"jobs": []}))
+elif a[0] == "get":
+    print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "runs": [run]}}))
+elif a[0] == "repos":
+    print(json.dumps({"repos": [] if os.environ.get("FAKE_NODEST") else [{"target": "o/r", "display": "r", "path": os.environ["FAKE_CLONE"]}]}))
+elif a[0] == "claim-token":
+    print({"50": "tok-50"}[a[1]])
+EOF
+echo '{"50": "tok-50"}' >"$HOME/.config/jobs/claims.json"
+printf 'POLLER_PATH=%q\nPOLLER_MIRROR_SYNC=%q\nPOLLER_SHIP_CMD=%q\n' \
+  "$tmp/bin:$PATH" "$tmp/mirror-sync" "$tmp/ship-request" >>"$HOME/.config/jobs/poller.env"
+export POLLER_MIRROR_ROOT="$tmp" FAKE_MIRROR="$tmp/mirror.git" FAKE_CLONE="$tmp/repos/o/r" SHIPPED_STDIN="$tmp/shipped"
+: >"$HOME/.config/jobs/poller-tried"
+: >"$tmp/calls"
+# A target missing from the manifest is a logged skip, and nothing is cloned or run.
+: >"$tmp/calls"; : >"$tmp/log"
+FAKE_PATH=backlog FAKE_NODEST=1 bash "$here/poll.sh"
+grep -q 'JOB-50 skipped: target o/r is not in the target manifest' "$tmp/log" || fail "empty dest not logged as a skip"
+grep -q '^claude ' "$tmp/calls" && fail "claude ran for a target outside the manifest"
+# A mirror path with shell metacharacters, or outside the mirror root, is refused before any clone.
+for bad in "$tmp/m;touch $tmp/pwned.git" "$tmp/../x.git" "/elsewhere/m.git"; do
+  : >"$tmp/calls"; : >"$tmp/log"; rm -f "$HOME/.config/jobs/poller-skipped"
+  FAKE_MIRROR=$bad FAKE_PATH=backlog bash "$here/poll.sh"
+  grep -q 'JOB-50 skipped: mirror path' "$tmp/log" || fail "bad mirror path not refused: $bad"
+  if [ -e "$tmp/pwned.git" ] || [ -d "$tmp/repos/o/r" ]; then fail "bad mirror path was used: $bad"; fi
+done
+: >"$tmp/calls"; : >"$tmp/log"; rm -f "$HOME/.config/jobs/poller-skipped"
+FAKE_PATH=backlog bash "$here/poll.sh"
+grep -qx 'sudo -n -u broker .*/mirror-sync o/r' "$tmp/calls" || fail "mirror-sync not called through sudo for the target"
+[ -d "$tmp/repos/o/r/.git" ] || fail "mirror not cloned into the manifest path"
+clone_real=$(cd "$tmp/repos/o/r" && pwd -P)
+grep -q "claude -p /jobs JOB-50 --background .* @ $clone_real\$" "$tmp/calls" || fail "box job not run from its fresh clone"
+grep -q 'safe.directory' "$tmp/repos/o/r/.git/config" || fail "clone fetches would refuse the mirror"
+# The run committed on its job branch; now the job is approved to ship.
+g -C "$tmp/repos/o/r" checkout -q -b job-50
+g -C "$tmp/repos/o/r" commit -q --allow-empty -m "job work"
+# A branch that is a ref expression is refused before any bundle is made.
+for bad in 'job-50~1' 'job-50^' 'a..b' 'x@{1}' 'a:b'; do
+  : >"$tmp/calls"; : >"$tmp/log"; rm -f "$tmp/shipped" "$HOME/.config/jobs/poller-tried"
+  FAKE_BRANCH=$bad FAKE_PATH=ship bash "$here/poll.sh"
+  grep -q 'ship refused' "$tmp/log" || fail "branch $bad not refused"
+  [ -e "$tmp/shipped" ] && fail "branch $bad was bundled and shipped"
+done
+: >"$HOME/.config/jobs/poller-tried"
+: >"$tmp/calls"
+FAKE_PATH=ship bash "$here/poll.sh"
+grep -qx 'sudo -n -u broker .*/ship-request --job 50' "$tmp/calls" || fail "ship not handed to POLLER_SHIP_CMD through sudo"
+grep -q '^claude ' "$tmp/calls" && fail "claude ran for a broker ship"
+[ "$(head -1 "$tmp/shipped")" = tok-50 ] || fail "claim token is not the first stdin line"
+tail -n +2 "$tmp/shipped" >"$tmp/shipped.bundle"
+head -1 "$tmp/shipped.bundle" | grep -Eq '^# v[23] git bundle$' || fail "no git bundle after the token"
+git -C "$tmp/repos/o/r" bundle list-heads "$tmp/shipped.bundle" | grep -q ' refs/heads/job-50$' \
+  || fail "bundle lacks the job branch"
+grep -qx '50#ship@w' "$HOME/.config/jobs/poller-tried" || fail "broker ship key not recorded"
+grep -q 'JOB-50 ship request sent to the broker' "$tmp/sent" || fail "no broker hand-off message"
+: >"$tmp/calls"
+FAKE_PATH=ship bash "$here/poll.sh"
+grep -q 'ship-request' "$tmp/calls" && fail "same approval sent to the broker twice"
 echo "poll.sh selftest: ok"
