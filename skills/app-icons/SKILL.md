@@ -44,14 +44,14 @@ The full flag list is in the script header. Generate mode prints the `metadata` 
 | Browser tab, Safari | PNG / ICO favicon | Ignores SVG favicons |
 | Installed app, Chromium on macOS | The `maskable` manifest icon | Crops it to the central 80% (measured: a 61% glyph showed at 75%) |
 | Installed app, Android | The `maskable` manifest icon | Crops to the safe zone and applies its own mask shape |
-| Safari "Add to Dock" (macOS) | A manifest icon. One fleet reinstall showed it uses the **maskable** icon, uncropped. Not yet re-tested. | Places it in a squircle |
+| Safari "Add to Dock" (macOS) | The **maskable** manifest icon, even when an `any` icon and an apple-touch icon exist (verified 2026-10-12: baked glyph 0.541 of the tile; maskable art 0.54, standard 0.68) | Does not crop it; places it in a squircle as is |
 | iOS "Add to Home Screen" | `apple-touch-icon` | Rounds the corners |
 | Installed-app title bar | `viewport.themeColor` (per scheme), else manifest `theme_color` | Paints the title bar |
 
 ## Rules
 
-- **Maskable icons.** Chromium crops maskable icons and Safari (as observed) does not,
-  so no single maskable file shows the same glyph size in both. `--maskable-scale 0.8`
+- **Maskable icons.** Chromium and Safari both read the maskable icon, and only Chromium
+  crops it, so no single maskable file shows the same glyph size in both. `--maskable-scale 0.8`
   (default, the spec) is right for Chromium and Android. `--maskable-scale 1` (maskable
   equals standard) is right for Safari, and Chromium then shows the glyph about 1.25x
   larger. Choose per fleet and apply it to every app. Never mix the two across apps.
