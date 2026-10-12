@@ -233,7 +233,8 @@ def target_of(repo):
     m = target_manifest()
     if m is not None:
         real = os.path.realpath(root)
-        hits = [t for t, p in m.items() if os.path.realpath(p) == real]
+        # A manifest entry may name a linked worktree: collapse it as repo_root did for root.
+        hits = [t for t, p in m.items() if os.path.realpath(repo_root(p) or p) == real]
         return hits[0] if hits else target_from_url(None, root.name)
     return target_from_url(git(root, "remote", "get-url", "origin", check=False), root.name)
 
@@ -328,9 +329,8 @@ def cmd_attachments(a):
 def cmd_claim_token(a):
     """This machine's claim token for one job, read under the claims lock; exit 1 if none."""
     p = claims_path()
-    if not p.exists():
-        print(json.dumps({"error": f"no claim token for JOB-{a.id} on this machine"}))
-        return 1
+    # Lock first: a concurrent first claim may be creating claims.json right now.
+    p.parent.mkdir(parents=True, exist_ok=True)
     lock_fd = os.open(p.with_suffix(".lock"), os.O_WRONLY | os.O_CREAT, 0o600)
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_SH)

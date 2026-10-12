@@ -144,6 +144,16 @@ class Manifest(Base):
         r = self.jobs("repos", "--dry-run", JOBS_TARGET_MANIFEST=str(self.manifest))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    def test_manifest_entry_naming_a_worktree_matches_the_checkout(self):
+        wt = self.tmp / "wt"
+        sh(self.clone, "git", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+           "commit", "-q", "--allow-empty", "-m", "x")
+        sh(self.clone, "git", "worktree", "add", "-q", str(wt), "-b", "wt-branch")
+        self.manifest.write_text(json.dumps({"acme/widget": str(wt)}))
+        env = dict(JOBS_TARGET_MANIFEST=str(self.manifest))
+        self.assertEqual(json.loads(self.jobs("here", cwd=self.clone, **env).stdout)["target"], "acme/widget")
+        self.assertEqual(json.loads(self.jobs("here", cwd=wt, **env).stdout)["target"], "acme/widget")
+
     def test_bad_manifest_is_a_config_error(self):
         self.manifest.write_text(json.dumps({"acme/widget": "relative/path"}))
         r = self.jobs("here", cwd=self.clone, JOBS_TARGET_MANIFEST=str(self.manifest))
@@ -162,6 +172,22 @@ class ClaimToken(Base):
         self.assertEqual(r.returncode, 1)
         self.assertNotIn(token, r.stdout)
         self.assertEqual(len(self.hub.requests), 1, "claim-token itself makes no HTTP call")
+
+    def test_waits_for_a_concurrent_first_claim_instead_of_failing(self):
+        import fcntl
+        import time
+        fd = os.open(self.cfg / "claims.lock", os.O_WRONLY | os.O_CREAT, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            proc = subprocess.Popen([sys.executable, str(JOBS), "claim-token", "9"], cwd=self.tmp,
+                                    env=self.env, stdout=subprocess.PIPE, text=True)
+            time.sleep(0.5)
+            (self.cfg / "claims.json").write_text(json.dumps({"9": "tok-9"}))
+        finally:
+            os.close(fd)
+        out, _ = proc.communicate(timeout=10)
+        self.assertEqual((proc.returncode, out), (0, "tok-9\n"))
+
 
 
 class ImageMagickFallback(unittest.TestCase):
