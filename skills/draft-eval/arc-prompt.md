@@ -39,12 +39,25 @@ object, artefact, big number). Check no two neighbours share a kind and that the
 to each other. Where a slide continues the scene of the one before, check its declared motion morphs
 what continues, pans a keyed background or zooms into a detail rather than cutting.
 
+## Moments (`moments`)
+
+The criteria above judge the argument. This group judges whether the deck gives the room moments:
+something to remember, a feeling at the peak and the end, a person to care about, a laugh, and a
+speaker who stands with them. Judge each check pass or fail from every slide's text and notes and
+the contact sheet, using its pass and fail descriptions. A check passes only when its whole pass
+description holds. A deck that is all argument and no moments fails this group: it fails at least
+`star_moment`, `people_and_stories` and `light_moment`. Judge whether a moment is there and built,
+not whether it is wise or fair: the author makes that call.
+
+{{MOMENTS}}
 {{EXAMPLES}}
 
 ## Reasons
 
 Each reason is one or two sentences. Name the slides it rests on by their number from `units.md`
 (for example "slides 7 to 9"), and quote at least one of them word for word inside double quotes.
+A moments check that fails because something is missing names where it should be (for example
+"no slide from 1 to 18 plans a laugh") and quotes the nearest slide that comes close.
 
 ## Output
 
@@ -61,7 +74,16 @@ Return one JSON object and nothing else:
         "taxonomy_ids": {"score": 1, "reason": "..."},
         "one_model": {"score": 1, "reason": "..."},
         "visual_journey": {"score": 1, "reason": "..."}
+      },
+      "moments": {
+        "star_moment": {"pass": false, "reason": "..."},
+        "peak_and_end": {"pass": false, "reason": "..."},
+        "five_moves": {"pass": false, "reason": "..."},
+        "people_and_stories": {"pass": false, "reason": "..."},
+        "wrong_and_credible": {"pass": false, "reason": "..."},
+        "light_moment": {"pass": false, "reason": "..."},
+        "stage_directions": {"pass": false, "reason": "..."}
       }
     }
 
-`score` is an integer from 1 to 5. N/A is never allowed in the arc pass.
+`score` is an integer from 1 to 5. `pass` is true or false. N/A is never allowed in the arc pass.

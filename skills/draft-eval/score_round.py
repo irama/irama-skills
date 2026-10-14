@@ -17,7 +17,8 @@ many units each grader scored.
 Claude sets the bar; Codex audits (the default, `--graders claude`). A unit's
 score is Claude's mean over its applicable criteria, the round's median is the
 median unit score, and the bar is: every mechanical gate passes, Claude's arc
-pass scores at least arc_min on every arc criterion, and every applicable
+pass scores at least arc_min on every arc criterion and (from rubric 0.7) passes
+every moments check, and every applicable
 criterion on every unit scores at least judged_min from Claude. Each round Codex
 grades only the audit set: the units rewritten in the round before, plus the
 same number of untouched units as a baseline, picked by a hash of the round and
@@ -40,6 +41,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import arc as arc_mod  # noqa: E402
+
 GRADERS = ("codex", "claude")
 SELF_PREF = 0.5
 
@@ -144,6 +148,8 @@ def score(units_doc, records, regrades=None, mechanical=None, arc=None, round_n=
             sc = ((arc or {}).get(g) or {}).get("scores", {})
             arc_fail += [f"{g}:{c}" for c in bars["arc_criteria"]
                          if not isinstance((sc.get(c) or {}).get("score"), int) or sc[c]["score"] < bars["arc_min"]]
+            if bars.get("moments_must_pass"):
+                arc_fail += [f"{g}:moments.{c}" for c in arc_mod.moments_failing((arc or {}).get(g))]
     units_ok = all(not v["failing"] and all(g not in v["missing"] for g in judges) and v["score"] is not None
                    for v in units.values())
     passes = mech_ok and not arc_fail and units_ok and "claude" in judges
@@ -277,7 +283,8 @@ def selftest():
     rubric = json.loads((HERE / "rubric.json").read_text())
     crits = [c["id"] for c in rubric["criteria"]]
     units = {"kind": "deck", "units": [{"id": u} for u in "abc"]}
-    arc = {g: {"scores": {c: {"score": 4} for c in rubric["bars"]["arc_criteria"]}} for g in GRADERS}
+    arc = {g: {"scores": {c: {"score": 4} for c in rubric["bars"]["arc_criteria"]},
+               "moments": {c["id"]: {"pass": True} for c in rubric["moments"]["checks"]}} for g in GRADERS}
 
     def recs(g, vals):
         return [{"unit": u, "scores": {c: {"score": v} for c in crits}} for u, v in vals.items()]

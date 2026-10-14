@@ -67,6 +67,15 @@ report). Until then, score only: run one round with no rewrite.
   reader praises in a review goes on it. The rewrite step reads it, and the review brief reports
   each element against the run's rewrites.
 
+### Rubric 0.7
+
+Adds the deck-level `moments` group, graded pass or fail per check in the arc pass and held in the
+bar (`bars.moments_must_pass`), so a deck that is all argument and no moments cannot finish. Seven
+checks: a S.T.A.R. moment, a designed peak and ending, one of five moves per slide, a story or
+person per section, an "I was wrong" beat with early credibility, a planned light moment, and
+stage directions ([PAUSE], [ASK], [STORY], [MOVE: ...]) in the notes. The group is experimental;
+its detail and comparability are in `rubric-history.md`.
+
 ### Rubric 0.6
 
 Fitted to the deck-authoring rules on motion and visuals. Rounds scored under 0.5 are not
@@ -191,8 +200,8 @@ The rubric's `changelog` says what each version changed and what it was fitted t
 - **Claude sets the bar; Codex audits.** Codex's role is to catch Claude marking its own rewrites
   up, so its scores never set the bar or the median in a loop round.
 - **The bar**: every mechanical gate passes; Claude's arc pass scores at least 4 on every arc
-  criterion in the rubric's `bars.arc_criteria`; every applicable criterion on every unit scores at
-  least 4 from Claude.
+  criterion in the rubric's `bars.arc_criteria` and passes every `moments` check; every applicable
+  criterion on every unit scores at least 4 from Claude.
 - **A unit's score** is Claude's mean. The round's **median** is the median unit score. Sums change
   when units change, so the loop compares medians only.
 - **Stop** on the first of: the bar is met (or met but blocked); 5 rounds done; or two rounds in a
@@ -248,7 +257,7 @@ in place of its parsed file.
    --examples` in the next run.
 2. **Pre-review against the lessons**, before the reader sees anything. Dispatch a fresh
    general-purpose agent with the changed slides' screenshots, `<folder>/keep.json` and the
-   rubric's `lessons` checks. It returns every check a changed slide breaks and every kept element
+   rubric's `lessons` checks and `moments` checks. It returns every check a changed slide breaks and every kept element
    a rewrite lost. Fix those, rebuild, and say in the brief what the pre-review caught, so the
    reader only catches what the lessons do not yet cover.
 3. **Review brief** (a `peakstate-brief`), at `<brief folder>/<target>-<date>.md`:

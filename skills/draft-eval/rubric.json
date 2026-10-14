@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.6",
+  "rubric_version": "0.7",
   "phase": "experimental",
   "changelog": [
     {
@@ -37,6 +37,10 @@
     {
       "version": "0.6",
       "note": "Fitted to the deck-authoring rules on motion and visuals, not to a reader's notes, so no deck is yet a fair test of it. A new judged criterion, motion (decks only), asks whether a slide's declared motion (the section's data-motion, shown to the grader as motion.txt) acts out its point or metaphor, settles by 7s, keeps any loop subtle and meaningful, and uses the movement an idea already has. A new arc criterion in the bar, visual_journey, asks for a visual on about nine presented slides in ten, varied kinds of visual with no two neighbours alike, metaphors that work as a set, and immersive transitions where the next slide continues the same scene. check.py gains a motion gate from the runtime's ?motion report, skipped for decks whose deck-tools.js predates it. Rounds scored under 0.5 or earlier are not comparable on motion or visual_journey."
+    },
+    {
+      "version": "0.7",
+      "note": "Fitted to a review of what the best-analysed talks do that our decks do not, not to a reader's notes, so no deck is yet a fair test of it. A new deck-level moments group, graded in the arc pass as pass or fail per check: a named and built S.T.A.R. moment, a designed peak and ending with a close that returns to the open, one of five persuasion moves on each presented slide with confirm or justify before any promise, a story or named person in every section and no bare statistic, a vulnerability beat and an early credibility story, at least one planned light moment, and stage directions in the notes. The group passes only when every check passes, and bars.moments_must_pass puts it in the bar, so a deck that is all argument and no moments cannot finish. The group is in its experimental phase. The rubric holds no ethics guard on the moves: the author judges that. Unit scores and the arc criteria are unchanged; rounds scored under 0.6 or earlier are not comparable on moments or on the bar."
     }
   ],
   "scale": {
@@ -447,7 +451,8 @@
     "split_regrade": "Calibration rounds only (--graders both): where one grader gives 3 and the other 4 or more, the lower grader re-grades that unit once and the second score stands. A Claude-bar round has one full grading, so nothing splits.",
     "max_rounds": 5,
     "plateau_rounds": 2,
-    "max_rewrites_per_round": 8
+    "max_rewrites_per_round": 8,
+    "moments_must_pass": true
   },
   "filler_patterns": [
     {
@@ -555,6 +560,84 @@
           "Where the next slide continues the same scene, morph what continues, pan a keyed background or zoom into a detail.",
           "About nine presented slides in ten carry a visual, and the kinds of visual vary with no two neighbours alike."
         ]
+      }
+    ]
+  },
+  "moments": {
+    "applies_to": [
+      "deck"
+    ],
+    "phase": "experimental",
+    "note": "Graded in the arc pass, one pass or fail per check, judged from every slide's text and notes and the contact sheet. The group passes only when every check passes. A deck that is all argument and no moments fails it.",
+    "moves": [
+      {
+        "id": "dreams",
+        "name": "encourage their dreams",
+        "does": "Names the future the room already wants, before any problem."
+      },
+      {
+        "id": "failures",
+        "name": "justify their failures",
+        "does": "Gives a past stall a structural cause, so the room is not to blame."
+      },
+      {
+        "id": "fears",
+        "name": "allay their fears",
+        "does": "Names the quiet risk, then the first step that handles it."
+      },
+      {
+        "id": "suspicions",
+        "name": "confirm their suspicions",
+        "does": "Says out loud what half the room privately believes, and agrees."
+      },
+      {
+        "id": "side",
+        "name": "always on your side",
+        "does": "The speaker stands with the room: \"we\", a shared problem, the speaker's own stake in their success."
+      }
+    ],
+    "checks": [
+      {
+        "id": "star_moment",
+        "name": "A S.T.A.R. moment is named and built",
+        "pass": "The notes name one moment as the S.T.A.R. moment (Something They'll Always Remember), say its type (a dramatisation, a repeatable line, a striking visual, a story or a shocking statistic made physical) and the slide it lives on, and that slide builds it: a prop, a live demonstration, a line written to be repeated, or a slide that breaks the deck's visual system on purpose.",
+        "fail": "No moment is named, or one is named but its slide is an ordinary slide that gives the room nothing to repeat afterwards."
+      },
+      {
+        "id": "peak_and_end",
+        "name": "The peak and the ending are designed, and the close returns to the open",
+        "pass": "The notes name the emotional peak and plan the last 60 seconds, those slides carry the deck's strongest material, and the last line or image echoes the first, so the room feels the talk was about one thing.",
+        "fail": "No peak is named, the deck ends on a summary, a questions slide or a thank-you with no designed last line, or the close does not echo the open."
+      },
+      {
+        "id": "five_moves",
+        "name": "One of the five moves on each slide, all five across the deck, confirm or justify before any promise",
+        "pass": "Every presented content slide makes one of the five moves (encourage their dreams, justify their failures, allay their fears, confirm their suspicions, always on your side), on the slide or in its notes; all five appear across the deck; and the first slide that confirms or justifies comes before the first promise (a slide that offers a better future, a fix or the talk's answer). Title and evidence slides may carry none. A [MOVE: ...] tag is a claim to check against what the slide says, not proof.",
+        "fail": "A content slide makes no move, one of the five never appears, or the deck promises a future or a fix before any slide confirms or justifies."
+      },
+      {
+        "id": "people_and_stories",
+        "name": "A story or named person in every section, and no bare statistic",
+        "pass": "Every section (an act in the run sheet, or the slides between two section dividers) has at least one story or one named person in it, on a slide or in the notes, and every statistic sits beside a person it happened to or a physical scale the room can picture, such as a barrow of sugar or a stack of paper.",
+        "fail": "A section is argument only, with no story and no named person, or a statistic stands alone as a bare number."
+      },
+      {
+        "id": "wrong_and_credible",
+        "name": "An \"I was wrong\" beat, and credibility early through a story",
+        "pass": "The speaker has one \"I was wrong\" or vulnerability beat (a time they believed what the talk now argues against, or a failure of their own), and in the first three minutes a specific story shows why the speaker has the right to say this.",
+        "fail": "No confession or vulnerability anywhere, or credibility arrives as a CV, a list of titles or client logos, arrives late, or never arrives."
+      },
+      {
+        "id": "light_moment",
+        "name": "At least one planned light moment",
+        "pass": "At least one moment of humour is planned on a slide or in the notes (a joke, a self-deprecating line, a playful image or a comic callback) at a point the grader can name. Straight after the heaviest slide, where the room most needs release, is the best place; more than one is better.",
+        "fail": "No planned humour anywhere. A pun in a title that the notes do not plan as a laugh does not count."
+      },
+      {
+        "id": "stage_directions",
+        "name": "Stage directions in the notes",
+        "pass": "The speaker notes carry stage directions in square brackets: a [MOVE: <move>] tag on each slide that makes a move, [STORY] where a story starts, [ASK] where the room is asked something, and [PAUSE] at least at the peak and after the S.T.A.R. moment.",
+        "fail": "The notes carry no stage directions, or only a stray one, so the presenter has no planned pauses, asks or moves."
       }
     ]
   }

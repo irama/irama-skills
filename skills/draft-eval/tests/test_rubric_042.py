@@ -35,7 +35,7 @@ def errors(r):
 
 class Rubric042Test(unittest.TestCase):
     def test_version_and_changelog(self):
-        self.assertIn(RUBRIC["rubric_version"], ("0.4.2", "0.5", "0.6"))  # 0.5 and 0.6 keep these anchors
+        self.assertIn(RUBRIC["rubric_version"], ("0.4.2", "0.5", "0.6", "0.7"))  # 0.5 and 0.6 keep these anchors
         self.assertIn("round-three", {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.4.2"])
 
     def test_curiosity_is_a_device_type_the_schema_accepts(self):
@@ -68,7 +68,8 @@ class Rubric042Test(unittest.TestCase):
         self.assertEqual(set(json.loads((HERE / "arc-schema.json").read_text())
                              ["properties"]["scores"]["required"]), set(RUBRIC["bars"]["arc_criteria"]))
         good = {"model": "m", "scores": {c: {"score": 4, "reason": 'Slide 2 says "x".'}
-                                         for c in RUBRIC["bars"]["arc_criteria"]}}
+                                         for c in RUBRIC["bars"]["arc_criteria"]},
+                "moments": {c["id"]: {"pass": True, "reason": "r"} for c in RUBRIC["moments"]["checks"]}}
         self.assertEqual(arc.check(json.dumps(good))[1], [])
         del good["scores"]["one_model"]
         self.assertTrue(arc.check(json.dumps(good))[1])

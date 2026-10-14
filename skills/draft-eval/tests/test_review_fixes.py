@@ -77,7 +77,8 @@ def recs(scores):
     return [{"unit": u, "scores": {c: {"score": v} for c in CRITS}} for u, v in scores.items()]
 
 
-ARC = {g: {"scores": {c: {"score": 4} for c in RUBRIC["bars"]["arc_criteria"]}} for g in sr.GRADERS}
+ARC = {g: {"scores": {c: {"score": 4} for c in RUBRIC["bars"]["arc_criteria"]},
+           "moments": {c["id"]: {"pass": True} for c in RUBRIC["moments"]["checks"]}} for g in sr.GRADERS}
 
 
 class ScoreRoundFixTest(unittest.TestCase):

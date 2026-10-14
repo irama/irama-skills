@@ -32,6 +32,9 @@ from pathlib import Path
 from urllib.parse import quote
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import arc as arc_mod  # noqa: E402
+
 OPEN = re.compile(r"\{\{[A-Z0-9_]+\}\}")
 
 
@@ -59,6 +62,10 @@ def gate_rows(sc, arc, prefer):
             vals = ", ".join(f"{c} {v['score']}" for c, v in s.items())
             fail = any(v["score"] < 4 for v in s.values())
             rows.append((f"Arc pass, {g}", "4 or more on each", vals, "failed" if fail else "passed"))
+        if "moments" in ga:
+            bad = arc_mod.moments_failing(ga)
+            rows.append((f"Moments, {g}", "every check passes", ", ".join(bad) or "all pass",
+                         "failed" if bad else "passed"))
     sp = sc["self_preference"]
     ex = sp["excess_vs_untouched"] if sp["compared_with"] == "untouched" else sp["excess_vs_baseline"]
     if ex is not None:

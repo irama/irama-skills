@@ -37,7 +37,7 @@ FAILING = """03 LATE settles 8.0s  [03 Slow reveal]
 
 class Rubric06Test(unittest.TestCase):
     def test_version_and_changelog(self):
-        self.assertEqual(RUBRIC["rubric_version"], "0.6")
+        self.assertIn(RUBRIC["rubric_version"], ("0.6", "0.7"))  # 0.7 keeps motion
         self.assertEqual(RUBRIC["phase"], "experimental")
         note = {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.6"]
         self.assertIn("not comparable", note)

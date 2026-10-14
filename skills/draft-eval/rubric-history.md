@@ -1,7 +1,35 @@
 # draft-eval rubric history
 
-What rubric versions 0.3 to 0.4.2 added. Every rule here still holds in later versions; the
-rubric's `changelog` says what each version was fitted to.
+What rubric versions 0.3 to 0.4.2 and 0.7 added. Every rule here still holds in later versions;
+the rubric's `changelog` says what each version was fitted to.
+
+## Rubric 0.7: the moments group
+
+Our decks were strong on argument and evidence and thin on the moments a room remembers: a
+designed peak, a person to care about, a laugh, a speaker who shows a failure. A review of the
+best-analysed talks found those moments are what an audience repeats afterwards. The rubric had
+nothing that marked their absence down, so a dry deck could meet the bar. The group adds that
+check now, before any deck has been built to it, so it is a first guess at the target.
+
+- **`moments`** is a deck-level group, graded in the arc pass, one pass or fail per check:
+  `star_moment` (a S.T.A.R. moment, "Something They'll Always Remember", named and built),
+  `peak_and_end` (a designed peak and last 60 seconds, the close echoing the open),
+  `five_moves` (one of five persuasion moves on each presented content slide, all five across
+  the deck, confirm or justify before the first promise), `people_and_stories` (a story or a
+  named person in every section, no statistic without a person or a physical scale),
+  `wrong_and_credible` (an "I was wrong" beat and a credibility story in the first three
+  minutes), `light_moment` (at least one planned laugh) and `stage_directions` ([PAUSE], [ASK],
+  [STORY], [MOVE: ...] in the notes).
+- **The five moves** are Blair Warren's, with the fifth changed: encourage their dreams, justify
+  their failures, allay their fears, confirm their suspicions, and always on your side.
+- **No ethics guard.** The rubric judges whether a move is there, never whether it is fair; the
+  author makes that call.
+- **In the bar.** The group passes only when every check passes, and `bars.moments_must_pass`
+  holds it in the bar. An arc record with no `moments` block fails it.
+- **Phase.** The rest of the rubric keeps its phase; the moments group is in its experimental
+  phase, so its checks may change round to round. Unit scores and the eight arc criteria are
+  unchanged, so they stay comparable with 0.6. A round scored under 0.6 or earlier is not
+  comparable with a 0.7 round on moments or on whether the bar was met.
 
 ## Rubric 0.4.2
 

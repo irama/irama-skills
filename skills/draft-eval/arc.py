@@ -11,6 +11,9 @@ and the rendered prompt beside it as <outdir>/arc.prompt.md, then prints
 packet.py: the arc pass shows the deck-level rulings, those on an arc-only criterion
 (taxonomy_ids, one_model) or on an arc criterion with unit "deck", as worked examples. The grader runs inside <outdir>/arc/ and can read nothing else.
 
+Rubric 0.7 adds the moments group: the reply carries a moments block, one pass or
+fail per check, and moments_failing() lists the checks a grader failed.
+
 validate strips a code fence, checks the reply against arc-schema.json, and
 merges it into arc.json as graders.<grader>, stamped with model, rubric_version,
 round, prompt_sha256 (of arc-prompt.md) and schema_sha256. Exit 1 on a bad reply.
@@ -68,6 +71,22 @@ def render_criteria(rubric):
     return "\n".join(out)
 
 
+def render_moments(rubric):
+    m = rubric["moments"]
+    out = ["The five moves:\n"] + [f"- {v['name']}: {v['does']}" for v in m["moves"]] + [""]
+    for c in m["checks"]:
+        out += [f"### `{c['id']}`: {c['name']}\n", f"- pass: {c['pass']}", f"- fail: {c['fail']}", ""]
+    return "\n".join(out)
+
+
+def moments_failing(grader_arc):
+    """The moments checks a grader's arc record fails; a record with no moments block fails them all."""
+    m = (grader_arc or {}).get("moments")
+    if not isinstance(m, dict):
+        return ["moments"]
+    return [k for k, v in m.items() if not (isinstance(v, dict) and v.get("pass") is True)]
+
+
 def build(units_doc, outdir, shots_path, run_sheet=None, rubric=None, examples=None):
     rubric = rubric or json.loads((HERE / "rubric.json").read_text())
     shots_path = Path(shots_path)
@@ -105,6 +124,7 @@ def build(units_doc, outdir, shots_path, run_sheet=None, rubric=None, examples=N
     text = (HERE / "arc-prompt.md").read_text()
     picked = load_arc_examples(examples, rubric) if examples else []
     for k, v in {"RUBRIC_VERSION": rubric["rubric_version"], "CRITERIA": render_criteria(rubric),
+                 "MOMENTS": render_moments(rubric),
                  "EXAMPLES": render_examples(picked)}.items():
         text = text.replace("{{" + k + "}}", v)
     prompt.write_text(text)
@@ -153,7 +173,7 @@ def main(argv=None):
     rubric = json.loads((HERE / "rubric.json").read_text())
     arc["graders"][a.grader] = {"model": a.model or doc["model"], "rubric_version": rubric["rubric_version"],
                                 "round": a.round, "prompt_sha256": sha256("arc-prompt.md"),
-                                "schema_sha256": sha256("arc-schema.json"), "scores": doc["scores"]}
+                                "schema_sha256": sha256("arc-schema.json"), "scores": doc["scores"], "moments": doc["moments"]}
     out.write_text(json.dumps(arc, indent=1) + "\n")
     return 0
 

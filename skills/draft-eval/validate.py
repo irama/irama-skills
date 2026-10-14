@@ -46,13 +46,13 @@ def strip_fence(raw):
 
 
 def schema_errors(value, schema, path="$"):
-    """The subset of JSON Schema that schema.json uses."""
+    """The subset of JSON Schema that schema.json and arc-schema.json use."""
     if "anyOf" in schema:
         if all(schema_errors(value, s, path) for s in schema["anyOf"]):
             return [f"{path}: matches no allowed shape"]
         return []
     t = schema.get("type")
-    types = {"object": dict, "array": list, "string": str, "null": type(None)}
+    types = {"object": dict, "array": list, "string": str, "null": type(None), "boolean": bool}
     if t == "integer":
         if not isinstance(value, int) or isinstance(value, bool):
             return [f"{path}: not an integer"]

@@ -5,7 +5,8 @@
  "additionalProperties": false,
  "required": [
   "model",
-  "scores"
+  "scores",
+  "moments"
  ],
  "properties": {
   "model": {
@@ -210,6 +211,140 @@
         4,
         5
        ]
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    }
+   }
+  },
+  "moments": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "star_moment",
+    "peak_and_end",
+    "five_moves",
+    "people_and_stories",
+    "wrong_and_credible",
+    "light_moment",
+    "stage_directions"
+   ],
+   "properties": {
+    "star_moment": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "pass",
+      "reason"
+     ],
+     "properties": {
+      "pass": {
+       "type": "boolean"
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "peak_and_end": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "pass",
+      "reason"
+     ],
+     "properties": {
+      "pass": {
+       "type": "boolean"
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "five_moves": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "pass",
+      "reason"
+     ],
+     "properties": {
+      "pass": {
+       "type": "boolean"
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "people_and_stories": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "pass",
+      "reason"
+     ],
+     "properties": {
+      "pass": {
+       "type": "boolean"
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "wrong_and_credible": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "pass",
+      "reason"
+     ],
+     "properties": {
+      "pass": {
+       "type": "boolean"
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "light_moment": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "pass",
+      "reason"
+     ],
+     "properties": {
+      "pass": {
+       "type": "boolean"
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "stage_directions": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "pass",
+      "reason"
+     ],
+     "properties": {
+      "pass": {
+       "type": "boolean"
       },
       "reason": {
        "type": "string",
