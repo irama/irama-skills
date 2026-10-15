@@ -666,11 +666,15 @@ def cmd_progress(args):
         return 3
     if not _owner_is_live(owner):
         return 3
-    # A resumed run relocks under a new thread; the old thread's watcher must stop, not double up.
-    if args.owner is not None and owner.get("pid") != args.owner:
+    pid = owner.get("pid")
+    # A resumed run relocks under a new thread; the old thread's watcher must stop, not double
+    # up. 'none' (from --owner-only, below) means the pid was never identifiable, so there is
+    # nothing to compare against — skip the check rather than crash or false-evict (same
+    # fail-open rule _owner_is_live applies to an unidentifiable owner).
+    if args.owner not in (None, "none") and str(pid) != str(args.owner):
         return 3
     if args.owner_only:
-        print(owner.get("pid"))
+        print(pid if pid is not None else "none")
         return 0
     print(progress_line(load_state(args.run_dir), args.label))
     return 0
@@ -776,8 +780,10 @@ def build_parser():
     s = sub.add_parser("progress", help="one-line progress + ETA; exit 3 when the run is not live")
     s.add_argument("run_dir")
     s.add_argument("--label", default="", help="e.g. '<repo> driver, <run label>'")
-    s.add_argument("--owner", type=int, help="exit 3 unless this pid still owns the lock")
-    s.add_argument("--owner-only", action="store_true", help="print the lock owner's pid")
+    s.add_argument("--owner", help="exit 3 unless this pid still owns the lock (value from "
+                   "--owner-only; 'none' when unidentifiable never filters)")
+    s.add_argument("--owner-only", action="store_true", help="print the lock owner's pid, or "
+                   "'none' when it cannot be identified")
     s.set_defaults(func=cmd_progress)
 
     s = sub.add_parser("with-lock", help="run a command holding a repo-wide lock")
@@ -1139,6 +1145,22 @@ def selftest():
         assert cmd_progress(argparse.Namespace(**ns)) == 0
         assert cmd_progress(argparse.Namespace(**{**ns, "owner": _owner_pid() + 1})) == 3
     print("ok: (d) progress ETA ignores skipped tickets; no live lock stops the watcher")
+
+    # (e) an unidentifiable owner pid round-trips through --owner-only / --owner as 'none',
+    # never the Python-None string that crashed argparse's int parsing on the next hourly call.
+    with tf.TemporaryDirectory() as run_dir:
+        os.makedirs(os.path.join(run_dir, ".lock"))
+        with open(os.path.join(run_dir, ".lock", "owner.json"), "w") as f:
+            json.dump({"pid": None, "started": time.time()}, f)
+        no_pid_ns = dict(run_dir=run_dir, label="x", owner=None, owner_only=True)
+        import io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = cmd_progress(argparse.Namespace(**no_pid_ns))
+        assert rc == 0 and buf.getvalue().strip() == "none", buf.getvalue()
+        resumed_ns = dict(run_dir=run_dir, label="x", owner="none", owner_only=False)
+        assert cmd_progress(argparse.Namespace(**resumed_ns)) == 0
+    print("ok: (e) an unidentifiable owner pid prints 'none' and never crashes the next --owner call")
 
     selftest_land()
     print("ALL SELFTESTS PASSED")

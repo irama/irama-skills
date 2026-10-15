@@ -151,8 +151,14 @@ repos check for any live `<repo>:driver:` key and stop if one exists.
 position without anyone asking this thread.
 
 **Start the hourly Telegram progress report once the lock is held**, on a fresh run and on a
-resume. Launch it with the Bash tool's `run_in_background: true`, never inline. A worker `Agent`
-call can hold the orchestrator for hours, so a ping sent between tickets would miss the hour:
+resume, then **re-arm it at every ticket boundary** (step 5 item 7, right after re-claiming). A
+worker `Agent` call can hold the orchestrator for hours, so a ping sent between tickets would
+miss the hour — and a background shell is killed at the 2-hour background limit, so it can never
+just be one long-lived loop. Launch a **single-shot** check instead: it sleeps until the next
+hourly slot, sends at most one report, then exits well inside the 2-hour limit. Re-arming it at
+each ticket boundary is what keeps the reports coming across a run of any length; a single ticket
+that itself runs past the next hourly slot (rare) simply has that one report wait for the
+boundary that follows. Launch it with the Bash tool's `run_in_background: true`, never inline:
 
 ```
 RUN_DIR=<the run dir, written out>          # shell variables do not survive between Bash calls
@@ -161,10 +167,17 @@ IFS= read -r run_label <<'LABEL'
 LABEL
 label="<repo> driver, $run_label"
 ds=<skill-dir>/driver_state.py
-owner=$(python3 "$ds" progress "$RUN_DIR" --owner-only) || exit 1
-while sleep 3600 && msg=$(python3 "$ds" progress "$RUN_DIR" --label "$label" --owner "$owner"); do
-  bash <skill-dir>/../telegram/send.sh "$msg" >/dev/null 2>>"$RUN_DIR/telegram.err" || true
-done
+owner=$(python3 "$ds" progress "$RUN_DIR" --owner-only) || exit 0
+last="$RUN_DIR/.last-report"
+[ -f "$last" ] || echo 0 > "$last"
+now=$(date +%s)
+wait_for=$(( 3600 - (now - $(cat "$last")) % 3600 ))
+sleep "$wait_for"
+# ponytail: two re-armed instances can both wake for the same slot and double-send; the slot
+# is hourly and informational, so one stray duplicate ping is the accepted ceiling, not a bug.
+msg=$(python3 "$ds" progress "$RUN_DIR" --label "$label" --owner "$owner") || exit 0
+date +%s > "$last"
+bash <skill-dir>/../telegram/send.sh "$msg" >/dev/null 2>>"$RUN_DIR/telegram.err" || true
 ```
 
 Write the repo name and the run dir into the block as literal values. The quoted heredoc keeps
@@ -173,9 +186,11 @@ quotes, `$` and backticks in the run label from breaking the loop.
 `progress` prints one line, for example
 `acme-web driver, watch tool: 5/8 done (4 merged, 1 blocked), 1 in progress. Running 2h10m. ETA 16:40 (about 1h18m)`.
 The ETA is the mean time per worked ticket since the run started, multiplied by the tickets
-left. `progress --owner` exits non-zero once the lock is released, its owning thread has died,
-or a resumed thread has taken the lock over. The loop stops by itself in each case, so a
-resume starts its own loop and never doubles up. Never kill the loop by hand.
+left. `progress --owner` exits non-zero once the lock is released, its owning thread has died, or
+a resumed thread has taken the lock over, so a stale re-armed check never fires once superseded.
+`--owner-only` prints `none` rather than a pid when it cannot identify the owning process — pass
+that straight back through `--owner`; it is a sentinel, not a pid, and `progress` recognises it as
+"never filter" rather than crashing on it. Never kill the check by hand.
 
 **Claim every ticket in the tracker, now — before any work starts, and under the scope lock.**
 The claim is what makes step 2's check work for the next thread; a run that only labels at the
@@ -357,7 +372,10 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
    is never skipped.
 
    **Run e2e only if the ticket's diff touches UI.** Check the diff, don't add it by default.
-7. `driver_state.py set-status "$RUN_DIR" <ticket-id> merged --commit <sha> --reviewer <who>`.
+7. `driver_state.py set-status "$RUN_DIR" <ticket-id> merged --commit <sha> --reviewer <who>`,
+   then **re-arm the hourly progress check** (the single-shot block in step 3) with
+   `run_in_background: true`. Every ticket boundary re-arms it, landed or blocked, so the next
+   hourly slot is always covered by a fresh background check.
 8. A showstopper question from the worker or the orchestrator (irreversible action, missing
    credential, a taste call only the user can make) → same as a failure: `blocked`, log the exact question +
    your recommendation + the alternative, send the **blocked-ticket ping** (below),
