@@ -145,7 +145,9 @@ addition to giving its absolute path in backticks, so the operator can read it o
    (`--state failed` with a comment on failure). Post a result comment
    (`$J comment <id> --kind message --body-file <f>`, plus `--file <path>` for each HTML or PDF
    result the job produced). When every run is committed, move
-   the job: `$J patch <id> --column in_review`.
+   the job: `$J patch <id> --column in_review`. A job the operator marked "Ship when ready"
+   comes back In progress with its ship approved: the hub approved it on the move. That is
+   expected. Do not move it again; the poller ships it.
 
    **When the change touches UI,** the subagent runs `/verify-ui` on the changed screen at
    375px and at desktop width, and returns the screenshot paths. Attach them to the result
@@ -470,6 +472,20 @@ Before the run it marks that folder trusted with `assets/trust.py`: a headless r
 that was never trusted ignores the folder's permission allow rules and stalls.
 `python3 <skill-dir>/assets/trust.py --all` trusts every main checkout at once.
 
+**Lanes: several runs at once, one per repo.** A tick picks, starts each run as a detached
+worker (`poll.sh --run ...`, its own process group, with its own watchdog, heartbeat and
+Telegram report), and exits. It keeps picking, in the order above, until
+`JOBS_POLLER_MAX_RUNS` runs (default 3, ship runs included) are live or no job is free. A run
+holds the repos its job targets (`targets`, else `targets_picked`); a multi-target job needs
+all of them free. A Backlog job waits while one of its repos is busy: a live run holds it, or
+a job targeting it sits In progress or In review with a run not yet shipped (or no run yet),
+interactive claims included. A reply or ship run waits only for a live run of another job in
+its repos, never for the board, so two jobs In review on one repo never block each other's
+ships. Untargeted jobs share one lane, so one runs at a time (it may still pick a busy repo).
+One ship run at a time on the machine. Each live run has a record,
+`~/.config/jobs/runs/<id>.json` (pid, kind, lanes); a record whose PID is dead is deleted at
+the next tick.
+
 `$J claim` sends the Claude Code session id (`CLAUDE_CODE_SESSION_ID`) and the run folder
 (`JOBS_RUN_DIR`, else the current folder). The card shows Open workspace and Open thread
 links from them, so a background or interactive thread can be picked up later in VS Code.
@@ -481,6 +497,9 @@ runnable again. Delete a job's line there to let the poller look again. `auto` i
 `defaultMode` in the user settings). `--permission-prompts none` denies any action that
 would prompt, so an unattended run cannot stall on a question.
 
+- **Re-run the installer after updating to lanes.** The launchd plist needs
+  `AbandonProcessGroup` and the systemd unit needs `KillMode=process`, or the timer kills the
+  detached runs when the tick exits. An older install keeps them out until it is re-run.
 - **Install:** `bash <skill-dir>/assets/install-poller.sh` from a login shell. It writes the
   absolute paths of `claude`, `python3`, this skill, the Telegram sender, the repos root and
   the default home to `~/.config/jobs/poller.env` (mode 600), because launchd gives no
@@ -516,8 +535,9 @@ would prompt, so an unattended run cannot stall on a question.
 - **Heartbeat:** while a run lives, the poller sends `$J patch <id> --active on` every 60 seconds
   and `--active off` when it ends. The card shows Agent working from it. A patch before the run
   has claimed the job fails quietly.
-- **Limits:** one run at a time, held by the lock directory `~/.config/jobs/poller.lock`
-  (it holds the run's PID; a lock with a dead PID is removed at the next tick). A run stops
+- **Limits:** one tick picks at a time, held by the lock directory `~/.config/jobs/poller.lock`
+  (it holds the tick's PID while it picks; a lock with a dead PID is removed at the next tick).
+  Runs follow the lanes above. A run stops
   after 45 minutes, with the card comment "Stopped after 45 minutes". The poller starts a
   job at most once: a failed job stays in Backlog, and its id is in
   `~/.config/jobs/poller-tried`. When a Backlog run ends with the card still in Backlog (the
