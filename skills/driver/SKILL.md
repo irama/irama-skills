@@ -151,8 +151,17 @@ repos check for any live `<repo>:driver:` key and stop if one exists.
 position without anyone asking this thread.
 
 **Start the hourly Telegram progress report once the lock is held**, on a fresh run and on a
-resume. Launch it with the Bash tool's `run_in_background: true`, never inline. A worker `Agent`
-call can hold the orchestrator for hours, so a ping sent between tickets would miss the hour:
+resume, then **re-arm it at every ticket boundary** (step 5 item 7, right after re-claiming). A
+worker `Agent` call can hold the orchestrator for hours, so a ping sent between tickets would
+miss the hour — and a background shell is killed at the 2-hour background limit, so it can never
+just be one long-lived loop. Launch a **self-relaunching single-shot** check instead: each
+instance sleeps until the next hourly slot, sends at most one report, relaunches its own
+successor, then exits well inside the 2-hour limit — so no one process lives past one hour, yet
+reporting continues through a ticket of any length. Write the watcher once as a file (so it can
+relaunch itself by path) and launch it on a fresh run, on a resume, and again at every ticket
+boundary as a resync in case a chain ever died; redundant launches are harmless because the slot
+claim below lets only one instance per hourly slot send or relaunch. Launch it with the Bash
+tool's `run_in_background: true`, never inline:
 
 ```
 RUN_DIR=<the run dir, written out>          # shell variables do not survive between Bash calls
@@ -161,21 +170,51 @@ IFS= read -r run_label <<'LABEL'
 LABEL
 label="<repo> driver, $run_label"
 ds=<skill-dir>/driver_state.py
-owner=$(python3 "$ds" progress "$RUN_DIR" --owner-only) || exit 1
-while sleep 3600 && msg=$(python3 "$ds" progress "$RUN_DIR" --label "$label" --owner "$owner"); do
-  bash <skill-dir>/../telegram/send.sh "$msg" >/dev/null 2>>"$RUN_DIR/telegram.err" || true
-done
+send=<skill-dir>/../telegram/send.sh
+cat > "$RUN_DIR/progress-watch.sh" <<'WATCH'
+#!/bin/bash
+set -u
+RUN_DIR="$1"; label="$2"; ds="$3"; send="$4"
+owner=$(python3 "$ds" progress "$RUN_DIR" --owner-only) || exit 0
+# wake at the next whole-hour slot, derived from the clock alone, so a successor launched
+# just after a slot always sleeps to the following one.
+now=$(date +%s)
+sleep $(( 3600 - now % 3600 ))
+slot=$(( $(date +%s) / 3600 ))
+# check the owner BEFORE claiming the slot: a stale watcher from a superseded run must not
+# win the claim and silence the current owner's report.
+msg=$(python3 "$ds" progress "$RUN_DIR" --label "$label" --owner "$owner") || exit 0
+slots="$RUN_DIR/progress-slots"
+mkdir -p "$slots"
+# atomic slot claim: several boundary-launched (or resumed) chains can wake for the same
+# slot; mkdir succeeds for exactly one of them, so losers exit here, no send, no relaunch.
+mkdir "$slots/$slot" 2>/dev/null || exit 0
+# relaunch the successor before sending: this process must not live past one hour, and a
+# send that hangs or errors must never take the next hour's report down with it.
+nohup bash "$RUN_DIR/progress-watch.sh" "$RUN_DIR" "$label" "$ds" "$send" \
+  >/dev/null 2>>"$RUN_DIR/telegram.err" &
+disown
+bash "$send" "$msg" >/dev/null 2>>"$RUN_DIR/telegram.err" || true
+WATCH
+chmod +x "$RUN_DIR/progress-watch.sh"
+nohup bash "$RUN_DIR/progress-watch.sh" "$RUN_DIR" "$label" "$ds" "$send" \
+  >/dev/null 2>>"$RUN_DIR/telegram.err" &
+disown
 ```
 
 Write the repo name and the run dir into the block as literal values. The quoted heredoc keeps
-quotes, `$` and backticks in the run label from breaking the loop.
+quotes, `$` and backticks in the run label from breaking the loop. Overwriting `progress-watch.sh`
+on each boundary launch is harmless: the content never changes, and only the slot claim decides
+which running copy gets to act.
 
 `progress` prints one line, for example
 `acme-web driver, watch tool: 5/8 done (4 merged, 1 blocked), 1 in progress. Running 2h10m. ETA 16:40 (about 1h18m)`.
 The ETA is the mean time per worked ticket since the run started, multiplied by the tickets
-left. `progress --owner` exits non-zero once the lock is released, its owning thread has died,
-or a resumed thread has taken the lock over. The loop stops by itself in each case, so a
-resume starts its own loop and never doubles up. Never kill the loop by hand.
+left. `progress --owner` exits non-zero once the lock is released, its owning thread has died, or
+a resumed thread has taken the lock over, so a stale watcher never fires once superseded — the
+comparison is the lock's acquisition token (`--owner-only`'s output), not the pid, because a
+resumed run can relock with an unidentifiable pid too and a pid-based check would then pass for
+the wrong acquisition. Never kill the check by hand.
 
 **Claim every ticket in the tracker, now — before any work starts, and under the scope lock.**
 The claim is what makes step 2's check work for the next thread; a run that only labels at the
@@ -357,7 +396,10 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
    is never skipped.
 
    **Run e2e only if the ticket's diff touches UI.** Check the diff, don't add it by default.
-7. `driver_state.py set-status "$RUN_DIR" <ticket-id> merged --commit <sha> --reviewer <who>`.
+7. `driver_state.py set-status "$RUN_DIR" <ticket-id> merged --commit <sha> --reviewer <who>`,
+   then **re-arm the hourly progress check** (the single-shot block in step 3) with
+   `run_in_background: true`. Every ticket boundary re-arms it, landed or blocked, so the next
+   hourly slot is always covered by a fresh background check.
 8. A showstopper question from the worker or the orchestrator (irreversible action, missing
    credential, a taste call only the user can make) → same as a failure: `blocked`, log the exact question +
    your recommendation + the alternative, send the **blocked-ticket ping** (below),
