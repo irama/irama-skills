@@ -378,19 +378,28 @@ def resolved_session_dir(sid):
     Resolved at send time (claim, and every run/status update) rather than cached once
     at claim time, so a thread that later moves folder (EnterWorktree) still links the
     folder that currently owns it instead of wherever it was when first claimed.
-    Falls back to the current directory if no transcript is found.
+    Returns None if no transcript or no owning directory can be found; callers fall
+    back to JOBS_RUN_DIR / the current directory so a transcript-resolved worktree
+    always wins over the poller's stale start-up cwd.
     """
     logs = list((Path.home() / ".claude" / "projects").glob(f"*/{sid}.jsonl")) if sid else []
     if not logs:
-        return os.getcwd()
+        return None
     cwds = []
-    with open(logs[0], encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            if '"cwd"' in line:
-                c = json.loads(line).get("cwd")
+    try:
+        with open(logs[0], encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if '"cwd"' not in line:
+                    continue
+                try:
+                    c = json.loads(line).get("cwd")
+                except (json.JSONDecodeError, ValueError):
+                    continue  # truncated/malformed JSONL line; skip it, not fatal
                 if c and c not in cwds:
                     cwds.append(c)
-    return _owning_dir(logs[0].parent.name, cwds) or os.getcwd()
+    except OSError:
+        return None
+    return _owning_dir(logs[0].parent.name, cwds)
 
 
 def cmd_claim(a):
@@ -399,7 +408,7 @@ def cmd_claim(a):
     # The Claude Code thread doing the work, so the card can link back to it in VS Code.
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     if sid:
-        body["session"] = {"id": sid, "dir": os.environ.get("JOBS_RUN_DIR") or resolved_session_dir(sid)}
+        body["session"] = {"id": sid, "dir": resolved_session_dir(sid) or os.environ.get("JOBS_RUN_DIR") or os.getcwd()}
     if not os.environ.get("JOBS_RUN_DIR"):
         # An interactive thread takes the job over, so the poller stops answering its replies.
         owned = config_dir() / "poller-owned"
@@ -442,7 +451,7 @@ def run_update(job_id, target, **fields):
     # latest one should win on the card.
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     if sid:
-        body["session"] = {"id": sid, "dir": os.environ.get("JOBS_RUN_DIR") or resolved_session_dir(sid)}
+        body["session"] = {"id": sid, "dir": resolved_session_dir(sid) or os.environ.get("JOBS_RUN_DIR") or os.getcwd()}
     status, payload = api("PUT", f"/api/jobs/{job_id}/runs", body)
     if status == 400 and "session" in body:
         # ponytail: same hub-version guard as cmd_claim; drop once every hub accepts `session`.
@@ -728,6 +737,51 @@ def selftest():
         subprocess.run(["rm", "-rf", str(wt_dir)], check=True)
         assert _owning_dir(slug, [str(main_repo), str(wt_dir)]) == str(main_repo), \
             "slug-matched cwd now gone falls back to the main worktree"
+
+    # resolved_session_dir: a transcript that resolves to a worktree wins over
+    # JOBS_RUN_DIR (the poller's start-up cwd, which goes stale after EnterWorktree);
+    # a truncated/malformed "cwd" line in the transcript is skipped, not fatal.
+    import unittest.mock
+    with tempfile.TemporaryDirectory() as root2:
+        root2 = Path(root2).resolve()
+        repo2 = root2 / "repo"
+        repo2.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=repo2, check=True)
+        subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=repo2, check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=repo2, check=True)
+        (repo2 / "f").write_text("x")
+        subprocess.run(["git", "add", "f"], cwd=repo2, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "x"], cwd=repo2, check=True)
+        wt2 = root2 / "repo-wt" / "task"
+        wt2.parent.mkdir()
+        subprocess.run(["git", "worktree", "add", str(wt2), "-b", "task2"], cwd=repo2, check=True)
+
+        fake_home = root2 / "home"
+        slug2 = re.sub(r"[^A-Za-z0-9]", "-", str(wt2))
+        proj_dir = fake_home / ".claude" / "projects" / slug2
+        proj_dir.mkdir(parents=True)
+        sid = "testsid"
+        transcript = proj_dir / f"{sid}.jsonl"
+        # First line truncated mid-object (still contains the "cwd" substring that
+        # gates the json.loads call); second line is the real, well-formed entry.
+        transcript.write_text(
+            '{"cwd": "/tmp/truncated-not-json\n'
+            + json.dumps({"cwd": str(wt2)}) + "\n"
+        )
+
+        with unittest.mock.patch.object(Path, "home", return_value=fake_home):
+            os.environ["JOBS_RUN_DIR"] = "/tmp/stale-poller-startup-dir"
+            try:
+                assert resolved_session_dir(sid) == str(wt2), \
+                    "malformed cwd line must be skipped, not fatal, and the worktree must win"
+            finally:
+                del os.environ["JOBS_RUN_DIR"]
+
+            # A transcript with no usable "cwd" line at all resolves to None, so the
+            # caller (cmd_claim / run_update) is the one that falls back to JOBS_RUN_DIR.
+            transcript.write_text('{"cwd": "/tmp/still-not-json\n')
+            assert resolved_session_dir(sid) is None, \
+                "no owning directory found must return None, not raise or guess the cwd"
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
