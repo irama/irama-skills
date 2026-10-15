@@ -176,24 +176,24 @@ cat > "$RUN_DIR/progress-watch.sh" <<'WATCH'
 set -u
 RUN_DIR="$1"; label="$2"; ds="$3"; send="$4"
 owner=$(python3 "$ds" progress "$RUN_DIR" --owner-only) || exit 0
-last="$RUN_DIR/.last-report"
-[ -f "$last" ] || echo 0 > "$last"
+# wake at the next whole-hour slot, derived from the clock alone, so a successor launched
+# just after a slot always sleeps to the following one.
 now=$(date +%s)
-wait_for=$(( 3600 - (now - $(cat "$last")) % 3600 ))
-sleep "$wait_for"
+sleep $(( 3600 - now % 3600 ))
 slot=$(( $(date +%s) / 3600 ))
+# check the owner BEFORE claiming the slot: a stale watcher from a superseded run must not
+# win the claim and silence the current owner's report.
+msg=$(python3 "$ds" progress "$RUN_DIR" --label "$label" --owner "$owner") || exit 0
 slots="$RUN_DIR/progress-slots"
 mkdir -p "$slots"
 # atomic slot claim: several boundary-launched (or resumed) chains can wake for the same
-# slot; mkdir succeeds for exactly one of them, so losers exit here — no send, no relaunch.
+# slot; mkdir succeeds for exactly one of them, so losers exit here, no send, no relaunch.
 mkdir "$slots/$slot" 2>/dev/null || exit 0
 # relaunch the successor before sending: this process must not live past one hour, and a
 # send that hangs or errors must never take the next hour's report down with it.
 nohup bash "$RUN_DIR/progress-watch.sh" "$RUN_DIR" "$label" "$ds" "$send" \
   >/dev/null 2>>"$RUN_DIR/telegram.err" &
 disown
-msg=$(python3 "$ds" progress "$RUN_DIR" --label "$label" --owner "$owner") || exit 0
-date +%s > "$last"
 bash "$send" "$msg" >/dev/null 2>>"$RUN_DIR/telegram.err" || true
 WATCH
 chmod +x "$RUN_DIR/progress-watch.sh"
