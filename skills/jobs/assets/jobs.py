@@ -251,10 +251,12 @@ def cmd_here(_a):
 
 def sibling_repos(root):
     """Main checkouts under root, plus those one level inside a plain (non-git) folder
-    such as tools/travel-app. Worktrees (.git is a file) are
+    such as tools/travel-app, or inside a checkout that holds child repos (a workspace
+    repo that ignores them). A top-level checkout wins over a nested copy of the same
+    target. Worktrees (.git is a file) are
     skipped, and so are folders named archive or starting with '_' or '.', which hold
     retired copies. Each entry carries its local path so a target maps to a checkout."""
-    out = []
+    out, nested = [], []
     m = target_manifest()
     if m is not None:
         return [{"target": t, "display": Path(p).name[:100], "path": p} for t, p in sorted(m.items())][:200]
@@ -263,12 +265,16 @@ def sibling_repos(root):
             continue
         if (d / ".git").is_dir():
             out.append({"target": target_of(d), "display": d.name[:100], "path": str(d)})
+            for s in sorted(p for p in d.iterdir() if p.is_dir() and (p / ".git").is_dir()):
+                nested.append({"target": target_of(s), "display": s.name[:100], "path": str(s)})
         elif not (d / ".git").exists():
             for s in sorted(p for p in d.iterdir() if p.is_dir() and (p / ".git").is_dir()):
                 out.append({"target": target_of(s), "display": s.name[:100], "path": str(s)})
     seen = {}
     for r in out:
         seen[r["target"]] = r
+    for r in nested:
+        seen.setdefault(r["target"], r)
     return list(seen.values())[:200]
 
 
@@ -940,6 +946,9 @@ def selftest():
         found = sibling_repos(tmp)
         assert [r["display"] for r in found] == ["inner", "repo"], "nested found, retired skipped"
         assert found[0]["path"] == str(tmp / "group" / "inner")
+        sh(tmp, "init", "--quiet", str(tmp / "repo" / "child"))
+        found = sibling_repos(tmp)
+        assert [r["display"] for r in found] == ["inner", "repo", "child"], "child repo inside a checkout found"
     print("jobs.py selftest: ok")
     return 0
 

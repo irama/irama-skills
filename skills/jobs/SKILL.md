@@ -79,7 +79,9 @@ $J repos                    # PUT /api/jobs/repos with every main checkout besid
 ```
 
 The scan also finds repos one level inside a plain folder, such as
-`tools/travel-app`, and skips `Archive`, `_*` and `.*` folders.
+`tools/travel-app`, and child repos one level inside a checkout (a workspace repo that
+ignores them, such as `content-workspace/content-tenant-content`). A top-level checkout wins
+over a nested copy of the same target. It skips `Archive`, `_*` and `.*` folders.
 To place an untagged job, or to find the checkout for a target, match the prompt's app name
 against `$J repos --dry-run`: each entry gives `target`, `display` and the local `path`.
 Match an app name against all three, because a repo's directory, remote and product name
