@@ -4,7 +4,9 @@
 # the once-per-job skip log, the stale and live lock, the at-most-once rule, the In review
 # message, the watchdog, the failure comment with its retry on reply, the POLLER_SKIP_* switches
 # on all three pick paths, and box mode (mirror-sync, clone, ship through the broker) with a fake
-# sudo. Touches no hub, no launchd or systemd, no real config. Runs on macOS and Linux.
+# sudo, and the lanes: runs in different repos start in one tick, a busy repo waits, the cap,
+# one ship and one untargeted run at a time, and a dead run record pruned. Touches no hub, no
+# launchd or systemd, no real config. Runs on macOS and Linux.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
 tmp=$(mktemp -d)
@@ -33,7 +35,8 @@ elif sys.argv[1] == "get":
     # Job 2's prompt names a file inside the checkout, so it runs from there.
     prompts = {2: os.environ["FAKE_REPO"] + "/.scratch/handoff.md", 4: "  /apply-for-jobs the role in the email"}
     print(json.dumps({"data": {"id": int(sys.argv[2]), "column": os.environ.get("FAKE_COLUMN", "in_review"),
-                               "prompt": prompts.get(int(sys.argv[2]), "")}}))
+                               "prompt": prompts.get(int(sys.argv[2]), ""),
+                               "ship_approved_at": os.environ.get("FAKE_SHIP_APPROVED")}}))
 EOF
 cat >"$tmp/claude" <<'EOF'
 #!/usr/bin/env bash
@@ -58,13 +61,33 @@ mkdir "$tmp/repo"
 export CALLS="$tmp/calls" SENT="$tmp/sent" FAKE_REPO="$tmp/repo"
 lock="$HOME/.config/jobs/poller.lock"
 fail() { echo "poll selftest FAIL: $*" >&2; cat "$tmp/log" "$tmp/calls" >&2 2>/dev/null; exit 1; }
+runs="$HOME/.config/jobs/runs"
+# Every run lives 2 s unless a check says otherwise, so a run started early in a tick is still
+# live when the same tick picks again (a real run lasts minutes).
+export FAKE_RUN_SECS=2
+# One tick, then wait for the detached runs it started to end, so each check reads their output.
+settle() {
+  local f p n=0 alive=1
+  while [ "$alive" = 1 ]; do
+    alive=0
+    for f in "$runs"/*.json; do
+      [ -f "$f" ] || continue
+      p=$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$f")
+      [ -n "$p" ] && kill -0 "$p" 2>/dev/null && alive=1
+    done
+    n=$((n + 1))
+    [ "$n" -lt 600 ] || fail "detached runs did not end"
+    [ "$alive" = 0 ] || sleep 0.2
+  done
+}
+tick() { local rc=0; bash "$here/poll.sh" || rc=$?; settle; return "$rc"; }
 
 # i) A stale lock (dead PID) is removed; the oldest ZERO job with a target starts.
 mkdir "$lock"
 sleep 0 & dead=$!
 wait "$dead"
 echo "$dead" >"$lock/pid"
-bash "$here/poll.sh"
+tick
 [ ! -d "$lock" ] || fail "lock left after the run"
 grep -q "removed stale lock (pid $dead)" "$tmp/log" || fail "stale lock not logged"
 grep -Eq 'claude -p /jobs JOB-3 --background --session-id [0-9a-f-]{36} --permission-mode auto --permission-prompts none' "$tmp/calls" \
@@ -79,11 +102,13 @@ grep -q "JOB-3 --background .* @ $repo_real\$" "$tmp/calls" || fail "targeted jo
 grep -q "^trust $repo_real\$" "$tmp/calls" || fail "run folder not trusted before the run"
 
 # ii) The next tick does not start JOB-3 again; it takes JOB-5, then board job 6. Untargeted job 2 never starts.
-FAKE_COLUMN=backlog bash "$here/poll.sh"
+FAKE_COLUMN=backlog tick
 [ "$(grep -c 'JOB-3 --background' "$tmp/calls")" = 1 ] || fail "JOB-3 started twice"
 grep -q 'JOB-5 run failed' "$tmp/sent" || fail "no failure message for JOB-5"
-bash "$here/poll.sh"
+# A pre-approved job ends In progress with its ship approved: that is success, not a failure.
+FAKE_COLUMN=in_progress FAKE_SHIP_APPROVED=w tick
 grep -q 'JOB-6 --background' "$tmp/calls" || fail "board job 6 not started"
+grep -q 'JOB-6 finished, shipping (pre-approved)' "$tmp/sent" || fail "pre-approved end read as a failure"
 grep -Eq 'JOB-(2|4) ' "$tmp/calls" && fail "untargeted job started"
 # With no JOBS_DEFAULT_HOME, an untargeted job is skipped, logged once, and its prompt is not read.
 [ "$(grep -c 'JOB-4 skipped: no target and JOBS_DEFAULT_HOME is unset' "$tmp/log")" = 1 ] \
@@ -94,19 +119,19 @@ grep -q '^get 4$' "$tmp/calls" && fail "prompt read with no default home"
 mkdir "$lock"
 echo $$ >"$lock/pid"
 before=$(wc -l <"$tmp/calls")
-bash "$here/poll.sh"
+tick
 [ "$(wc -l <"$tmp/calls")" = "$before" ] || fail "tick ran under a live lock"
 rm -rf "$lock"
 
 # iv) The watchdog kills a run past the limit and comments on the card.
 : >"$HOME/.config/jobs/poller-tried"
-JOBS_POLLER_LIMIT=2 FAKE_RUN_SECS=60 bash "$here/poll.sh"
+JOBS_POLLER_LIMIT=2 FAKE_RUN_SECS=60 tick
 grep -q 'comment 3 --kind event --body Stopped after 0 minutes' "$tmp/calls" || fail "no watchdog comment"
 grep -q 'JOB-3 stopped after' "$tmp/sent" || fail "no watchdog message"
 
 # vi) A default home that is missing on disk still skips; JOB-5 (tagged) starts instead.
 printf 'JOBS_DEFAULT_HOME=%q\n' "$tmp/nohome" >>"$HOME/.config/jobs/poller.env"
-bash "$here/poll.sh"
+tick
 grep -q 'JOB-5 --background' "$tmp/calls" || fail "tagged JOB-5 not started"
 grep -Eq 'JOB-4 --background' "$tmp/calls" && fail "JOB-4 started with a missing default home"
 
@@ -114,9 +139,9 @@ grep -Eq 'JOB-4 --background' "$tmp/calls" && fail "JOB-4 started with a missing
 # the checkout, so it starts there; the slash job JOB-4 starts in JOBS_DEFAULT_HOME.
 mkdir "$tmp/xcoach"
 printf 'JOBS_DEFAULT_HOME=%q\n' "$tmp/xcoach" >>"$HOME/.config/jobs/poller.env"
-bash "$here/poll.sh"
+tick
 grep -q "JOB-2 --background .* @ $repo_real\$" "$tmp/calls" || fail "JOB-2 not run from the checkout its prompt names"
-bash "$here/poll.sh"
+tick
 xc_real=$(cd "$tmp/xcoach" && pwd -P)
 grep -Eq "claude -p /jobs JOB-4 --background --session-id [0-9a-f-]{36} --permission-mode auto --permission-prompts none @ $xc_real\$" \
   "$tmp/calls" || fail "slash JOB-4 not started in JOBS_DEFAULT_HOME"
@@ -134,7 +159,7 @@ EOF
 : >"$HOME/.config/jobs/poller-tried"
 claude_calls_before=$(grep -c '^claude ' "$tmp/calls" || true)
 rc=0
-bash "$here/poll.sh" || rc=$?
+tick || rc=$?
 [ "$rc" = 1 ] || fail "bad id did not exit 1 (got $rc)"
 grep -q 'bad id: refusing (x1)' "$tmp/log" || fail "bad id not logged"
 [ "$(grep -c '^claude ' "$tmp/calls" || true)" = "$claude_calls_before" ] || fail "claude ran for a bad id"
@@ -162,7 +187,7 @@ EOF
 echo 8 >"$HOME/.config/jobs/poller-owned"
 : >"$HOME/.config/jobs/poller-tried"
 : >"$tmp/calls"
-bash "$here/poll.sh"
+tick
 grep -q "claude -p /jobs JOB-8 --background .* @ $repo_real\$" "$tmp/calls" || fail "reply job 8 not started in its checkout"
 grep -q 'JOB-10 ' "$tmp/calls" && fail "backlog job started before the reply"
 grep -q 'JOB-9 ' "$tmp/calls" && fail "job claimed elsewhere started"
@@ -170,13 +195,13 @@ grep -qx '8@40' "$HOME/.config/jobs/poller-tried" || fail "reply key not recorde
 grep -q '^patch 8 --active on$' "$tmp/calls" || fail "no heartbeat on"
 grep -q '^patch 8 --active off$' "$tmp/calls" || fail "no heartbeat off"
 : >"$tmp/calls"
-bash "$here/poll.sh"
+tick
 grep -q 'JOB-8 ' "$tmp/calls" && fail "same reply started twice"
 grep -q 'JOB-10 --background' "$tmp/calls" || fail "backlog job not taken once the reply was handled"
 grep -q 'JOB-8 reply run failed' "$tmp/sent" || fail "an unacked reply run was not reported as failed"
 grep -qx 10 "$HOME/.config/jobs/poller-owned" || fail "backlog run not recorded as poller-owned"
 : >"$tmp/calls"
-FAKE_LAST=41 bash "$here/poll.sh"
+FAKE_LAST=41 tick
 grep -q 'JOB-8 --background' "$tmp/calls" || fail "a new reply did not start a run"
 # ix) An approved run ships first, once per approved commit, with the --ship flag.
 cat >"$tmp/skill/assets/jobs.py" <<'EOF'
@@ -199,17 +224,17 @@ echo '{"12": "tok"}' >"$HOME/.config/jobs/claims.json"
 : >"$HOME/.config/jobs/poller-tried"
 : >"$tmp/calls"
 : >"$tmp/sent"
-FAKE_STATE=approved bash "$here/poll.sh"
+FAKE_STATE=approved tick
 grep -q "claude -p /jobs JOB-12 --background --ship .* @ $repo_real\$" "$tmp/calls" || fail "approved job 12 not shipped in its checkout"
 grep -q 'JOB-13 ' "$tmp/calls" && fail "job without this machine's claim shipped"
 grep -q 'JOB-10 ' "$tmp/calls" && fail "backlog started before an approved ship"
 grep -q 'JOB-12 ship did not complete' "$tmp/sent" || fail "an unshipped run was not reported as incomplete"
 grep -qx '12#ship@2026-10-10T05:00:00+00:00' "$HOME/.config/jobs/poller-tried" || fail "ship key not recorded"
 : >"$tmp/calls"
-bash "$here/poll.sh"
+tick
 grep -q 'JOB-12 ' "$tmp/calls" && fail "same approval shipped twice"
 : >"$tmp/calls"
-FAKE_WHEN=2026-10-10T06:00:00+00:00 bash "$here/poll.sh"
+FAKE_WHEN=2026-10-10T06:00:00+00:00 tick
 grep -q 'JOB-12 --background --ship' "$tmp/calls" || fail "a re-approval of the same commit did not ship"
 # x) A Backlog run that leaves the card in Backlog posts one failure comment and records
 # "<id>~<newest comment id>". No reply, no retry; one reply, one retry; the same reply never twice.
@@ -229,29 +254,29 @@ elif a[0] == "repos":
 EOF
 : >"$HOME/.config/jobs/poller-tried"
 : >"$tmp/calls"
-FAKE_COLUMN=backlog bash "$here/poll.sh"
+FAKE_COLUMN=backlog tick
 grep -qx 'comment 20 --kind event --body Background run failed: never claimed. Reply on this card to retry.' "$tmp/calls" \
   || fail "no failure comment for a run that left the card in Backlog"
 grep -qx '20~50' "$HOME/.config/jobs/poller-tried" || fail "failure not recorded with the newest comment id"
 : >"$tmp/calls"
-FAKE_COLUMN=backlog bash "$here/poll.sh"
+FAKE_COLUMN=backlog tick
 grep -q 'JOB-20 ' "$tmp/calls" && fail "failed job retried without a reply"
 : >"$tmp/calls"
-FAKE_YOU=60 FAKE_RC=3 FAKE_COLUMN=backlog bash "$here/poll.sh"
+FAKE_YOU=60 FAKE_RC=3 FAKE_COLUMN=backlog tick
 grep -q 'claude -p /jobs JOB-20 --background' "$tmp/calls" || fail "a reply after the failure did not retry"
 grep -qx '20~60' "$HOME/.config/jobs/poller-tried" || fail "retry key not recorded"
 grep -qx 'comment 20 --kind event --body Background run failed: exit 3. Reply on this card to retry.' "$tmp/calls" \
   || fail "no failure comment for a non-zero exit"
 : >"$tmp/calls"
-FAKE_YOU=60 FAKE_COLUMN=backlog bash "$here/poll.sh"
+FAKE_YOU=60 FAKE_COLUMN=backlog tick
 grep -q 'JOB-20 ' "$tmp/calls" && fail "the same reply retried twice"
 : >"$tmp/calls"
-FAKE_YOU=70 FAKE_COLUMN=backlog JOBS_POLLER_LIMIT=2 FAKE_RUN_SECS=60 bash "$here/poll.sh"
+FAKE_YOU=70 FAKE_COLUMN=backlog JOBS_POLLER_LIMIT=2 FAKE_RUN_SECS=60 tick
 grep -qx 'comment 20 --kind event --body Background run failed: stopped after 0 minutes. Reply on this card to retry.' "$tmp/calls" \
   || fail "no failure comment for a watchdog kill in Backlog"
 grep -q 'body Stopped after' "$tmp/calls" && fail "watchdog comment doubled up with the failure comment"
 : >"$tmp/calls"
-FAKE_YOU=80 FAKE_COLUMN=in_review bash "$here/poll.sh"
+FAKE_YOU=80 FAKE_COLUMN=in_review tick
 grep -q 'JOB-20 --background' "$tmp/calls" || fail "a newer reply did not retry"
 grep -q 'Background run failed' "$tmp/calls" && fail "failure comment on a run that left Backlog"
 # xi) POLLER_SKIP_UNTARGETED and POLLER_SKIP_LOCAL leave untargeted and local/* jobs alone on
@@ -286,11 +311,11 @@ for path in ship awaiting backlog; do
     : >"$HOME/.config/jobs/poller-tried"
     : >"$HOME/.config/jobs/poller-skipped"
     : >"$tmp/calls"
-    FAKE_PATH=$path FAKE_TARGETS=$targets bash "$here/poll.sh"
+    FAKE_PATH=$path FAKE_TARGETS=$targets tick
     grep -q 'JOB-40 ' "$tmp/calls" || fail "control: $path job with targets $targets did not start"
     : >"$HOME/.config/jobs/poller-tried"
     : >"$tmp/calls"
-    FAKE_PATH=$path FAKE_TARGETS=$targets POLLER_SKIP_UNTARGETED=1 POLLER_SKIP_LOCAL=1 bash "$here/poll.sh"
+    FAKE_PATH=$path FAKE_TARGETS=$targets POLLER_SKIP_UNTARGETED=1 POLLER_SKIP_LOCAL=1 tick
     if grep -v '^list ' "$tmp/calls" | grep -q .; then
       fail "$path job with targets $targets had a side effect: $(grep -v '^list ' "$tmp/calls" | head -1)"
     fi
@@ -300,10 +325,88 @@ done
 # Set in poller.env (not only the caller's env), the switches still apply.
 printf 'POLLER_SKIP_UNTARGETED=1\nPOLLER_SKIP_LOCAL=1\n' >>"$HOME/.config/jobs/poller.env"
 : >"$tmp/calls"
-FAKE_PATH=backlog FAKE_TARGETS='["local/x"]' bash "$here/poll.sh"
+FAKE_PATH=backlog FAKE_TARGETS='["local/x"]' tick
 grep -q 'JOB-40 ' "$tmp/calls" && fail "POLLER_SKIP_LOCAL in poller.env ignored"
 "$py" -c 'import sys; p = sys.argv[1]; k = [l for l in open(p) if not l.startswith("POLLER_SKIP_")]; open(p, "w").writelines(k)' \
   "$HOME/.config/jobs/poller.env"
+
+# xiii) Lanes. Backlog jobs in different repos start in one tick; a job whose repo a sibling job
+# holds (In review, a run not shipped) waits until the sibling's runs ship; the cap holds; at
+# most one ship run and one untargeted run are live; a dead run record is pruned.
+mkdir -p "$tmp/repo-s" "$tmp/repo-t"
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+a = sys.argv[1:]
+scene = os.environ.get("FAKE_SCENE")
+jobs = []
+if scene == "lanes":
+    jobs = [{"id": 60, "column": "backlog", "targets": ["o/r"], "claimed": False, "title": "a"},
+            {"id": 61, "column": "backlog", "targets": ["o/s"], "claimed": False, "title": "b"},
+            {"id": 62, "column": "in_review", "targets": [], "targets_picked": ["o/r"], "claimed": True, "title": "sibling",
+             "runs": [{"target": "o/r", "state": os.environ.get("FAKE_SIBLING", "committed")}]},
+            {"id": 63, "column": "backlog", "targets": ["o/t"], "claimed": False, "title": "c"}]
+elif scene == "untargeted":
+    jobs = [{"id": 80, "column": "backlog", "targets": [], "claimed": False, "title": "u1"},
+            {"id": 81, "column": "backlog", "targets": [], "claimed": False, "title": "u2"}]
+ships = []
+if scene == "ships":
+    ships = [{"id": i, "claimed": True, "title": "ship", "ship_approved_at": "w",
+              "runs": [{"state": "approved", "target": t, "approved_sha": "abc1234"}]} for i, t in ((70, "o/r"), (71, "o/s"))]
+if a[0] == "list" and "--ship-approved" in a:
+    print(json.dumps({"jobs": ships}))
+elif a[0] == "list" and "--awaiting" in a:
+    print(json.dumps({"jobs": []}))
+elif a[0] == "list" and "--column" in a:
+    c = a[a.index("--column") + 1]
+    print(json.dumps({"jobs": [j for j in jobs if j["column"] == c]}))
+elif a[0] == "list":
+    print(json.dumps({"jobs": jobs}))
+elif a[0] == "get":
+    print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "prompt": "do it", "comments": []}}))
+elif a[0] == "repos":
+    print(json.dumps({"repos": [{"target": t, "display": t, "path": p} for t, p in
+        (("o/r", os.environ["FAKE_REPO"]), ("o/s", os.environ["FAKE_REPO"] + "-s"), ("o/t", os.environ["FAKE_REPO"] + "-t"))]}))
+EOF
+started() { cat "$tmp/calls" | grep -c "^claude -p /jobs JOB-$1 " || true; }
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
+FAKE_SCENE=lanes tick
+[ "$(started 61)" = 1 ] || fail "JOB-61 (o/s free) did not start"
+[ "$(started 63)" = 1 ] || fail "JOB-63 (o/t free) did not start in the same tick"
+[ "$(started 60)" = 0 ] || fail "JOB-60 started while sibling JOB-62 holds o/r unshipped"
+: >"$tmp/calls"
+FAKE_SCENE=lanes FAKE_SIBLING=shipped tick
+[ "$(started 60)" = 1 ] || fail "JOB-60 did not start once the sibling's runs shipped"
+# The cap: three free repos, two runs.
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
+FAKE_SCENE=lanes FAKE_SIBLING=shipped JOBS_POLLER_MAX_RUNS=2 tick
+[ "$(cat "$tmp/calls" | grep -c '^claude -p /jobs JOB-6[013] ' || true)" = 2 ] || fail "cap of 2 runs not kept"
+# A live run record holds its repo; a dead one is pruned and frees it.
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
+echo "{\"pid\": $$, \"kind\": \"backlog\", \"lanes\": [\"o/r\"]}" >"$runs/99.json"
+FAKE_SCENE=lanes FAKE_SIBLING=shipped bash "$here/poll.sh"
+rm -f "$runs/99.json"
+settle
+[ "$(started 60)" = 0 ] || fail "JOB-60 started while a live run holds o/r"
+sleep 0 & dead=$!
+wait "$dead"
+echo "{\"pid\": $dead, \"kind\": \"backlog\", \"lanes\": [\"o/r\"]}" >"$runs/99.json"
+: >"$tmp/calls"
+FAKE_SCENE=lanes FAKE_SIBLING=shipped tick
+[ -e "$runs/99.json" ] && fail "dead run record not pruned"
+cat "$tmp/log" | grep -q "JOB-99 run record pruned (pid $dead" || fail "pruned record not logged"
+[ "$(started 60)" = 1 ] || fail "JOB-60 did not start once the dead record was pruned"
+# One ship at a time: two approved ships in different repos, one per tick.
+echo '{"70": "t", "71": "t"}' >"$HOME/.config/jobs/claims.json"
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
+FAKE_SCENE=ships tick
+[ "$(cat "$tmp/calls" | grep -c '^claude -p /jobs JOB-7[01] --background --ship ' || true)" = 1 ] || fail "two ship runs in one tick"
+FAKE_SCENE=ships tick
+[ "$(started 70)" = 1 ] && [ "$(started 71)" = 1 ] || fail "second ship did not run on the next tick"
+# One untargeted run at a time.
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
+JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SCENE=untargeted tick
+[ "$(cat "$tmp/calls" | grep -c '^claude -p /jobs JOB-8[01] ' || true)" = 1 ] || fail "two untargeted runs in one tick"
 
 # xii) Box mode: before a targeted run, mirror-sync through sudo, then clone the mirror into the
 # manifest path when missing. A ship-approved job then goes to POLLER_SHIP_CMD through sudo,
@@ -360,18 +463,18 @@ export POLLER_MIRROR_ROOT="$tmp" FAKE_MIRROR="$tmp/mirror.git" FAKE_CLONE="$tmp/
 : >"$tmp/calls"
 # A target missing from the manifest is a logged skip, and nothing is cloned or run.
 : >"$tmp/calls"; : >"$tmp/log"
-FAKE_PATH=backlog FAKE_NODEST=1 bash "$here/poll.sh"
+FAKE_PATH=backlog FAKE_NODEST=1 tick
 grep -q 'JOB-50 skipped: target o/r is not in the target manifest' "$tmp/log" || fail "empty dest not logged as a skip"
 grep -q '^claude ' "$tmp/calls" && fail "claude ran for a target outside the manifest"
 # A mirror path with shell metacharacters, or outside the mirror root, is refused before any clone.
 for bad in "$tmp/m;touch $tmp/pwned.git" "$tmp/../x.git" "/elsewhere/m.git"; do
   : >"$tmp/calls"; : >"$tmp/log"; rm -f "$HOME/.config/jobs/poller-skipped"
-  FAKE_MIRROR=$bad FAKE_PATH=backlog bash "$here/poll.sh"
+  FAKE_MIRROR=$bad FAKE_PATH=backlog tick
   grep -q 'JOB-50 skipped: mirror path' "$tmp/log" || fail "bad mirror path not refused: $bad"
   if [ -e "$tmp/pwned.git" ] || [ -d "$tmp/repos/o/r" ]; then fail "bad mirror path was used: $bad"; fi
 done
 : >"$tmp/calls"; : >"$tmp/log"; rm -f "$HOME/.config/jobs/poller-skipped"
-FAKE_PATH=backlog bash "$here/poll.sh"
+FAKE_PATH=backlog tick
 grep -qx 'sudo -n -u broker .*/mirror-sync o/r' "$tmp/calls" || fail "mirror-sync not called through sudo for the target"
 [ -d "$tmp/repos/o/r/.git" ] || fail "mirror not cloned into the manifest path"
 clone_real=$(cd "$tmp/repos/o/r" && pwd -P)
@@ -383,32 +486,32 @@ g -C "$tmp/repos/o/r" commit -q --allow-empty -m "job work"
 # A branch that is a ref expression is refused before any bundle is made.
 for bad in 'job-50~1' 'job-50^' 'a..b' 'x@{1}' 'a:b'; do
   : >"$tmp/calls"; : >"$tmp/log"; rm -f "$tmp/shipped" "$HOME/.config/jobs/poller-tried"
-  FAKE_BRANCH=$bad FAKE_PATH=ship bash "$here/poll.sh"
+  FAKE_BRANCH=$bad FAKE_PATH=ship tick
   grep -q 'ship refused' "$tmp/log" || fail "branch $bad not refused"
   [ -e "$tmp/shipped" ] && fail "branch $bad was bundled and shipped"
 done
 tried="$HOME/.config/jobs/poller-tried"
 # A broker that does not accept the hand-off leaves the approval untried, so the next tick retries.
 : >"$tried"; : >"$tmp/calls"; : >"$tmp/log"
-FAKE_SHIP_FAIL=1 FAKE_PATH=ship bash "$here/poll.sh"
+FAKE_SHIP_FAIL=1 FAKE_PATH=ship tick
 grep -q 'ship-request' "$tmp/calls" || fail "broker not called"
 grep -qx '50#ship@w' "$tried" && fail "failed hand-off recorded as tried, so it never retries"
 grep -q 'JOB-50 ship request failed: the broker did not accept it' "$tmp/log" || fail "failed hand-off not logged"
 # A branch missing from the clone fails the hand-off; the token is never sent without the bundle.
 : >"$tmp/calls"; : >"$tmp/log"
-FAKE_BRANCH=no-such-branch FAKE_PATH=ship bash "$here/poll.sh"
+FAKE_BRANCH=no-such-branch FAKE_PATH=ship tick
 grep -q 'ship-request' "$tmp/calls" && fail "token sent alone for a branch that is not in the clone"
 grep -qx '50#ship@w' "$tried" && fail "git error recorded as tried"
 grep -q 'JOB-50 ship request failed: branch no-such-branch' "$tmp/log" || fail "missing branch not logged"
 # A job with two approved runs is refused, not shipped in part, and is not retried.
 : >"$tmp/calls"; : >"$tmp/log"
-FAKE_RUNS=2 FAKE_PATH=ship bash "$here/poll.sh"
+FAKE_RUNS=2 FAKE_PATH=ship tick
 grep -q 'ship-request' "$tmp/calls" && fail "a two-run job was handed to the broker"
 grep -q 'JOB-50 ship refused: 2 approved runs' "$tmp/log" || fail "two-run job not refused"
 grep -qx '50#ship@w' "$tried" || fail "refusal not recorded"
 : >"$tried"
 : >"$tmp/calls"
-FAKE_PATH=ship bash "$here/poll.sh"
+FAKE_PATH=ship tick
 grep -qx 'sudo -n -u broker .*/ship-request --job 50' "$tmp/calls" || fail "ship not handed to POLLER_SHIP_CMD through sudo"
 grep -q '^claude ' "$tmp/calls" && fail "claude ran for a broker ship"
 [ "$(head -1 "$tmp/shipped")" = tok-50 ] || fail "claim token is not the first stdin line"
@@ -419,17 +522,17 @@ git -C "$tmp/repos/o/r" bundle list-heads "$tmp/shipped.bundle" | grep -q ' refs
 grep -qx '50#ship@w' "$HOME/.config/jobs/poller-tried" || fail "broker ship key not recorded"
 grep -q 'JOB-50 ship request sent to the broker' "$tmp/sent" || fail "no broker hand-off message"
 : >"$tmp/calls"
-FAKE_PATH=ship bash "$here/poll.sh"
+FAKE_PATH=ship tick
 grep -q 'ship-request' "$tmp/calls" && fail "same approval sent to the broker twice"
 # Mirror mode takes every target jobs.py takes ("." and "_" in the owner too), and no "." or ".." part.
 for t in 'o.x/r_y' 'O_x/r.y'; do
   : >"$tmp/calls"; : >"$tmp/log"; rm -f "$HOME/.config/jobs/poller-skipped"
-  FAKE_TARGET=$t FAKE_PATH=backlog bash "$here/poll.sh"
+  FAKE_TARGET=$t FAKE_PATH=backlog tick
   grep -qx "sudo -n -u broker .*/mirror-sync $t" "$tmp/calls" || fail "valid target $t refused"
 done
 for t in '../r' 'o/..' './r'; do
   : >"$tmp/calls"; : >"$tmp/log"; rm -f "$HOME/.config/jobs/poller-skipped"
-  FAKE_TARGET=$t FAKE_PATH=backlog bash "$here/poll.sh"
+  FAKE_TARGET=$t FAKE_PATH=backlog tick
   grep -q 'mirror-sync' "$tmp/calls" && fail "target $t reached mirror-sync"
   grep -q "target $t is not owner/repo" "$tmp/log" || fail "target $t not refused"
 done

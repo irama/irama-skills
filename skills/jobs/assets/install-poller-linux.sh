@@ -74,9 +74,9 @@ env_body=$(
   printf 'POLLER_PATH=%q\n' "$PATH"
   [ -z "$env_file" ] || cat "$env_file"
 )
-# Type=oneshot with no start timeout: the tick stays in the foreground for the whole run (the
-# 45 or 90 minute watchdog is poll.sh's own). The timer fires 10 s after it starts (boot or
-# enable), then 60 s after each tick ends, so ticks never overlap.
+# Type=oneshot: the tick picks, starts each run detached, and exits. KillMode=process keeps the
+# detached runs alive when the tick ends (each run has its own 45 or 90 minute watchdog). The
+# timer fires 10 s after it starts (boot or enable), then 60 s after each tick ends.
 # Quote the path for systemd: double quotes, with \ " and % escaped (% is a specifier).
 unit_path=$(printf '%s' "$SKILL_DIR/assets/poll.sh" | sed 's/[\\"]/\\&/g; s/%/%%/g')
 service_body="[Unit]
@@ -85,6 +85,7 @@ Description=One tick of the /jobs board poller
 [Service]
 Type=oneshot
 TimeoutStartSec=infinity
+KillMode=process
 ExecStart=/bin/bash \"$unit_path\""
 timer_body="[Unit]
 Description=Run the /jobs board poller every 60 s

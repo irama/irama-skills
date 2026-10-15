@@ -7,7 +7,8 @@
 # Install resolves the absolute paths of claude, python3 and this skill from the current
 # shell, because launchd gives poll.sh no login-shell PATH. It writes them to
 # ~/.config/jobs/poller.env (mode 600), writes ~/Library/LaunchAgents/org.<user>.jobs-poller.plist
-# (StartInterval 60, RunAtLoad true) and loads it. --dry-run prints both files and writes nothing.
+# (StartInterval 60, RunAtLoad true, AbandonProcessGroup true so a tick's detached runs outlive
+# the tick) and loads it. --dry-run prints both files and writes nothing.
 # --default-home DIR is where a ZERO job with no target runs (JOBS_DEFAULT_HOME). Without it,
 # the value already in poller.env is kept, else $JOBS_DEFAULT_HOME from this shell.
 # It never changes the Mac's sleep or Energy settings.
@@ -86,6 +87,7 @@ plist_body=$(cat <<EOF
   </array>
   <key>StartInterval</key><integer>60</integer>
   <key>RunAtLoad</key><true/>
+  <key>AbandonProcessGroup</key><true/>
   <key>StandardOutPath</key><string>$LOG</string>
   <key>StandardErrorPath</key><string>$LOG</string>
 </dict>
