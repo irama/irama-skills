@@ -339,9 +339,12 @@ the target repo.
       what was tried and the one question for the operator, sign off both verbs
       `--status incomplete`. **Stop.**
 
-   `repin` refuses a second re-pin on the same consent (`CONSENT_USED`), so commit every fix
-   round first and re-pin once, on the final head. `STALE_CONSENT` means the operator
-   commented after approving: read it, and stop.
+   A consent covers every review round while the approval is live: the consent may already
+   carry an earlier re-pin (a retag, a reply fix) and still re-pins the final head. Commit every
+   fix round first and re-pin once, on the final head. When the approval came from a re-pin on a
+   reply, the consent is that reply (the newest `author='you'` comment), not an approve event.
+   `CONSENT_USED` means the approval was voided after that consent: stop as in e).
+   `STALE_CONSENT` means the operator commented after approving: read it, and stop.
 
    <a id="fix-limits"></a>**Fix limits.** A fix ships without the operator unless it needs
    one of these, which are directional: a product or design choice between real
