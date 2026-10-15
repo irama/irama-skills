@@ -666,15 +666,17 @@ def cmd_progress(args):
         return 3
     if not _owner_is_live(owner):
         return 3
-    pid = owner.get("pid")
-    # A resumed run relocks under a new thread; the old thread's watcher must stop, not double
-    # up. 'none' (from --owner-only, below) means the pid was never identifiable, so there is
-    # nothing to compare against — skip the check rather than crash or false-evict (same
-    # fail-open rule _owner_is_live applies to an unidentifiable owner).
-    if args.owner not in (None, "none") and str(pid) != str(args.owner):
+    # 'started' is the lock-acquisition timestamp, written fresh by _owner_record()
+    # every time the lock is taken — unique per acquisition even when the pid is
+    # unidentifiable (pid None). A resumed run relocks with a new 'started', so
+    # comparing it (not the pid) is what makes the old thread's watcher stop
+    # instead of double-reporting against the new owner. Only a missing owner.json
+    # (handled above) fails open; a present-but-unmatched token fails closed.
+    token = owner.get("started")
+    if args.owner is not None and str(token) != str(args.owner):
         return 3
     if args.owner_only:
-        print(pid if pid is not None else "none")
+        print(token if token is not None else "none")
         return 0
     print(progress_line(load_state(args.run_dir), args.label))
     return 0
@@ -780,10 +782,10 @@ def build_parser():
     s = sub.add_parser("progress", help="one-line progress + ETA; exit 3 when the run is not live")
     s.add_argument("run_dir")
     s.add_argument("--label", default="", help="e.g. '<repo> driver, <run label>'")
-    s.add_argument("--owner", help="exit 3 unless this pid still owns the lock (value from "
-                   "--owner-only; 'none' when unidentifiable never filters)")
-    s.add_argument("--owner-only", action="store_true", help="print the lock owner's pid, or "
-                   "'none' when it cannot be identified")
+    s.add_argument("--owner", help="exit 3 unless this acquisition token still owns the lock "
+                   "(value from --owner-only; a stale resumed lock's token never matches)")
+    s.add_argument("--owner-only", action="store_true", help="print the lock's acquisition "
+                   "token ('started' timestamp), or 'none' if owner.json predates it")
     s.set_defaults(func=cmd_progress)
 
     s = sub.add_parser("with-lock", help="run a command holding a repo-wide lock")
@@ -1146,21 +1148,51 @@ def selftest():
         assert cmd_progress(argparse.Namespace(**{**ns, "owner": _owner_pid() + 1})) == 3
     print("ok: (d) progress ETA ignores skipped tickets; no live lock stops the watcher")
 
-    # (e) an unidentifiable owner pid round-trips through --owner-only / --owner as 'none',
-    # never the Python-None string that crashed argparse's int parsing on the next hourly call.
+    # (e) --owner-only prints the lock's acquisition token ('started'), not the pid — and a
+    # resumed run's fresh acquisition never matches a stale watcher's captured token, even when
+    # neither acquisition can identify a pid. (Before the fix, an unidentifiable pid round-tripped
+    # as the sentinel 'none', which disabled the comparison and let a stale watcher keep sending
+    # for whichever run held the lock.)
     with tf.TemporaryDirectory() as run_dir:
         os.makedirs(os.path.join(run_dir, ".lock"))
-        with open(os.path.join(run_dir, ".lock", "owner.json"), "w") as f:
-            json.dump({"pid": None, "started": time.time()}, f)
+        owner_path = os.path.join(run_dir, ".lock", "owner.json")
+        with open(owner_path, "w") as f:
+            json.dump({"pid": None, "started": 111.0}, f)
         no_pid_ns = dict(run_dir=run_dir, label="x", owner=None, owner_only=True)
         import io, contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = cmd_progress(argparse.Namespace(**no_pid_ns))
-        assert rc == 0 and buf.getvalue().strip() == "none", buf.getvalue()
-        resumed_ns = dict(run_dir=run_dir, label="x", owner="none", owner_only=False)
-        assert cmd_progress(argparse.Namespace(**resumed_ns)) == 0
-    print("ok: (e) an unidentifiable owner pid prints 'none' and never crashes the next --owner call")
+        assert rc == 0 and buf.getvalue().strip() == "111.0", buf.getvalue()
+        stale_token = buf.getvalue().strip()
+        # resume: a new acquisition overwrites owner.json with a fresh token, pid still None
+        with open(owner_path, "w") as f:
+            json.dump({"pid": None, "started": 222.0}, f)
+        stale_ns = dict(run_dir=run_dir, label="x", owner=stale_token, owner_only=False)
+        assert cmd_progress(argparse.Namespace(**stale_ns)) == 3, \
+            "a stale watcher's captured token must not match the resumed acquisition"
+        current_ns = dict(run_dir=run_dir, label="x", owner="222.0", owner_only=False)
+        assert cmd_progress(argparse.Namespace(**current_ns)) == 0
+    print("ok: (e) a resumed lock's fresh acquisition token never matches a stale watcher's "
+          "captured token, even with an unidentifiable pid")
+
+    # (f) atomic slot claim: of several contenders racing to claim the same hourly slot
+    # directory, exactly one succeeds. This is the mkdir-wins primitive the progress-watch.sh
+    # script (SKILL.md) relies on so several boundary-launched / resumed watcher chains waking
+    # for the same slot produce exactly one send and one relaunch, not several.
+    with tf.TemporaryDirectory() as run_dir:
+        slots = os.path.join(run_dir, "progress-slots")
+        os.makedirs(slots)
+        slot_dir = os.path.join(slots, "12345")
+        winners = 0
+        for _ in range(5):
+            try:
+                os.mkdir(slot_dir)
+                winners += 1
+            except FileExistsError:
+                pass
+        assert winners == 1, f"exactly one contender should claim the slot, got {winners}"
+    print("ok: (f) mkdir-based slot claim lets exactly one contender through per slot")
 
     selftest_land()
     print("ALL SELFTESTS PASSED")

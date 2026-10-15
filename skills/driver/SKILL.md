@@ -154,11 +154,14 @@ position without anyone asking this thread.
 resume, then **re-arm it at every ticket boundary** (step 5 item 7, right after re-claiming). A
 worker `Agent` call can hold the orchestrator for hours, so a ping sent between tickets would
 miss the hour — and a background shell is killed at the 2-hour background limit, so it can never
-just be one long-lived loop. Launch a **single-shot** check instead: it sleeps until the next
-hourly slot, sends at most one report, then exits well inside the 2-hour limit. Re-arming it at
-each ticket boundary is what keeps the reports coming across a run of any length; a single ticket
-that itself runs past the next hourly slot (rare) simply has that one report wait for the
-boundary that follows. Launch it with the Bash tool's `run_in_background: true`, never inline:
+just be one long-lived loop. Launch a **self-relaunching single-shot** check instead: each
+instance sleeps until the next hourly slot, sends at most one report, relaunches its own
+successor, then exits well inside the 2-hour limit — so no one process lives past one hour, yet
+reporting continues through a ticket of any length. Write the watcher once as a file (so it can
+relaunch itself by path) and launch it on a fresh run, on a resume, and again at every ticket
+boundary as a resync in case a chain ever died; redundant launches are harmless because the slot
+claim below lets only one instance per hourly slot send or relaunch. Launch it with the Bash
+tool's `run_in_background: true`, never inline:
 
 ```
 RUN_DIR=<the run dir, written out>          # shell variables do not survive between Bash calls
@@ -167,30 +170,51 @@ IFS= read -r run_label <<'LABEL'
 LABEL
 label="<repo> driver, $run_label"
 ds=<skill-dir>/driver_state.py
+send=<skill-dir>/../telegram/send.sh
+cat > "$RUN_DIR/progress-watch.sh" <<'WATCH'
+#!/bin/bash
+set -u
+RUN_DIR="$1"; label="$2"; ds="$3"; send="$4"
 owner=$(python3 "$ds" progress "$RUN_DIR" --owner-only) || exit 0
 last="$RUN_DIR/.last-report"
 [ -f "$last" ] || echo 0 > "$last"
 now=$(date +%s)
 wait_for=$(( 3600 - (now - $(cat "$last")) % 3600 ))
 sleep "$wait_for"
-# ponytail: two re-armed instances can both wake for the same slot and double-send; the slot
-# is hourly and informational, so one stray duplicate ping is the accepted ceiling, not a bug.
+slot=$(( $(date +%s) / 3600 ))
+slots="$RUN_DIR/progress-slots"
+mkdir -p "$slots"
+# atomic slot claim: several boundary-launched (or resumed) chains can wake for the same
+# slot; mkdir succeeds for exactly one of them, so losers exit here — no send, no relaunch.
+mkdir "$slots/$slot" 2>/dev/null || exit 0
+# relaunch the successor before sending: this process must not live past one hour, and a
+# send that hangs or errors must never take the next hour's report down with it.
+nohup bash "$RUN_DIR/progress-watch.sh" "$RUN_DIR" "$label" "$ds" "$send" \
+  >/dev/null 2>>"$RUN_DIR/telegram.err" &
+disown
 msg=$(python3 "$ds" progress "$RUN_DIR" --label "$label" --owner "$owner") || exit 0
 date +%s > "$last"
-bash <skill-dir>/../telegram/send.sh "$msg" >/dev/null 2>>"$RUN_DIR/telegram.err" || true
+bash "$send" "$msg" >/dev/null 2>>"$RUN_DIR/telegram.err" || true
+WATCH
+chmod +x "$RUN_DIR/progress-watch.sh"
+nohup bash "$RUN_DIR/progress-watch.sh" "$RUN_DIR" "$label" "$ds" "$send" \
+  >/dev/null 2>>"$RUN_DIR/telegram.err" &
+disown
 ```
 
 Write the repo name and the run dir into the block as literal values. The quoted heredoc keeps
-quotes, `$` and backticks in the run label from breaking the loop.
+quotes, `$` and backticks in the run label from breaking the loop. Overwriting `progress-watch.sh`
+on each boundary launch is harmless: the content never changes, and only the slot claim decides
+which running copy gets to act.
 
 `progress` prints one line, for example
 `acme-web driver, watch tool: 5/8 done (4 merged, 1 blocked), 1 in progress. Running 2h10m. ETA 16:40 (about 1h18m)`.
 The ETA is the mean time per worked ticket since the run started, multiplied by the tickets
 left. `progress --owner` exits non-zero once the lock is released, its owning thread has died, or
-a resumed thread has taken the lock over, so a stale re-armed check never fires once superseded.
-`--owner-only` prints `none` rather than a pid when it cannot identify the owning process — pass
-that straight back through `--owner`; it is a sentinel, not a pid, and `progress` recognises it as
-"never filter" rather than crashing on it. Never kill the check by hand.
+a resumed thread has taken the lock over, so a stale watcher never fires once superseded — the
+comparison is the lock's acquisition token (`--owner-only`'s output), not the pid, because a
+resumed run can relock with an unidentifiable pid too and a pid-based check would then pass for
+the wrong acquisition. Never kill the check by hand.
 
 **Claim every ticket in the tracker, now — before any work starts, and under the scope lock.**
 The claim is what makes step 2's check work for the next thread; a run that only labels at the
