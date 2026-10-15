@@ -397,9 +397,10 @@ production env.
    - Commit every fix on the job branch, then merge the job branch. Never change `<default>`
      except by that merge. The broker refuses a merged tree that differs from a clean merge
      of the job branch.
-   - Do not run `$J repin`. Any change to the tree after approval needs a re-pin and a fresh
-     approval tap, and the broker does both when its tree check sees a change. The fix limits
-     still decide whether a fix is directional, and a directional fix stops as step 3e does.
+   - Do not run `$J repin`. The broker re-pins when its tree check sees a change. It asks for a
+     Telegram tap only when the fix touches a sensitive path (`.claude/`, `.mcp.json`,
+     `package.json`, a lockfile or a migration); a plain code fix ships on the approval. The fix
+     limits still decide whether a fix is directional, and a directional fix stops as step 3e does.
 3. Stop before migrations. Do not apply migrations, build, run `/push` or `$J shipped`.
 
 The broker uses only the tree of your merge and the history of the job branch. It never pushes
