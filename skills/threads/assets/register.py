@@ -95,7 +95,10 @@ def claude_pid():
         if not out:
             return None
         parent, _, command = out.partition(" ")
-        if "claude" in command and "native-binary" in command:
+        # The VS Code build runs `.../native-binary/claude`; the CLI (and every
+        # headless poller run) runs a binary named plain `claude`.
+        if "native-binary" in command and "claude" in command or \
+                os.path.basename(command.split(" ", 1)[0]) == "claude":
             return pid
         try:
             pid = int(parent)
