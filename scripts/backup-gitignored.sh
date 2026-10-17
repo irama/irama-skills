@@ -65,7 +65,7 @@ snapshots() {
   find "$1" -mindepth 1 -maxdepth 1 -type d -name '2*' 2>/dev/null | sort
 }
 
-backup_repo() {
+backup_repo_locked() {
   local REPO="$1"
   [[ -d "$REPO/.git" ]] || return 0
   command -v git >/dev/null || return 0
@@ -129,6 +129,50 @@ backup_repo() {
   fi
   # legacy tarballs go only once the hardlink store has real history of its own
   [[ "$n" -ge 3 ]] && rm -f "$DIR"/*.tar.gz 2>/dev/null
+  return 0
+}
+
+# One lock dir per repo, taken around its backup: overlapping starts for the same
+# repo skip just that repo, other repos carry on. mkdir is atomic. The owner's PID
+# is written inside; a lock is stale only when that PID is dead (a live run past
+# 10 minutes is slow, not stale; a PID-less lock is stale only after 10 minutes).
+# Release removes only a lock that still holds our own PID.
+# ponytail: a take-over race between two stale checks is narrow and benign (worst
+# case one repo is skipped or backed up twice this round).
+mkdir -p "$BACKUP_ROOT"
+HELD_LOCK=""
+release_lock() {
+  if [[ -n "$HELD_LOCK" && "$(cat "$HELD_LOCK/pid" 2>/dev/null)" == "$$" ]]; then
+    rm -rf "$HELD_LOCK"
+  fi
+  HELD_LOCK=""
+}
+trap release_lock EXIT
+take_lock() {
+  local L="$1" pid
+  if ! mkdir "$L" 2>/dev/null; then
+    pid="$(cat "$L/pid" 2>/dev/null)"
+    if [[ -n "$pid" ]]; then
+      kill -0 "$pid" 2>/dev/null && return 1
+    else
+      [[ -n "$(find "$L" -maxdepth 0 -mmin +10 2>/dev/null)" ]] || return 1
+    fi
+    # atomic rename: only one taker wins the stale dir
+    mv "$L" "$L.stale.$$" 2>/dev/null || return 1
+    rm -rf "$L.stale.$$"
+    mkdir "$L" 2>/dev/null || return 1
+  fi
+  printf '%s\n' "$$" > "$L/pid"
+  HELD_LOCK="$L"
+}
+
+backup_repo() {
+  local REPO="$1"
+  [[ -d "$REPO/.git" ]] || return 0
+  local SLUG; SLUG="$(printf '%s' "$REPO" | sed 's#^'"$HOME"'/##; s/[^A-Za-z0-9]\{1,\}/-/g; s/^-//; s/-$//' | cut -c1-120)"
+  take_lock "$BACKUP_ROOT/.lock-$SLUG" || return 0
+  backup_repo_locked "$REPO"
+  release_lock
   return 0
 }
 
