@@ -67,6 +67,8 @@ snapshots() {
 
 backup_repo() {
   local REPO="$1"
+  # unlock hook for lock_wait; no-op placeholder keeps function shape simple
+
   [[ -d "$REPO/.git" ]] || return 0
   command -v git >/dev/null || return 0
   local SLUG; SLUG="$(printf '%s' "$REPO" | sed 's#^'"$HOME"'/##; s/[^A-Za-z0-9]\{1,\}/-/g; s/^-//; s/-$//' | cut -c1-120)"
@@ -131,6 +133,18 @@ backup_repo() {
   [[ "$n" -ge 3 ]] && rm -f "$DIR"/*.tar.gz 2>/dev/null
   return 0
 }
+
+# Overlapping starts (two sessions opening together) skip: mkdir is atomic. A
+# lock older than 10 minutes is stale (killed run) and is taken over.
+# ponytail: one global lock; a different-repo start also skips, which is fine
+# for a periodic backup. A take-over race between two stale checks is benign.
+mkdir -p "$BACKUP_ROOT"
+LOCK="$BACKUP_ROOT/.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  [[ -n "$(find "$LOCK" -maxdepth 0 -mmin +10 2>/dev/null)" ]] || exit 0
+  rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
+fi
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
 if [[ $# -gt 0 ]]; then
   for r in "$@"; do backup_repo "$r"; done
