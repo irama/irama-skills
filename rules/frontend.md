@@ -91,3 +91,11 @@ reference and pick a tool. Do not freehand it.**
 
 Both `/impeccable` and Claude Design are installed and available. Complex UI, a
 new look and feel, or a new layout means using one of the two, never neither.
+
+## Axis and ruler labels adapt to the space
+
+A timeline, ruler or chart axis picks its tick step from the width it actually has, never a fixed
+interval. Measure the element (a ResizeObserver), then take the first "nice" step (1, 2, 5, 10, 15,
+30, 60 … seconds, or the unit's equivalent) that leaves at least about 56 px between labels.
+Format time as m:ss. A fixed two-second ruler on a three-minute film printed labels on top of each
+other, and a "0:" prefix turned 100 s into "0:100".
