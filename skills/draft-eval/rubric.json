@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.7",
+  "rubric_version": "0.8",
   "phase": "experimental",
   "changelog": [
     {
@@ -41,6 +41,10 @@
     {
       "version": "0.7",
       "note": "Fitted to a review of what the best-analysed talks do that our decks do not, not to a reader's notes, so no deck is yet a fair test of it. A new deck-level moments group, graded in the arc pass as pass or fail per check: a named and built S.T.A.R. moment, a designed peak and ending with a close that returns to the open, one of five persuasion moves on each presented slide with confirm or justify before any promise, a story or named person in every section and no bare statistic, a vulnerability beat and an early credibility story, at least one planned light moment, and stage directions in the notes. The group passes only when every check passes, and bars.moments_must_pass puts it in the bar, so a deck that is all argument and no moments cannot finish. The group is in its experimental phase. The rubric holds no ethics guard on the moves: the author judges that. Unit scores and the arc criteria are unchanged; rounds scored under 0.6 or earlier are not comparable on moments or on the bar."
+    },
+    {
+      "version": "0.8",
+      "note": "Fitted to the but or therefore rule from story writing, not to a reader's notes, so no deck is yet a fair test of it. The arc flow criterion now asks the grader to name the link at each join between sections and to list every join where only and then fits; a long run of parallel items without its own causes counts as and then joins. Flow moves to its experimental phase. Rounds scored under 0.7 or earlier are not comparable on flow."
     }
   ],
   "scale": {
@@ -313,7 +317,7 @@
       {
         "id": "flow",
         "name": "Flow",
-        "question": "Does each unit follow from the one before, across the whole draft? A change of topic that the narrative supports counts as following."
+        "question": "Does each unit follow from the one before, across the whole draft? Name the link at each join between sections: but (a turn: the last section meets a problem) or therefore (a consequence of the last section). List every join where only and then fits, because there the section lists instead of argues. A run of parallel items counts as one beat when each item carries its own but or therefore and the run is joined in and out by one; a run of more than three items without that counts as and then joins. A change of topic that the narrative supports counts as following when its link is a but or a therefore."
       },
       {
         "id": "delight",

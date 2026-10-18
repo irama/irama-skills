@@ -71,3 +71,13 @@ Each unit carries the base criteria plus ONE device, and the devices vary across
   `device_variety` per grader (consecutive units that share a type, and the most common type's
   share) as a cross-check.
 
+
+## Rubric 0.8: but or therefore at every join
+
+The flow criterion passed a deck whose sections only followed one another in order. Story
+writers test a plot by the word between its beats: "but" (a turn) or "therefore" (a
+consequence) drives the story forward, and "and then" marks scenes strung together. The arc
+grader now names the link at each join between sections and lists every join where only "and
+then" fits. A run of parallel items (a set of moves, the steps of a method) counts as one beat
+when each item carries its own cause and the run is joined in and out by a but or a therefore.
+Flow is in its experimental phase, and rounds under 0.7 or earlier are not comparable on flow.
