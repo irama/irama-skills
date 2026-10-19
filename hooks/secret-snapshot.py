@@ -62,7 +62,7 @@ def main():
             continue
         sha = hashlib.sha256(content).hexdigest()
         bdir = os.path.join(root, name)
-        os.makedirs(bdir, exist_ok=True)
+        os.makedirs(bdir, mode=0o700, exist_ok=True)
         backups = sorted(glob.glob(os.path.join(bdir, "*.bak")))
         # dedup against newest existing backup
         if backups:
@@ -79,6 +79,7 @@ def main():
         dst = os.path.join(bdir, f"{stamp}.bak")
         try:
             shutil.copy2(f, dst)
+            os.chmod(dst, 0o600)  # copy2 keeps the source mode; a backup of a secret is owner-only
             touched += 1
         except Exception:
             continue
