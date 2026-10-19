@@ -86,11 +86,11 @@ open, rather than only detectable afterwards.
      **`/flush all` and `/merge all` ARE that decision.** `all` means every branch and worktree in this repo (or, working across repos, every repo touched) — so other threads' merged-but-unpushed commits in the range are exactly what was asked for, not a surprise. Do not stop on them; **list whose they are in the report** and push. Stopping here on an `all` invocation is a defect: it makes the user repeat an instruction they already gave in full. Only stop if something in the range is *individually* disqualifying — a failing gate, an unapplied migration, a sensitive file.
    - Anything that fails here is cheap to fix *before* the push and expensive after — pushing `main` is the one irreversible step in the four-verb flow.
 
-5. Authorise, then `git push` to the default branch. The `push-main-guard` hook refuses any push to main or master that `/push` did not authorise in the last 10 minutes:
+5. Authorise, then `git push` to the default branch. The `push-main-guard` hook refuses any push to main or master that `/push` did not authorise in the last 10 minutes. **Run the two lines as two separate Bash calls:** the hook checks a command before it runs, so an authorise and a push in one call are refused.
 
    ```
-   python3 ~/.claude/hooks/push-main-guard.py --authorise <repo-dir>
-   git push
+   python3 ~/.claude/hooks/push-main-guard.py --authorise <repo-dir>   # call 1
+   git push                                                            # call 2
    ```
 6. **Confirm the deploy triggered** (Vercel dashboard / `vercel ls` / the project's deploy check). Report the deploy URL or status. If the push succeeded but no deploy triggered, surface that — don't claim success. **Verify by SHA, not by age** — check the deployed SHA (e.g. `/api/health`) against what you pushed; a failed deploy leaves the *previous* build serving happily and looking fine.
 
