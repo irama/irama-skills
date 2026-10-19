@@ -1,6 +1,6 @@
 ---
 name: flush
-description: Run the whole shipping pipeline end-to-end — /commit, /merge, /push, /prune — skipping the steps that don't apply. Use when the user says "flush", "ship it all", "take it all the way to prod", or invokes /flush. Pushes prod, so it is only ever user-invoked.
+description: Run the whole shipping pipeline end-to-end — /commit, /merge, /push, /prune — skipping the steps that don't apply. Use when the user says "flush", "ship it all", "take it all the way to prod", or invokes /flush. Pushes prod, so it is only ever user-invoked (an Agent X answer to an ask this thread posted counts as the user invoking it).
 ---
 
 Flush the current work all the way out: **`/commit` → `/merge` → `/push` → `/prune`**, running only the verbs that are relevant to the repo's actual state. It is exactly the four-verb flow from `~/.claude/docs/multithread-workflow.md`, invoked in one word instead of four turns.
