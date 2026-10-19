@@ -265,9 +265,47 @@ def _git(repo, *args):
     return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
 
 
-def _is_clean(worktree):
-    res = _git(worktree, "status", "--porcelain")
-    return res.returncode == 0 and not res.stdout.strip()
+def _is_clean(worktree, ignore=()):
+    """No change in <worktree>, apart from the paths in <ignore> (relative)."""
+    res = _git(worktree, "status", "--porcelain", "-z")
+    if res.returncode != 0:
+        return False
+    skip = {p.rstrip("/") for p in ignore}
+    return all(entry[3:].rstrip("/") in skip for entry in res.stdout.split("\0") if entry)
+
+
+def _tracked(repo, rel):
+    return bool(_git(repo, "ls-files", "--", rel).stdout.strip())
+
+
+def _link_shared(work, tmp):
+    """Symlink --work's gitignored dependencies and env files into the gate worktree.
+
+    A fresh checkout has no node_modules or .env.local, so a Node gate would fail
+    or reinstall on every landing. Links: node_modules beside the root and every
+    tracked package.json, and untracked top-level .env / .env.* files. A path that
+    already exists in the merged tree (so is tracked there) is never shadowed.
+    Returns the relative paths linked, so the clean check and cleanup know them."""
+    work = os.path.abspath(work)
+    listed = _git(work, "ls-files", "-z", "--", "package.json", "*/package.json").stdout
+    dirs = {""}
+    for f in listed.split("\0"):
+        parts = f.split("/")
+        # ponytail: depth cap of 4 dirs covers apps/*/packages/*; raise if a monorepo nests deeper.
+        if parts[-1] == "package.json" and "node_modules" not in parts and len(parts) <= 5:
+            dirs.add("/".join(parts[:-1]))
+    wanted = [os.path.join(d, "node_modules") if d else "node_modules" for d in sorted(dirs)]
+    wanted += sorted(n for n in os.listdir(work)
+                     if (n == ".env" or n.startswith(".env."))
+                     and os.path.isfile(os.path.join(work, n)) and not _tracked(work, n))
+    linked = []
+    for rel in wanted:
+        src, dst = os.path.join(work, rel), os.path.join(tmp, rel)
+        if not os.path.exists(src) or os.path.lexists(dst) or not os.path.isdir(os.path.dirname(dst)):
+            continue
+        os.symlink(src, dst)
+        linked.append(rel)
+    return linked
 
 
 def _rev(repo, ref):
@@ -336,14 +374,21 @@ def _land_locked(args, work, target, source):
         print(f"no such ref: {source}", file=sys.stderr)
         return LAND_BLOCKED
     tmp = tempfile.mkdtemp(prefix="driver-land-")
+    linked = []
     try:
         added = _git(work, "worktree", "add", "--quiet", "--detach", tmp, g)
         if added.returncode != 0:
             print(f"could not make a temporary worktree at {g[:8]}:\n{added.stderr.strip()}",
                   file=sys.stderr)
             return LAND_BLOCKED
-        return _land_in(args, work, tmp, target, source, g)
+        linked = _link_shared(work, tmp)
+        return _land_in(args, work, tmp, target, source, g, linked)
     finally:
+        for rel in linked:  # unlink first, so nothing below can follow a link into --work
+            try:
+                os.unlink(os.path.join(tmp, rel))
+            except OSError:
+                pass
         # ponytail: runs on gate failure and Ctrl-C; a SIGKILL leaves the dir,
         # which the next `git worktree prune` sweeps once the OS clears the temp dir.
         _git(work, "worktree", "remove", "--force", tmp)
@@ -351,7 +396,7 @@ def _land_locked(args, work, target, source):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _land_in(args, work, tmp, target, source, g):
+def _land_in(args, work, tmp, target, source, g, linked=()):
     merged = _git(tmp, "merge", "--no-ff", "-m", args.message or
                   f"merge {source} into {target}", source)
     if merged.returncode != 0:
@@ -372,7 +417,7 @@ def _land_in(args, work, tmp, target, source, g):
             print(f"gate failed ({gate.returncode}) — {target} unchanged at {g[:8]}",
                   file=sys.stderr)
         return LAND_GATE_RED
-    if _rev(tmp, "HEAD") != t or not _is_clean(tmp):
+    if _rev(tmp, "HEAD") != t or not _is_clean(tmp, linked):
         print("the gate changed the tree it tested — nothing landed", file=sys.stderr)
         return LAND_GATE_RED
     _journal(args, {"phase": "gated", "target": target, "base": g, "candidate": t})
@@ -935,6 +980,33 @@ def selftest_land():
         assert os.path.exists(os.path.join(repo, "b.txt")), "--work got the landed files"
         assert len(_worktrees(repo)) == 1, "temp worktree left"
     print("ok: (l) an unrelated uncommitted file in --work neither blocks nor gets touched")
+
+    # (l4) the gate sees --work's gitignored node_modules and .env.local, via links
+    # that leave with the temp worktree.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        with open(os.path.join(repo, ".gitignore"), "w") as f:
+            f.write("node_modules/\n.env.local\n")
+        with open(os.path.join(repo, "package.json"), "w") as f:
+            f.write("{}\n")
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "node"], check=True)
+        os.makedirs(os.path.join(repo, "node_modules", "x"))
+        with open(os.path.join(repo, ".env.local"), "w") as f:
+            f.write("SECRET=1\n")
+        gate = "test -d node_modules/x && test -f .env.local && pwd > \"$TMPDIR_PROBE\""
+        probe = os.path.join(repo, ".git", "probe")
+        os.environ["TMPDIR_PROBE"] = probe
+        try:
+            assert _land(repo, gate=gate) == LAND_OK
+        finally:
+            del os.environ["TMPDIR_PROBE"]
+        gated = open(probe).read().strip()
+        assert gated != os.path.realpath(repo) and not os.path.lexists(gated), "temp worktree left"
+        assert len(_worktrees(repo)) == 1, "temp worktree left"
+        assert os.path.isdir(os.path.join(repo, "node_modules", "x")), "shared deps untouched"
+        assert open(os.path.join(repo, ".env.local")).read() == "SECRET=1\n"
+    print("ok: (l4) the gate worktree borrows node_modules and .env.local, then drops them")
 
     # (l2) a dirty file in --work that the merge changes stops the landing.
     with tf.TemporaryDirectory() as repo:
