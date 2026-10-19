@@ -265,9 +265,48 @@ def _git(repo, *args):
     return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
 
 
-def _is_clean(worktree):
-    res = _git(worktree, "status", "--porcelain")
-    return res.returncode == 0 and not res.stdout.strip()
+def _is_clean(worktree, ignore=()):
+    """No change in <worktree>, apart from the paths in <ignore> (relative)."""
+    res = _git(worktree, "status", "--porcelain", "-z")
+    if res.returncode != 0:
+        return False
+    skip = {p.rstrip("/") for p in ignore}
+    return all(entry[3:].rstrip("/") in skip for entry in res.stdout.split("\0") if entry)
+
+
+def _tracked(repo, rel):
+    return bool(_git(repo, "ls-files", "--", rel).stdout.strip())
+
+
+def _link_shared(work, tmp):
+    """Symlink --work's gitignored dependencies and env files into the gate worktree.
+
+    A fresh checkout has no node_modules or .env.local, so a Node gate would fail
+    or reinstall on every landing. Links: node_modules beside the root and every
+    tracked package.json, and untracked top-level .env / .env.* files. Call it after
+    the merge: a path that already exists in the merged tree (so is tracked there)
+    is never shadowed. Returns the relative paths linked, so the clean check and
+    cleanup know them."""
+    work = os.path.abspath(work)
+    listed = _git(tmp, "ls-files", "-z", "--", "package.json", "*/package.json").stdout
+    dirs = {""}
+    for f in listed.split("\0"):
+        parts = f.split("/")
+        # ponytail: depth cap of 4 dirs covers apps/*/packages/*; raise if a monorepo nests deeper.
+        if parts[-1] == "package.json" and "node_modules" not in parts and len(parts) <= 5:
+            dirs.add("/".join(parts[:-1]))
+    wanted = [os.path.join(d, "node_modules") if d else "node_modules" for d in sorted(dirs)]
+    wanted += sorted(n for n in os.listdir(work)
+                     if (n == ".env" or n.startswith(".env."))
+                     and os.path.isfile(os.path.join(work, n)) and not _tracked(work, n))
+    linked = []
+    for rel in wanted:
+        src, dst = os.path.join(work, rel), os.path.join(tmp, rel)
+        if not os.path.exists(src) or os.path.lexists(dst) or not os.path.isdir(os.path.dirname(dst)):
+            continue
+        os.symlink(src, dst)
+        linked.append(rel)
+    return linked
 
 
 def _rev(repo, ref):
@@ -275,8 +314,8 @@ def _rev(repo, ref):
     return res.stdout.strip() if res.returncode == 0 else None
 
 
-def _checked_out_elsewhere(repo, branch, work):
-    """Every worktree holding <branch>, other than the one we are landing from."""
+def _checked_out(repo, branch):
+    """Every worktree holding <branch>, the one we are landing from included."""
     res = _git(repo, "worktree", "list", "--porcelain")
     out, path = [], None
     for line in res.stdout.splitlines():
@@ -284,9 +323,13 @@ def _checked_out_elsewhere(repo, branch, work):
             path = line.split(" ", 1)[1]
         elif line.startswith("branch ") and path:
             if line.split(" ", 1)[1] == f"refs/heads/{branch}":
-                if os.path.realpath(path) != os.path.realpath(work):
-                    out.append(path)
+                out.append(path)
     return out
+
+
+def _overwritten_files(stderr):
+    """The file list git prints when a merge refuses to overwrite local changes."""
+    return [line.strip() for line in stderr.splitlines() if line.startswith(("\t", "    "))]
 
 
 LAND_OK, LAND_CONFLICT, LAND_GATE_RED, LAND_MOVED, LAND_BLOCKED = 0, 3, 4, 5, 6
@@ -298,8 +341,10 @@ def cmd_land(args):
     The target branch is NEVER the thing being tested. A merge commit cannot be
     aborted once it exists, so merging into the target first and testing second
     leaves rejected code on the branch, where a later green run carries it in.
-    Here the merge happens on a detached HEAD, the gate runs there, and the
-    target ref moves by compare-and-swap from the exact commit that was gated."""
+    Here the merge happens in a temporary detached worktree, the gate runs
+    there, and the target moves from the exact commit that was gated. --work is
+    only touched by the final fast-forward, so another thread's unrelated
+    uncommitted file in it never blocks a landing."""
     work, target, source = args.work, args.target, args.source
     if not (args.gate or "").strip():
         print("--gate is required: nothing lands untested. Pass --gate true to say "
@@ -319,18 +364,9 @@ def cmd_land(args):
 
 
 def _land_locked(args, work, target, source):
-    if not _is_clean(work):
-        print(f"worktree is dirty: {work}", file=sys.stderr)
+    if len(_checked_out(work, target)) > 1:
+        print(f"{target} is checked out in more than one worktree — free one", file=sys.stderr)
         return LAND_BLOCKED
-    busy = _checked_out_elsewhere(work, target, work)
-    if len(busy) > 1:
-        print(f"{target} is checked out in {len(busy)} worktrees — free one", file=sys.stderr)
-        return LAND_BLOCKED
-    if busy and not _is_clean(busy[0]):
-        print(f"{target} is checked out with uncommitted work in {busy[0]} — "
-              "ready to land, but not over the top of that", file=sys.stderr)
-        return LAND_BLOCKED
-    original = _git(work, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     g = _rev(work, target)
     if not g:
         print(f"no such ref: {target}", file=sys.stderr)
@@ -338,73 +374,101 @@ def _land_locked(args, work, target, source):
     if not _rev(work, source):
         print(f"no such ref: {source}", file=sys.stderr)
         return LAND_BLOCKED
+    tmp = tempfile.mkdtemp(prefix="driver-land-")
+    linked = []
+    try:
+        added = _git(work, "worktree", "add", "--quiet", "--detach", tmp, g)
+        if added.returncode != 0:
+            print(f"could not make a temporary worktree at {g[:8]}:\n{added.stderr.strip()}",
+                  file=sys.stderr)
+            return LAND_BLOCKED
+        return _land_in(args, work, tmp, target, source, g, linked)
+    finally:
+        for rel in linked:  # unlink first, so nothing below can follow a link into --work
+            try:
+                os.unlink(os.path.join(tmp, rel))
+            except OSError:
+                pass
+        # ponytail: runs on gate failure and Ctrl-C; a SIGKILL leaves the dir,
+        # which the next `git worktree prune` sweeps once the OS clears the temp dir.
+        _git(work, "worktree", "remove", "--force", tmp)
+        _git(work, "worktree", "prune")
+        shutil.rmtree(tmp, ignore_errors=True)
 
-    def restore():
-        if original and original != "HEAD":
-            res = _git(work, "switch", "--quiet", "--no-overwrite-ignore", original)
-            if res.returncode != 0:
-                print(f"could not return {work} to {original} — it is detached at the "
-                      f"rejected candidate. Sort it out before the next ticket:\n"
-                      f"{res.stderr.strip()}", file=sys.stderr)
 
-    if _git(work, "switch", "--quiet", "--no-overwrite-ignore", "--detach", g).returncode != 0:
-        print(f"could not detach at {g[:8]}", file=sys.stderr)
-        return LAND_BLOCKED
-    merged = _git(work, "merge", "--no-ff", "-m", args.message or
+def _land_in(args, work, tmp, target, source, g, linked):
+    merged = _git(tmp, "merge", "--no-ff", "-m", args.message or
                   f"merge {source} into {target}", source)
     if merged.returncode != 0:
-        aborted = _git(work, "merge", "--abort")
-        if aborted.returncode != 0 and not _is_clean(work):
-            print(f"merge --abort failed in {work} — resolve it by hand before the next "
-                  f"ticket:\n{aborted.stderr.strip()}", file=sys.stderr)
-            return LAND_BLOCKED
-        restore()
         print(merged.stdout + merged.stderr, file=sys.stderr)
         return LAND_CONFLICT
-    t = _rev(work, "HEAD")
+    # Link after merging, so a link never sits on a path the source starts tracking.
+    # <linked> is the caller's list: it unlinks these on the way out.
+    linked.extend(_link_shared(work, tmp))
+    # Whenever the candidate has submodules: a fresh clone or a linked --work keeps no
+    # module store in the common dir, and skipping would hand the gate empty folders.
+    if os.path.isfile(os.path.join(tmp, ".gitmodules")):
+        sub = _git(tmp, "submodule", "update", "--init", "--recursive")
+        if sub.returncode != 0:
+            print(f"could not populate submodules in the gate worktree:\n{sub.stderr.strip()}",
+                  file=sys.stderr)
+            return LAND_BLOCKED
+    t = _rev(tmp, "HEAD")
     _journal(args, {"phase": "candidate", "target": target, "source": source,
                     "base": g, "candidate": t})
 
-    if args.gate:
-        gate = subprocess.run(args.gate, shell=True, cwd=work)
-        if gate.returncode != 0:
-            moved = _rev(work, target)
-            restore()
-            if moved != g:
-                print(f"gate failed ({gate.returncode}) AND {target} moved to "
-                      f"{(moved or '?')[:8]} during it — the gate wrote to the repo. "
-                      f"Check {target} by hand.", file=sys.stderr)
-            else:
-                print(f"gate failed ({gate.returncode}) — {target} unchanged at {g[:8]}",
-                      file=sys.stderr)
-            return LAND_GATE_RED
-        if _rev(work, "HEAD") != t or not _is_clean(work):
-            restore()
-            print("the gate changed the tree it tested — nothing landed", file=sys.stderr)
-            return LAND_GATE_RED
+    gate = subprocess.run(args.gate, shell=True, cwd=tmp)
+    if gate.returncode != 0:
+        moved = _rev(work, target)
+        if moved != g:
+            print(f"gate failed ({gate.returncode}) AND {target} moved to "
+                  f"{(moved or '?')[:8]} during it — the gate wrote to the repo. "
+                  f"Check {target} by hand.", file=sys.stderr)
+        else:
+            print(f"gate failed ({gate.returncode}) — {target} unchanged at {g[:8]}",
+                  file=sys.stderr)
+        return LAND_GATE_RED
+    if _rev(tmp, "HEAD") != t or not _is_clean(tmp, linked):
+        print("the gate changed the tree it tested — nothing landed", file=sys.stderr)
+        return LAND_GATE_RED
     _journal(args, {"phase": "gated", "target": target, "base": g, "candidate": t})
 
-    busy = _checked_out_elsewhere(work, target, work)
-    if len(busy) > 1 or (busy and not _is_clean(busy[0])):
-        restore()
-        print(f"{target} was checked out elsewhere with work in it during the gate — "
-              "nothing landed", file=sys.stderr)
-        return LAND_BLOCKED
-    if busy:
-        # The branch is checked out in a clean worktree. Fast-forward IT, so the
-        # ref and that worktree's files move together — an update-ref here would
-        # leave its index and files describing the old commit.
-        cas = _git(busy[0], "merge", "--ff-only", t)
-    else:
-        cas = _git(work, "update-ref", f"refs/heads/{target}", t, g)
-    if cas.returncode != 0:
-        restore()
+    if _rev(work, target) != g:
         print(f"{target} moved since the gate — nothing landed. Re-run to gate again.",
               file=sys.stderr)
         return LAND_MOVED
+    busy = _checked_out(work, target)
+    if len(busy) > 1:
+        print(f"{target} was checked out in a second worktree during the gate — "
+              "nothing landed", file=sys.stderr)
+        return LAND_BLOCKED
+    if busy:
+        # Fast-forward the worktree holding the branch, so its ref and files move
+        # together. Git allows this over unrelated dirty files and refuses only
+        # when one of them would be overwritten. --no-overwrite-ignore makes an
+        # ignored file (local config, a secret) count as one; the command-scoped
+        # merge.autoStash=false stops autostash hiding a dirty edit, on every git
+        # version (the --no-autostash flag only exists from 2.27).
+        ff = _git(busy[0], "-c", "merge.autoStash=false", "merge", "--ff-only", "--quiet",
+                  "--no-overwrite-ignore", t)
+        if ff.returncode != 0:
+            if _rev(work, target) != g:
+                print(f"{target} moved since the gate — nothing landed. Re-run to gate "
+                      "again.", file=sys.stderr)
+                return LAND_MOVED
+            files = _overwritten_files(ff.stderr)
+            print(f"{target} is checked out in {busy[0]} with uncommitted or ignored files the "
+                  f"landing would overwrite — nothing landed: {', '.join(files) or '?'}\n"
+                  f"{ff.stderr.strip()}", file=sys.stderr)
+            return LAND_BLOCKED
+    else:
+        cas = _git(work, "update-ref", f"refs/heads/{target}", t, g)
+        if cas.returncode != 0:
+            print(f"{target} moved since the gate — nothing landed. Re-run to gate again.",
+                  file=sys.stderr)
+            return LAND_MOVED
     _journal(args, {"phase": "landed", "target": target, "base": g, "candidate": t})
     _log_overlap(args, work, target, t)
-    _git(work, "switch", "--quiet", "--no-overwrite-ignore", target)
     print(t)
     return LAND_OK
 
@@ -835,6 +899,11 @@ def _fixture_repo(path):
     subprocess.run(["git", "-C", path, "switch", "-q", "main"], check=True)
 
 
+def _worktrees(repo):
+    res = _git(repo, "worktree", "list", "--porcelain")
+    return [line for line in res.stdout.splitlines() if line.startswith("worktree ")]
+
+
 def _land(repo, gate="true", source="feature", target="main", run_dir=None):
     return cmd_land(argparse.Namespace(work=repo, target=target, source=source,
                                        gate=gate, message=None, run_dir=run_dir,
@@ -848,10 +917,14 @@ def selftest_land():
     with tf.TemporaryDirectory() as repo:
         _fixture_repo(repo)
         before = _rev(repo, "main")
+        with open(os.path.join(repo, "note.md"), "w") as f:
+            f.write("another thread's note\n")
         assert _land(repo, gate="exit 1") == LAND_GATE_RED
         assert _rev(repo, "main") == before
+        assert _rev(repo, "HEAD") == before, "--work is untouched"
         assert _rev(repo, "feature") is not None, "the ticket branch survives for inspection"
-        assert _is_clean(repo)
+        assert open(os.path.join(repo, "note.md")).read() == "another thread's note\n"
+        assert _checked_out(repo, "main") and len(_worktrees(repo)) == 1, "temp worktree left"
     print("ok: (d) a ticket that fails its gate never reaches the target branch")
 
     # (e) a conflicting merge aborts and leaves no half-merged worktree.
@@ -907,16 +980,128 @@ def selftest_land():
         assert phases == ["candidate", "gated", "landed"], phases
     print("ok: (h) a green ticket lands the exact commit the gate ran on")
 
-    # (l) a dirty worktree stops the landing instead of writing over it.
+    # (l) an unrelated uncommitted file in --work does not block, and survives.
     with tf.TemporaryDirectory() as repo:
         _fixture_repo(repo)
         before = _rev(repo, "main")
         with open(os.path.join(repo, "a.txt"), "a") as f:
             f.write("uncommitted\n")
+        with open(os.path.join(repo, "note.md"), "w") as f:
+            f.write("untracked\n")
+        assert _land(repo, gate="test -f b.txt") == LAND_OK
+        assert _rev(repo, "main") != before and _rev(repo, "HEAD") == _rev(repo, "main")
+        assert open(os.path.join(repo, "a.txt")).read() == "base\nuncommitted\n"
+        assert open(os.path.join(repo, "note.md")).read() == "untracked\n"
+        assert os.path.exists(os.path.join(repo, "b.txt")), "--work got the landed files"
+        assert len(_worktrees(repo)) == 1, "temp worktree left"
+    print("ok: (l) an unrelated uncommitted file in --work neither blocks nor gets touched")
+
+    # (l4) the gate sees --work's gitignored node_modules and .env.local, via links
+    # that leave with the temp worktree.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        with open(os.path.join(repo, ".gitignore"), "w") as f:
+            f.write("node_modules/\n.env.local\n")
+        with open(os.path.join(repo, "package.json"), "w") as f:
+            f.write("{}\n")
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "node"], check=True)
+        os.makedirs(os.path.join(repo, "node_modules", "x"))
+        with open(os.path.join(repo, ".env.local"), "w") as f:
+            f.write("SECRET=1\n")
+        gate = "test -d node_modules/x && test -f .env.local && pwd > \"$TMPDIR_PROBE\""
+        probe = os.path.join(repo, ".git", "probe")
+        os.environ["TMPDIR_PROBE"] = probe
+        try:
+            assert _land(repo, gate=gate) == LAND_OK
+        finally:
+            del os.environ["TMPDIR_PROBE"]
+        gated = open(probe).read().strip()
+        assert gated != os.path.realpath(repo) and not os.path.lexists(gated), "temp worktree left"
+        assert len(_worktrees(repo)) == 1, "temp worktree left"
+        assert os.path.isdir(os.path.join(repo, "node_modules", "x")), "shared deps untouched"
+        assert open(os.path.join(repo, ".env.local")).read() == "SECRET=1\n"
+    print("ok: (l4) the gate worktree borrows node_modules and .env.local, then drops them")
+
+    # (l2) a dirty file in --work that the merge changes stops the landing.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        before = _rev(repo, "main")
+        with open(os.path.join(repo, "b.txt"), "w") as f:
+            f.write("mine\n")
         assert _land(repo) == LAND_BLOCKED
         assert _rev(repo, "main") == before
-        assert open(os.path.join(repo, "a.txt")).read().endswith("uncommitted\n")
-    print("ok: (l) a dirty worktree stops the landing and keeps its uncommitted work")
+        assert open(os.path.join(repo, "b.txt")).read() == "mine\n"
+        assert len(_worktrees(repo)) == 1, "temp worktree left"
+    assert _overwritten_files("error: ...overwritten by merge:\n\tb.txt\nPlease move") \
+        == ["b.txt"]
+    print("ok: (l2) a dirty file the landing would overwrite stops it (exit 6)")
+
+    # (l5) an ignored file in --work at a path the source starts tracking stops it.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        with open(os.path.join(repo, ".gitignore"), "w") as f:
+            f.write("config.local\n")
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "ignore"], check=True)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "feature"], check=True)
+        with open(os.path.join(repo, "config.local"), "w") as f:
+            f.write("tracked\n")
+        subprocess.run(["git", "-C", repo, "add", "-f", "config.local"], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "track"], check=True)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "main"], check=True)
+        with open(os.path.join(repo, "config.local"), "w") as f:
+            f.write("SECRET=mine\n")
+        before = _rev(repo, "main")
+        assert _land(repo) == LAND_BLOCKED
+        assert _rev(repo, "main") == before
+        assert open(os.path.join(repo, "config.local")).read() == "SECRET=mine\n"
+    print("ok: (l5) an ignored local file the landing would overwrite stops it (exit 6)")
+
+    # (l6) merge.autoStash=true does not stash a dirty overlapping file past the refusal.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        subprocess.run(["git", "-C", repo, "config", "merge.autoStash", "true"], check=True)
+        before = _rev(repo, "main")
+        with open(os.path.join(repo, "b.txt"), "w") as f:
+            f.write("mine\n")
+        assert _land(repo) == LAND_BLOCKED
+        assert _rev(repo, "main") == before
+        assert open(os.path.join(repo, "b.txt")).read() == "mine\n"
+        assert not _git(repo, "stash", "list").stdout.strip(), "a stash entry was left"
+    print("ok: (l6) merge.autoStash=true still refuses (exit 6) and leaves no stash")
+
+    # (l7) an untracked .env.local the source starts tracking is not linked over:
+    # the gate sees the tracked version.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "feature"], check=True)
+        with open(os.path.join(repo, ".env.local"), "w") as f:
+            f.write("TRACKED=1\n")
+        subprocess.run(["git", "-C", repo, "add", ".env.local"], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "track env"], check=True)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "-c", "side", "main"], check=True)
+        with open(os.path.join(repo, ".env.local"), "w") as f:
+            f.write("LOCAL=1\n")
+        gate = "test ! -L .env.local && grep -q TRACKED=1 .env.local"
+        assert _land(repo, gate=gate) == LAND_OK
+        assert subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor",
+                               "feature", "main"]).returncode == 0
+        assert open(os.path.join(repo, ".env.local")).read() == "LOCAL=1\n"
+    print("ok: (l7) a path the source starts tracking is never shadowed by a link")
+
+    # (l3) a target checked out nowhere lands by compare-and-swap.
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "-c", "side"], check=True)
+        before = _rev(repo, "main")
+        assert not _checked_out(repo, "main")
+        assert _land(repo) == LAND_OK
+        assert _rev(repo, "main") != before
+        assert subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor",
+                               "feature", "main"]).returncode == 0
+        assert _git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "side"
+    print("ok: (l3) a target checked out nowhere lands via update-ref")
 
     # (m) no gate, no landing.
     with tf.TemporaryDirectory() as repo:
@@ -1018,19 +1203,21 @@ def selftest_land():
         subprocess.run(["git", "-C", repo, "switch", "-q", "-c", "side"], check=True)
         subprocess.run(["git", "-C", repo, "worktree", "add", "-q", other, "main"], check=True)
         before = _rev(repo, "main")
-        # dirty: nothing lands, the uncommitted file survives
-        with open(os.path.join(other, "a.txt"), "a") as f:
+        # a dirty file the landing would overwrite: nothing lands, the file survives
+        with open(os.path.join(other, "b.txt"), "w") as f:
             f.write("theirs\n")
         assert _land(repo, source="feature", target="main") == LAND_BLOCKED
         assert _rev(repo, "main") == before
-        assert open(os.path.join(other, "a.txt")).read().endswith("theirs\n")
-        # clean: the ref AND that worktree's files move together
-        subprocess.run(["git", "-C", other, "checkout", "-q", "--", "a.txt"], check=True)
+        assert open(os.path.join(other, "b.txt")).read() == "theirs\n"
+        # unrelated dirt only: the ref AND that worktree's files move together
+        os.remove(os.path.join(other, "b.txt"))
+        with open(os.path.join(other, "a.txt"), "a") as f:
+            f.write("theirs\n")
         assert _land(repo, source="feature", target="main") == LAND_OK
         assert _rev(repo, "main") != before
         assert os.path.exists(os.path.join(other, "b.txt")), "the other worktree got the files"
-        assert _is_clean(other)
-    print("ok: (r) a clean checkout of the target fast-forwards in place; a dirty one stops")
+        assert open(os.path.join(other, "a.txt")).read() == "base\ntheirs\n"
+    print("ok: (r) the target's checkout fast-forwards in place; an overwrite stops it")
 
     # (i) the repo lock is a mutex: no two holders overlap.
     with tf.TemporaryDirectory() as repo:
