@@ -405,9 +405,9 @@ def _land_in(args, work, tmp, target, source, g, linked):
     # Link after merging, so a link never sits on a path the source starts tracking.
     # <linked> is the caller's list: it unlinks these on the way out.
     linked.extend(_link_shared(work, tmp))
-    common = _git_common_dir(work)
-    if os.path.isfile(os.path.join(tmp, ".gitmodules")) and common \
-            and os.path.isdir(os.path.join(common, "modules")):
+    # Whenever the candidate has submodules: a fresh clone or a linked --work keeps no
+    # module store in the common dir, and skipping would hand the gate empty folders.
+    if os.path.isfile(os.path.join(tmp, ".gitmodules")):
         sub = _git(tmp, "submodule", "update", "--init", "--recursive")
         if sub.returncode != 0:
             print(f"could not populate submodules in the gate worktree:\n{sub.stderr.strip()}",
@@ -446,10 +446,11 @@ def _land_in(args, work, tmp, target, source, g, linked):
         # Fast-forward the worktree holding the branch, so its ref and files move
         # together. Git allows this over unrelated dirty files and refuses only
         # when one of them would be overwritten. --no-overwrite-ignore makes an
-        # ignored file (local config, a secret) count as one; --no-autostash (and
-        # the -c for git older than 2.27) stops merge.autoStash hiding a dirty edit.
+        # ignored file (local config, a secret) count as one; the command-scoped
+        # merge.autoStash=false stops autostash hiding a dirty edit, on every git
+        # version (the --no-autostash flag only exists from 2.27).
         ff = _git(busy[0], "-c", "merge.autoStash=false", "merge", "--ff-only", "--quiet",
-                  "--no-overwrite-ignore", "--no-autostash", t)
+                  "--no-overwrite-ignore", t)
         if ff.returncode != 0:
             if _rev(work, target) != g:
                 print(f"{target} moved since the gate — nothing landed. Re-run to gate "
