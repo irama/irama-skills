@@ -228,6 +228,11 @@ Lead with a **short label naming the work**, then the references, on one line, r
 - **Cross-repo** (tickets in a hub, code in an app — the fleet pattern): **full GitHub URLs**.
   Bare `#N` only resolves from inside the tracker repo.
 - Say which directory to run it from — `/driver` works in the repo where the code changes land.
+- **Code in two or more repos: still one command, pasted once, in one thread.** Name each repo's
+  folder and its tickets, the order, any wait (another run holding a markdown-tracker repo), and
+  that blocked human gates do not stop the run. `/driver` runs one run per repo from that thread.
+  Never hand back a launcher script, Terminal windows, a second command for later, or an overseer
+  prompt: each one is another window for the user to keep track of.
 - Add one line on the suggested grouping if the set splits sensibly.
 - **State what was merged in step 7**, so the next thread knows what its checkout already carries.
   Name the branches, and name anything left unmerged with the reason.

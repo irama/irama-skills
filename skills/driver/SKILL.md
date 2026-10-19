@@ -137,6 +137,12 @@ independently and only contend at landing, where `driver_state.py land` holds a 
 advances the branch by compare-and-swap. Two independently-green runs still gate the combined
 tree before either reaches the default branch.
 
+**One invocation can name tickets in more than one repo.** Run one run per repo (its own
+`RUN_DIR`, integration branch, lock and claim), all orchestrated from this thread, switching runs
+at ticket boundaries. A repo that must wait (a markdown-tracker repo with a live run) starts at the
+first boundary after it is free. Do not ask the user to start a second `/driver` later or in
+another window.
+
 To see the other runs: `python3 "$reg" list` and read every `<repo>:driver:` key. Say in the
 opening message which other runs are live, because they share the machine — the dev-server ports
 (3000-3002), the Codex quota and the CPU are finite, so gates run slower with two.
