@@ -391,7 +391,9 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
 
    Exit codes: **0** landed (record the printed commit), **3** merge conflict, **4** gate red,
    **5** the target moved during the gate (re-run it, the gate has to see the new base),
-   **6** the worktree is dirty or the branch is checked out elsewhere. Anything non-zero: **do
+   **6** an uncommitted file where the branch is checked out would be overwritten by the
+   landing (unrelated dirty files are fine: the merge and gate run in a temporary worktree), or
+   the branch is checked out in more than one worktree. Anything non-zero: **do
    not force it** — mark `blocked`, send the **blocked-ticket ping** (below), cascade every
    dependent ticket to `skipped (blocked by <ticket>)`, continue with unaffected tickets.
 
