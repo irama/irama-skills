@@ -18,6 +18,7 @@ Exit 0 = allow. Exit 2 + stderr = block, message goes to the model.
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -98,8 +99,9 @@ def main() -> int:
     out = []
     pgt.plan(cmd, payload.get("cwd") or os.getcwd(), out)
     unreadable = not pgt.PUSHES and any(l.startswith("UNRESOLVED") for l in out)
-    if not pgt.PUSHES and "git" in cmd.split() and "push" in cmd.split() and not out:
-        unreadable = not pgt.lex(cmd)  # unbalanced quotes: the parser saw nothing
+    bare = pgt.strip_heredocs(cmd)  # heredoc bodies are data, never a push
+    if not pgt.PUSHES and not out and re.search(r"\bgit\b.*\bpush\b", bare):
+        unreadable = not pgt.lex(pgt.substitute(bare))  # unbalanced quotes: the parser saw nothing
     for target, args in pgt.PUSHES:
         if {"--dry-run", "-n", "--delete", "-d"} & set(args):
             continue

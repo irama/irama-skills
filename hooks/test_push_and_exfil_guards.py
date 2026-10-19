@@ -36,6 +36,8 @@ def main():
         assert pushed("git push -u origin HEAD:feature/x"), "HEAD to feature"
         assert pushed("git push --dry-run origin main"), "dry run"
         assert pushed('echo "git push origin main"'), "push only in a string"
+        assert pushed("python3 - <<'EOF'\ns = \"git push to main isn't run\"\nEOF"), "push only in a heredoc"
+        assert not pushed("git push origin 'main"), "unbalanced quote is refused"
         subprocess.run(["git", "-C", repo, "checkout", "-q", "-b", "feat"], check=True)
         assert pushed("git push"), "bare push on a feature branch"
         subprocess.run([sys.executable, PUSH, "--authorise", repo], env=env, capture_output=True, check=True)
