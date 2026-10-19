@@ -26,6 +26,7 @@ SHELLS = {"bash", "sh", "zsh"}
 SEPARATORS = {";", "&&", "||", "|", "&", "\n", ";;", "|&"}
 TOPLEVEL = "\x00TOPLEVEL\x00"
 UNKNOWN = "$\x00UNKNOWN\x00"
+PUSHES = []  # (target dir or None, push args) for every push seen; read by push-main-guard.py
 
 
 def strip_heredocs(cmd):
@@ -156,6 +157,7 @@ def segment(toks, eff, out):
     if i >= len(toks) or toks[i] != "push":
         return eff
     args = toks[i + 1:]
+    PUSHES.append((target, args))
     if "--dry-run" in args or "-n" in args:
         return eff
     if "--delete" in args or "-d" in args:
