@@ -21,21 +21,41 @@ were exempt from.
 
 ## Cursor affordance
 
-**Every clickable element shows `cursor: pointer` on hover** — buttons,
-`[role="button"]`, links, labels tied to a control, `summary`, custom clickable
-divs. Disabled controls keep the default arrow (`cursor: not-allowed` where it
-clarifies). Tailwind preflight resets `button` to the arrow, so this is NOT
-automatic. Add one global base rule per project (fall back to per-element
-`cursor-pointer` only if a global rule is impossible):
+**The cursor says what a click will do.** Pick from this table, and nothing else:
+
+| Cursor | Where |
+|---|---|
+| `pointer` (finger) | Anything you click: buttons, `[role="button"]`, links, labels tied to a control, `summary`, `select`, custom clickable elements |
+| `text` (I-beam) | Anywhere you type: text inputs, `textarea`, rich-text editors (`[contenteditable]`) |
+| `help` (question mark) | Text that shows a hint or definition on hover: `abbr[title]`, `[data-hint]` |
+| `not-allowed` | A disabled control, only where the reason is not obvious |
+| `default` (arrow) | Everything else, including disabled controls, plain text and boxes |
+
+Tailwind preflight resets `button` to the arrow, so none of this is automatic. Add one global base
+rule per project, and fall back to per-element classes only if a global rule is impossible. Wrap
+each group in `:where()`: it keeps the rules at zero specificity, so the text rule (written after)
+wins on an element that matches both. A focusable rich-text editor carries `tabindex`, so without
+`:where()` the pointer rule beats the text rule and the editor shows a finger.
 
     @layer base {
-      button:not(:disabled):not([aria-disabled='true']),
-      [role='button']:not([aria-disabled='true']),
-      a[href], label[for], summary,
-      [tabindex]:not([tabindex='-1']):not([aria-disabled='true']) {
+      :where(button:not(:disabled):not([aria-disabled='true']),
+        [role='button']:not([aria-disabled='true']),
+        a[href], label[for], summary, select:not(:disabled),
+        [tabindex]:not([tabindex='-1']):not([aria-disabled='true'])) {
         cursor: pointer;
       }
+      :where(input:not([type='checkbox'], [type='radio'], [type='button'], [type='submit'],
+          [type='reset'], [type='range'], [type='color'], [type='file'], [type='hidden']):not(:disabled),
+        textarea:not(:disabled), [contenteditable='true'], [contenteditable='']) {
+        cursor: text;
+      }
+      :where(abbr[title], [data-hint]) {
+        cursor: help;
+      }
     }
+
+**Check it in the browser before calling a UI change done:** hover each new field, button and
+hint. A field that shows a finger is a defect.
 
 ## Tooltips
 
