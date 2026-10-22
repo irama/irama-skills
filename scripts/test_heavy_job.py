@@ -306,10 +306,45 @@ def test_vitest_store_keyed_by_gate(tmp):
           r.returncode == 0 and lines and open(lines[0][len("vitest-json "):]).read() == '{"gate": "a"}', r)
 
 
+def test_daemon_does_not_keep_slot(tmp):
+    """A daemon the job leaves behind must not hold the slot: no descendant gets the lock fd."""
+    env = make_env(tmp, HEAVY_SLOTS="1")
+    slot_file = os.path.join(tmp, "state", "slots", "slot-0")
+    pids = os.path.join(tmp, "pids")
+    with open(os.path.join(tmp, "out"), "w") as out:
+        p = subprocess.Popen([TOOL, "run", "--", "sh", "-c", f'sleep 30 & echo "$$ $!" > {pids}; sleep 1.5'],
+                             env=env, stdout=out, stderr=out)
+        time.sleep(0.8)
+        sh_pid, daemon = open(pids).read().split()
+        holders = subprocess.run(["lsof", "-t", slot_file], capture_output=True, text=True).stdout.split()
+        check("only heavy-job run holds the lock fd, not the job or its daemon",
+              holders == [str(p.pid)], (holders, p.pid, sh_pid, daemon))
+        rc = p.wait(timeout=10)
+    alive = subprocess.run(["kill", "-0", daemon]).returncode == 0
+    check("the slot frees when the job's direct child exits, though its daemon lives on",
+          rc == 0 and alive and free_slots(tmp, env), (rc, alive))
+    os.kill(int(daemon), signal.SIGKILL)
+
+
+def test_sigint_forwarded(tmp):
+    env = make_env(tmp, HEAVY_SLOTS="1")
+    p = subprocess.Popen([TOOL, "run", "--", "sleep", "30"], env=env)
+    time.sleep(0.7)
+    p.send_signal(signal.SIGINT)
+    try:
+        rc = p.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        rc = None
+    check("SIGINT to run reaches the job's group and run exits 130", rc == 130, rc)
+    check("the slot is free after the interrupt", free_slots(tmp, env))
+
+
 if __name__ == "__main__":
     for t in (test_overlap, test_env_and_exit_code, test_kill9_frees, test_nested, test_waiting_message, test_acquire_eval,
               test_max_wait_cap, test_bad_int_setting_falls_back, test_waits_report, test_ledger, test_ledger_age_gc_and_vitest,
-              test_ledger_submodule_and_empty_diff, test_vitest_store_keyed_by_gate):
+              test_ledger_submodule_and_empty_diff, test_vitest_store_keyed_by_gate,
+              test_daemon_does_not_keep_slot, test_sigint_forwarded):
         with tempfile.TemporaryDirectory() as tmp:
             t(tmp)
     print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")
