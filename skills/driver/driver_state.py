@@ -279,6 +279,12 @@ def _tracked(repo, rel):
     return bool(_git(repo, "ls-files", "--", rel).stdout.strip())
 
 
+def _lockfile_dirs(tmp):
+    """Every dir in the candidate tree that tracks its own pnpm-lock.yaml ("" is the root)."""
+    listed = _git(tmp, "ls-files", "-z", "--", "pnpm-lock.yaml", "*/pnpm-lock.yaml").stdout
+    return [os.path.dirname(f) for f in listed.split("\0") if f]
+
+
 def _pnpm_fresh(work, tmp):
     """Package dirs whose candidate pnpm-lock.yaml is not what --work's node_modules holds.
 
@@ -295,10 +301,9 @@ def _pnpm_fresh(work, tmp):
     for byte on pnpm 11), so bytes are compared. A missing or unreadable record, or one
     that differs only in layout, counts as differs: a needless install costs time, a wrong
     link gates the wrong deps."""
-    listed = _git(tmp, "ls-files", "-z", "--", "pnpm-lock.yaml", "*/pnpm-lock.yaml").stdout
     fresh = []
-    for f in (x for x in listed.split("\0") if x):
-        d = os.path.dirname(f)
+    for d in _lockfile_dirs(tmp):
+        f = os.path.join(d, "pnpm-lock.yaml") if d else "pnpm-lock.yaml"
         try:
             with open(os.path.join(tmp, f), "rb") as fh:
                 theirs = fh.read()
@@ -441,11 +446,16 @@ def _land_in(args, work, tmp, target, source, g, linked):
     # Link after merging, so a link never sits on a path the source starts tracking.
     # <linked> is the caller's list: it unlinks these on the way out.
     fresh = _pnpm_fresh(work, tmp)
-    fresh_nm = [os.path.join(d, "node_modules") if d else "node_modules" for d in fresh]
+    # Any dir fresh means node_modules is linked nowhere (node_modules=not fresh below), so
+    # every dir with a lockfile needs its own install, not just the one(s) that triggered it:
+    # a root install can write through a nested link into --work, and an uninstalled root
+    # with no link is a false gate failure on a monorepo where only a sub-package changed.
+    install_dirs = _lockfile_dirs(tmp) if fresh else []
+    fresh_nm = [os.path.join(d, "node_modules") if d else "node_modules" for d in install_dirs]
     linked.extend(_link_shared(work, tmp, node_modules=not fresh))
-    for d in fresh:
-        print(f"pnpm-lock.yaml in ./{d} differs from what {work}'s node_modules was installed "
-              "from: installing into the gate worktree, no node_modules linked", file=sys.stderr)
+    for d in install_dirs:
+        print(f"pnpm-lock.yaml changed somewhere in the tree: installing into ./{d} in the "
+              "gate worktree, no node_modules linked", file=sys.stderr)
         inst = subprocess.run(["pnpm", "install", "--frozen-lockfile", "--prefer-offline"],
                               cwd=os.path.join(tmp, d))
         if inst.returncode != 0:
@@ -1095,6 +1105,52 @@ def selftest_land():
         finally:
             os.environ["PATH"] = old_path
     print("ok: (u2) a fresh pnpm install links no node_modules at any depth")
+
+    # (u3) only a nested lockfile changed, but the root lockfile is untouched: any dir
+    # being fresh must still install the root too, not just the dir that triggered it,
+    # or the gate worktree ends up with no root node_modules at all (a false red).
+    install_log = os.path.join(stub_dir.name, "u3-installs.log")
+    stub_pnpm_log = os.path.join(stub_dir.name, "pnpm")
+    with open(stub_pnpm_log, "w") as f:
+        f.write(f'#!/bin/sh\necho "$PWD" >> {install_log}\nexit 0\n')
+    os.chmod(stub_pnpm_log, 0o755)
+    with tf.TemporaryDirectory() as repo:
+        _fixture_repo(repo)
+        os.makedirs(os.path.join(repo, "packages", "a"))
+        with open(os.path.join(repo, ".gitignore"), "w") as f:
+            f.write("node_modules/\n")
+        for rel, text in (("package.json", "{}\n"), ("packages/a/package.json", "{}\n"),
+                          ("pnpm-lock.yaml", "lock: 1\n"), ("packages/a/pnpm-lock.yaml", "lock: 1\n")):
+            with open(os.path.join(repo, rel), "w") as f:
+                f.write(text)
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "lockfiles on main"], check=True)
+        # Bring the (identical) lockfiles onto feature too, then move only the sub-package's.
+        subprocess.run(["git", "-C", repo, "switch", "-q", "feature"], check=True)
+        subprocess.run(["git", "-C", repo, "merge", "-q", "--no-edit", "main"], check=True)
+        with open(os.path.join(repo, "packages", "a", "pnpm-lock.yaml"), "w") as f:
+            f.write("lock: 2\n")
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "bump sub lock"], check=True)
+        subprocess.run(["git", "-C", repo, "switch", "-q", "main"], check=True)
+        # Record the root install as matching HEAD, so the root alone is never "fresh" —
+        # only packages/a is, because its lockfile moves between main and feature.
+        record = os.path.join(repo, "node_modules", ".pnpm", "lock.yaml")
+        os.makedirs(os.path.dirname(record))
+        with open(record, "w") as f:
+            f.write("lock: 1\n")
+        old_path = os.environ["PATH"]
+        os.environ["PATH"] = stub_dir.name + os.pathsep + old_path
+        try:
+            assert _land(repo) == LAND_OK
+        finally:
+            os.environ["PATH"] = old_path
+        # The gate worktree's absolute path varies per run; only the tail after it matters.
+        tails = {("packages/a" if line.endswith(os.path.join("packages", "a")) else "root")
+                 for line in open(install_log).read().splitlines()}
+        assert tails == {"root", "packages/a"}, (
+            f"expected pnpm install in both the root and packages/a, got {tails}")
+    print("ok: (u3) any fresh lockfile dir installs every dir with a lockfile, root included")
 
     # (d) a red gate leaves the target exactly where it was.
     with tf.TemporaryDirectory() as repo:
