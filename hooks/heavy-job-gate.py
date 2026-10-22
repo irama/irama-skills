@@ -25,7 +25,7 @@ import sys
 HJ = "~/.claude/scripts/heavy-job"
 SEPARATORS = {"&&", "||", ";", "|", "&", "|&", ";;", "(", ")", "\n"}
 ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 SHELLS = {"bash", "sh", "zsh", "dash"}
 # vitest options that take a value as the next word (so the value is not a filter).
 VITEST_VALUE_OPTS = {
@@ -57,13 +57,21 @@ def strip_heredocs(command):
     return "\n".join(out)
 
 
-def segments(command):
-    """Split a shell string into word lists, one per simple command."""
+def tokens(command):
     lex = shlex.shlex(strip_heredocs(command), posix=True, punctuation_chars="();<>|&\n")
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
+    return list(lex)
+
+
+def is_redirect(tok):
+    return bool(tok) and set(tok) <= set("<>&") and tok not in ("&&", "&")
+
+
+def segments(command):
+    """Split a shell string into word lists, one per simple command."""
     seg, out, skip_next = [], [], False
-    for tok in lex:
+    for tok in tokens(command):
         if skip_next:
             skip_next = False
             continue
@@ -71,7 +79,7 @@ def segments(command):
             if seg:
                 out.append(seg)
             seg = []
-        elif tok and set(tok) <= set("<>&"):  # a redirection: drop it, its target, its fd
+        elif is_redirect(tok):  # a redirection: drop it, its target, its fd
             if seg and seg[-1].isdigit():
                 seg.pop()
             skip_next = True
@@ -222,6 +230,8 @@ def scan(command, cwd, depth=0):
     """Return the kind of the first heavy job in a shell string, or None."""
     found = None
     for seg in segments(command):
+        if any(base(a) == "heavy-job" and b == "record" for a, b in zip(seg, seg[1:])):
+            raise Deny("record")
         words = unwrap(seg)
         if not words:
             continue
@@ -230,24 +240,32 @@ def scan(command, cwd, depth=0):
                 cwd = os.path.join(cwd, os.path.expanduser(words[1]))
             continue
         if base(words[0]) == "heavy-job":
-            if len(words) > 1 and words[1] == "record":
-                raise Deny("record")
-            continue  # already slotted
+            if len(words) > 1 and words[1] == "run":
+                rest = words[words.index("--") + 1:] if "--" in words else words[2:]
+                scan(shlex.join(rest), cwd, depth + 1)  # for its Deny only: it is slotted
+            continue
         found = found or heavy(words, cwd, depth)
     return found
 
 
 def suggestion(command, kind, cwd):
+    toks = tokens(command)
+    if toks and toks[-1] == "&":  # keep it backgrounded, outside the slot wrapper
+        return suggestion(command.rstrip()[:-1], kind, cwd) + " &"
     segs = segments(command)
-    if len(segs) == 1:
+    if len(segs) == 1 and not any(is_redirect(t) for t in toks):
+        # heavy-job execs argv without a shell, so a leading VAR=x needs `env`.
+        env = ["env"] if ASSIGN.match(segs[0][0]) else []
         words = unwrap(segs[0])
         if kind == "vitest":
             # Keep RTK's compression: rewrite to `rtk vitest run <args>` when the
             # command, or the script it names, is one plain vitest call.
             args = vitest_args(words, cwd)
             if args is not None:
-                return f"{HJ} run -- " + shlex.join(["rtk", "vitest", "run"] + args)
-        return f"{HJ} run -- " + shlex.join(segs[0])
+                lead = [w for w in segs[0][:len(segs[0]) - len(words)] if ASSIGN.match(w)]
+                cmd = (["env"] + lead if lead else []) + ["rtk", "vitest", "run"] + args
+                return f"{HJ} run -- " + shlex.join(cmd)
+        return f"{HJ} run -- " + shlex.join(env + segs[0])
     return f"{HJ} run -- bash -c {shlex.quote(command)}"
 
 

@@ -68,6 +68,13 @@ TABLE = [
     ("HEAVY_JOB_HELD=1 pnpm test:run", True),
     ("export HEAVY_JOB_HELD=1", True),
     ("env HEAVY_JOB_HELD=1 vitest run", True),
+    ("~/.claude/scripts/heavy-job run -- ~/.claude/scripts/heavy-job record --repo r", True),
+    ("~/.claude/scripts/heavy-job run -- HEAVY_JOB_HELD=1 pnpm test:run", True),
+    ("~/.claude/scripts/heavy-job run -- bash -c 'heavy-job record --repo r'", True),
+    ("pnpm exec heavy-job record --repo r", True),
+    ("xargs /x/heavy-job record --repo r", True),
+    # a here-string is not a here-doc: the next line still runs
+    ("cat <<< \"x\"\nvitest run", True),
     # allowed: named files, name filters, slotted, unrelated
     ("vitest run src/lib/x.test.ts", False),
     ("vitest run -t 'parses headers'", False),
@@ -145,6 +152,33 @@ def main():
             fails += 1
             print(f"FAIL chain reason does not wrap the whole command: {why!r}")
 
+        # Run the suggestion: a stand-in heavy-job execs the words after `--` (no shell,
+        # like the real one) and a stub pnpm prints its args and $CI.
+        with open(hj, "w") as f:
+            f.write('#!/bin/sh\n[ "$1" = run ] && shift\n[ "$1" = -- ] && shift\nexec "$@"\n')
+        bindir = os.path.join(tmp, "bin")
+        os.makedirs(bindir)
+        with open(os.path.join(bindir, "pnpm"), "w") as f:
+            f.write('#!/bin/sh\necho "pnpm $* CI=$CI"\n')
+        os.chmod(os.path.join(bindir, "pnpm"), 0o755)
+        env = dict(os.environ, HOME=home, PATH=bindir + os.pathsep + os.environ["PATH"])
+        for cmd, log, want in [
+            ("CI=1 pnpm build", None, "pnpm build CI=1"),
+            ("pnpm build > b.log 2>&1", "b.log", "pnpm build CI="),
+            ("pnpm build > c.log 2>&1 &", "c.log", "pnpm build CI="),
+            ("pnpm build &", None, "pnpm build CI="),
+        ]:
+            why = run_hook(cmd, home, proj) or ""
+            sug = next((ln for ln in why.splitlines() if ln.startswith("~/")), "")
+            r = subprocess.run(["bash", "-c", sug + '\nrc=$?\n[ -n "$!" ] && { wait $!; rc=$?; }\nexit $rc'], cwd=proj, env=env,
+                               capture_output=True, text=True)
+            path = os.path.join(proj, log) if log else ""
+            out = (open(path).read() if os.path.exists(path) else "") if log else r.stdout
+            if r.returncode != 0 or want not in out:
+                fails += 1
+                print(f"FAIL suggestion for {cmd!r} did not run: {sug!r} rc={r.returncode} "
+                      f"out={out!r} err={r.stderr!r}")
+
         # Fail open: no heavy-job installed, and a payload that is not JSON.
         os.remove(hj)
         if run_hook("pnpm test:run", home, proj) is not None:
@@ -159,7 +193,7 @@ def main():
     if fails:
         print(f"{fails} failed")
         sys.exit(1)
-    print(f"ok ({len(TABLE)} commands + 5 checks)")
+    print(f"ok ({len(TABLE)} commands + 9 checks)")
 
 
 if __name__ == "__main__":
