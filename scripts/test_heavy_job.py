@@ -134,6 +134,28 @@ def test_acquire_eval(tmp):
     check("acquire's slot frees when that bash exits", freed)
 
 
+def test_max_wait_cap(tmp):
+    env = make_env(tmp, HEAVY_SLOTS="1", HEAVY_MAX_WAIT_S="1")
+    p = subprocess.Popen([TOOL, "run", "--", "sleep", "5"], env=env, start_new_session=True)
+    time.sleep(0.5)
+    t = time.time()
+    r = subprocess.run([TOOL, "run", "--", "sh", "-c", 'echo "$VITEST_MAX_WORKERS"'], env=env, capture_output=True, text=True, timeout=10)
+    elapsed = time.time() - t
+    check("past HEAVY_MAX_WAIT_S, run proceeds unslotted instead of waiting for the holder",
+          r.returncode == 0 and r.stdout.strip() == "4" and elapsed < 4, (r.returncode, r.stdout, elapsed))
+    check("timing out warns on stderr with an unblock hint",
+          "timed out" in r.stderr and "HEAVY_MAX_WAIT_S" in r.stderr, r.stderr)
+    os.killpg(p.pid, signal.SIGKILL)
+    p.wait()
+
+
+def test_bad_int_setting_falls_back(tmp):
+    env = make_env(tmp, HEAVY_SLOTS="not-a-number")
+    r = subprocess.run([TOOL, "run", "--", "true"], env=env, capture_output=True, text=True, timeout=5)
+    check("an unparseable HEAVY_SLOTS warns and falls back instead of crashing",
+          r.returncode == 0 and "Traceback" not in r.stderr and "not-a-number" in r.stderr, r)
+
+
 def test_waits_report(tmp):
     os.makedirs(os.path.join(tmp, "state"), exist_ok=True)
     rows = [("2026-10-01T09:00:00+10:00", 99.0, "/old")] + [(f"2026-10-2{i}T09:00:00+10:00", float(i), f"/repo{i}") for i in range(1, 8)]
@@ -148,7 +170,8 @@ def test_waits_report(tmp):
 
 
 if __name__ == "__main__":
-    for t in (test_overlap, test_env_and_exit_code, test_kill9_frees, test_nested, test_waiting_message, test_acquire_eval, test_waits_report):
+    for t in (test_overlap, test_env_and_exit_code, test_kill9_frees, test_nested, test_waiting_message, test_acquire_eval,
+              test_max_wait_cap, test_bad_int_setting_falls_back, test_waits_report):
         with tempfile.TemporaryDirectory() as tmp:
             t(tmp)
     print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")

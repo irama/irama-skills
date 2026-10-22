@@ -6,7 +6,8 @@
                                      (use: eval "$(heavy-job acquire --for-pid $$)")
   heavy-job waits [--since DATE]     wait-time report (the counter-metric)
 
-Settings (env overrides the file): HEAVY_SLOTS (default 2), HEAVY_WORKERS (default 4).
+Settings (env overrides the file): HEAVY_SLOTS (default 2), HEAVY_WORKERS (default 4),
+HEAVY_MAX_WAIT_S (default 1800; past it, proceed unslotted with a stderr warning).
 Settings file: $HEAVY_JOB_CONFIG, default ~/.config/heavy-job.env (KEY=VALUE lines).
 State dir: $HEAVY_JOB_STATE_DIR, default ~/.local/state/heavy-job (slots/, waits.ndjson).
 Nested calls (HEAVY_JOB_HELD=1 already set) never wait.
@@ -22,9 +23,10 @@ import subprocess
 import sys
 import time
 
-DEFAULTS = {"HEAVY_SLOTS": "2", "HEAVY_WORKERS": "4"}
+DEFAULTS = {"HEAVY_SLOTS": "2", "HEAVY_WORKERS": "4", "HEAVY_MAX_WAIT_S": "1800"}
 REPORT_EVERY_S = 10
 POLL_S = 0.5
+_WARNED_BAD_INT = set()
 
 
 def state_dir():
@@ -50,30 +52,66 @@ def setting(key):
     return DEFAULTS.get(key)
 
 
+def setting_int(key):
+    """setting(key) as an int. An unparseable value warns once and falls back to the default."""
+    raw = setting(key)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        if key not in _WARNED_BAD_INT:
+            _WARNED_BAD_INT.add(key)
+            say(f"{key}={raw!r} is not a number, using default {DEFAULTS[key]}")
+        return int(DEFAULTS[key])
+
+
 def say(msg):
     print(f"heavy-job: {msg}", file=sys.stderr, flush=True)
 
 
 def child_env():
     env = dict(os.environ, HEAVY_JOB_HELD="1")
-    env.setdefault("VITEST_MAX_WORKERS", setting("HEAVY_WORKERS"))
+    env.setdefault("VITEST_MAX_WORKERS", str(setting_int("HEAVY_WORKERS")))
     return env
 
 
-def holder_text(slots_dir, i):
+def _lsof_holder(path):
+    """Best-effort: which pid still has `path` open. Never raises, never fatal."""
     try:
-        with open(os.path.join(slots_dir, f"slot-{i}")) as f:
+        out = subprocess.run(["lsof", "-t", path], capture_output=True, text=True, timeout=2).stdout
+        pids = [p for p in out.split() if p.strip()]
+        return pids[0] if pids else None
+    except Exception:
+        return None
+
+
+def holder_text(slots_dir, i):
+    path = os.path.join(slots_dir, f"slot-{i}")
+    try:
+        with open(path) as f:
             h = json.load(f)
-        return f"slot {i}: pid {h['pid']} in {h['cwd']} running `{h['cmd']}`, held {time.time() - h['t']:.0f}s"
+        text = f"slot {i}: pid {h['pid']} in {h['cwd']} running `{h['cmd']}`, held {time.time() - h['t']:.0f}s"
+        try:
+            os.kill(h["pid"], 0)
+        except ProcessLookupError:
+            holder_pid = _lsof_holder(path)
+            text += f" (pid {h['pid']} is dead; fd still held by pid {holder_pid})" if holder_pid else f" (pid {h['pid']} is dead; fd holder unknown)"
+        except (PermissionError, TypeError, KeyError):
+            pass
+        return text
     except (OSError, ValueError, KeyError):
         return f"slot {i}: holder unknown"
 
 
 def acquire():
-    """Block until a slot is free. Returns (fd, slot, wait_s). The caller writes holder info."""
+    """Block until a slot is free, or HEAVY_MAX_WAIT_S passes.
+
+    Returns (fd, slot, wait_s) on a slot, or (None, None, wait_s) if the wait timed out
+    and the caller must proceed unslotted.
+    """
     slots_dir = os.path.join(state_dir(), "slots")
     os.makedirs(slots_dir, exist_ok=True)
-    n = max(1, int(setting("HEAVY_SLOTS")))
+    n = max(1, setting_int("HEAVY_SLOTS"))
+    max_wait = max(1, setting_int("HEAVY_MAX_WAIT_S"))
     t0 = time.time()
     last_report = None
     while True:
@@ -88,8 +126,14 @@ def acquire():
             if last_report is not None:
                 say(f"got slot {i} after waiting {wait:.0f}s")
             return fd, i, wait
+        wait = time.time() - t0
+        if wait >= max_wait:
+            say(f"timed out after {wait:.0f}s waiting for a slot (HEAVY_MAX_WAIT_S={max_wait}s); "
+                f"proceeding unslotted. Unblock: free a slot (heavy-job waits) or raise HEAVY_MAX_WAIT_S.")
+            return None, None, wait
         if last_report is None or time.time() - last_report >= REPORT_EVERY_S:
-            say(f"waiting {time.time() - t0:.0f}s for one of {n} slots; " + "; ".join(holder_text(slots_dir, i) for i in range(n)))
+            say(f"waiting {wait:.0f}s for one of {n} slots (times out at {max_wait}s); "
+                + "; ".join(holder_text(slots_dir, i) for i in range(n)))
             last_report = time.time()
         time.sleep(POLL_S)
 
@@ -117,10 +161,13 @@ def cmd_run(cmd):
         os.execvpe(cmd[0], cmd, child_env())
     text, start = shlex.join(cmd), now_iso()
     fd, slot, wait = acquire()
-    claim(fd, slot, wait, os.getpid(), text, start)
+    pass_fds = ()
+    if fd is not None:
+        claim(fd, slot, wait, os.getpid(), text, start)
+        pass_fds = (fd,)
     # The child inherits the lock fd, so an orphaned child tree keeps the slot until it exits.
     try:
-        rc = subprocess.run(cmd, env=child_env(), pass_fds=(fd,)).returncode
+        rc = subprocess.run(cmd, env=child_env(), pass_fds=pass_fds).returncode
     except KeyboardInterrupt:
         rc = 130
     except FileNotFoundError:
@@ -141,6 +188,10 @@ def cmd_acquire(pid):
     text = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
     start = now_iso()
     fd, slot, wait = acquire()
+    if fd is None:
+        # Timed out waiting for a slot; proceed unslotted, nothing to release later.
+        sys.stdout.write(exports())
+        return 0
     claim(fd, slot, wait, pid, text, start)
     ready_r, ready_w = os.pipe()
     if os.fork() == 0:
@@ -163,8 +214,12 @@ def cmd_acquire(pid):
                 pass
             time.sleep(POLL_S)
     os.close(ready_w)
-    os.read(ready_r, 1)
+    ready = os.read(ready_r, 1)
+    os.close(ready_r)
     os.close(fd)
+    if not ready:
+        say("holder died before signalling ready")
+        return 1
     sys.stdout.write(exports())
     return 0
 
