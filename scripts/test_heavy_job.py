@@ -273,9 +273,43 @@ def test_ledger_age_gc_and_vitest(tmp):
     check("record refuses a non-sha tree (exit 64)", r.returncode == 64, r)
 
 
+def test_ledger_submodule_and_empty_diff(tmp):
+    """A gitlink change hidden by diff.ignoreSubmodules must not vacuously match as inert."""
+    env = make_env(tmp)
+    repo, common, base = make_repo(tmp)
+    gate = "ci-gate v9 abc123def456"
+    git(repo, "config", "diff.ignoreSubmodules", "all")
+    hj(env, "record", "--repo", common, "--tree", base, "--gate", gate)
+    git(repo, "update-index", "--add", "--cacheinfo", "160000", "1" * 40, "sub")
+    bumped = git(repo, "write-tree")
+    git(repo, "reset", "-q", "--hard")
+    git(repo, "rm", "--cached", "-q", "--ignore-unmatch", "sub")
+    r = hj(env, "passed", "--repo", common, "--tree", bumped, "--gate", gate)
+    check("a gitlink-only change is not hidden by diff.ignoreSubmodules (no vacuous match)", r.returncode == 1, r)
+
+
+def test_vitest_store_keyed_by_gate(tmp):
+    """Two gates passing the same tree must not collide on the stored vitest json."""
+    env = make_env(tmp)
+    repo, common, base = make_repo(tmp)
+    gate_a, gate_b = "ci-gate v9 aaaaaaaaaaaa", "ci-gate v9 bbbbbbbbbbbb"
+    va, vb = os.path.join(tmp, "a.json"), os.path.join(tmp, "b.json")
+    with open(va, "w") as f:
+        f.write('{"gate": "a"}')
+    with open(vb, "w") as f:
+        f.write('{"gate": "b"}')
+    hj(env, "record", "--repo", common, "--tree", base, "--gate", gate_a, "--vitest-json", va)
+    hj(env, "record", "--repo", common, "--tree", base, "--gate", gate_b, "--vitest-json", vb)
+    r = hj(env, "passed", "--repo", common, "--tree", base, "--gate", gate_a)
+    lines = [l for l in r.stdout.splitlines() if l.startswith("vitest-json ")]
+    check("passed --gate A still returns gate A's vitest json after gate B recorded the same tree",
+          r.returncode == 0 and lines and open(lines[0][len("vitest-json "):]).read() == '{"gate": "a"}', r)
+
+
 if __name__ == "__main__":
     for t in (test_overlap, test_env_and_exit_code, test_kill9_frees, test_nested, test_waiting_message, test_acquire_eval,
-              test_max_wait_cap, test_bad_int_setting_falls_back, test_waits_report, test_ledger, test_ledger_age_gc_and_vitest):
+              test_max_wait_cap, test_bad_int_setting_falls_back, test_waits_report, test_ledger, test_ledger_age_gc_and_vitest,
+              test_ledger_submodule_and_empty_diff, test_vitest_store_keyed_by_gate):
         with tempfile.TemporaryDirectory() as tmp:
             t(tmp)
     print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")

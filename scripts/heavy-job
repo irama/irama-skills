@@ -28,7 +28,7 @@ Settings (env overrides the file): HEAVY_SLOTS (default 2), HEAVY_WORKERS (defau
 HEAVY_MAX_WAIT_S (default 1800; past it, proceed unslotted with a stderr warning).
 Settings file: $HEAVY_JOB_CONFIG, default ~/.config/heavy-job.env (KEY=VALUE lines).
 State dir: $HEAVY_JOB_STATE_DIR, default ~/.local/state/heavy-job (slots/, waits.ndjson,
-passed.ndjson, vitest/<repo-hash>-<tree>.json).
+passed.ndjson, vitest/<repo-hash>-<gate-hash>-<tree>.json).
 Nested calls (HEAVY_JOB_HELD=1 already set) never wait.
 """
 import argparse
@@ -301,8 +301,10 @@ def is_inert(path, patterns):
     return any(r.match(path) for r in keep) and not any(r.match(path) for r in drop)
 
 
-def vitest_store(repo, tree):
-    return os.path.join(state_dir(), "vitest", f"{hashlib.sha256(repo.encode()).hexdigest()[:12]}-{tree}.json")
+def vitest_store(repo, tree, gate):
+    repo_h = hashlib.sha256(repo.encode()).hexdigest()[:12]
+    gate_h = hashlib.sha256(gate.encode()).hexdigest()[:8]
+    return os.path.join(state_dir(), "vitest", f"{repo_h}-{gate_h}-{tree}.json")
 
 
 def ledger_args(args):
@@ -328,7 +330,7 @@ def cmd_record(args):
             pass
     if args.vitest_json:
         try:
-            shutil.copyfile(args.vitest_json, vitest_store(repo, args.tree))
+            shutil.copyfile(args.vitest_json, vitest_store(repo, args.tree, args.gate))
         except OSError as e:
             say(f"cannot store --vitest-json ({e}); nothing recorded")
             return 1
@@ -355,9 +357,9 @@ def recent_passes(repo, gate):
     return list(dict.fromkeys(reversed(trees)))
 
 
-def matched(repo, tree, line):
+def matched(repo, tree, gate, line):
     print(line)
-    store = vitest_store(repo, line.split()[1])
+    store = vitest_store(repo, line.split()[1], gate)
     if os.path.isfile(store):
         print(f"vitest-json {store}")
     return 0
@@ -369,17 +371,22 @@ def cmd_passed(args):
         return 64
     trees = recent_passes(repo, args.gate)
     if args.tree in trees:
-        return matched(repo, args.tree, f"matched {args.tree} exact")
+        return matched(repo, args.tree, args.gate, f"matched {args.tree} exact")
     patterns = setting("HEAVY_JOB_INERT").split()
     for old in trees[:LEDGER_SCAN]:
         # --no-renames: a rename from src/ into docs/ must list the deleted code path too.
-        r = subprocess.run(["git", "--git-dir", repo, "diff", "--no-renames", "--name-only", "-z", old, args.tree],
+        # --ignore-submodules=none --no-ext-diff: never let a submodule pointer bump or a
+        # configured external diff tool suppress the path list we check for inertness.
+        r = subprocess.run(["git", "--git-dir", repo, "diff", "--ignore-submodules=none", "--no-ext-diff",
+                            "--no-renames", "--name-only", "-z", old, args.tree],
                            capture_output=True, text=True)
         if r.returncode != 0:
             continue  # recorded tree garbage-collected (or repo gone): no match, never a crash
         paths = [p for p in r.stdout.split("\0") if p]
+        if not paths and old != args.tree:
+            continue  # different trees, no changed paths reported: not a real match, never vacuous
         if all(is_inert(p, patterns) for p in paths):
-            return matched(repo, old, f"matched {old} differs only in {', '.join(paths)}")
+            return matched(repo, old, args.gate, f"matched {old} differs only in {', '.join(paths)}")
     return 1
 
 
