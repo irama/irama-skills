@@ -52,6 +52,7 @@ window that matters.
 3. **If the diff touches UI** (components, pages, styles, canvas/shape code, any rendered surface) → run `/verify-ui` first; do not commit until it passes. Skip only for non-UI diffs.
 4. Stage. Default `git add -A` — the repo's `.gitignore` is the safety net. Stage by name only when: unrelated changes should not be in this commit, the user asked for a partial commit, or a tracked file looks sensitive (e.g. a committed `.env` — stop and flag instead of committing).
 5. Typecheck + tests + lint if the project has them. Stop on failure and fix before committing — never commit a red tree.
+   - **Run the full gate in a heavy-job slot:** `~/.claude/scripts/heavy-job run -- <gate command>`, for example `~/.claude/scripts/heavy-job run -- pnpm check`. For a bare vitest suite use `~/.claude/scripts/heavy-job run -- rtk vitest run`. A run that names test files needs no slot. If `heavy-job` is not installed, run the gate plain and say so in one line.
    - **UI/render diffs also need a browser run.** If the diff touches a rendered surface AND the project has a browser/e2e tier (Playwright, Cypress), run it — typecheck + unit tests do NOT catch render-time crashes (Rules-of-Hooks / React #310, bad context reads, effect throws) that only surface when a real browser mounts the component. Stop on failure and fix first.
 6. Write a concise Conventional-Commits message focused on *why*. End with:
 

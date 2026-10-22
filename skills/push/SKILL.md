@@ -58,6 +58,8 @@ open, rather than only detectable afterwards.
    Skip only when there are zero migration files and no schema-touching changes on `main`.
 3. **Production build — authoritative deploy gate.** Run the real production build (`npm run build` / `next build`, or repo equivalent). This enforces checks the fast gates skip: lint-as-error architecture fences (`no-restricted-imports`), stricter type-elision, RSC/client-boundary violations, static analysis. A tree green on `tsc` + `vitest` can still fail `next build` and the deploy — this is the single most common way a red `main` ships. Red → fix and re-run until clean; **never push on a failing build.**
 
+   **Run the build in a heavy-job slot:** `~/.claude/scripts/heavy-job run -- <build>`, for example `~/.claude/scripts/heavy-job run -- pnpm build`. At most two full suites or builds run at once on this machine, and the `heavy-job-gate` hook denies an unslotted build. If `heavy-job` is not installed, run the build plain and say so in one line.
+
    **Record the tree you built:** `built_tree=$(git rev-parse HEAD^{tree})`. Step 4 verifies you ship exactly this.
 
    **A dev server holds the build directory, so stopping one is part of this step — and so is
