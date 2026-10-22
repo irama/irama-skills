@@ -342,11 +342,18 @@ def cmd_signoff(key, status_name, note):
     if status_name not in STATUSES - OPEN:
         print(f"status must be one of: {' '.join(sorted(STATUSES - OPEN))}")
         return 2
-    sess, _, open_claims, _ = picture()
+    sess, status, open_claims, _ = picture()
     sid = this_session()
     c = open_claims.get(key)
     if not c:
         print(f"no open claim on {key}")
+        return 1
+    # The last record for a key is its state, so a sign-off by a thread that does not hold
+    # the key would replace the holder's live claim. Only the holder signs off; a dead
+    # holder's key is released with `clear`, as before.
+    if c.get("session") != sid and status.get(c.get("session")) != "dead":
+        print(f"not yours: {key} is held by {c.get('thread')} since {c['ts']} "
+              f"({c.get('state')}): {c.get('note') or 'no note'}")
         return 1
     append({"kind": "claim", "session": sid, "thread": sess.get(sid, {}).get("thread"),
             "repo": c.get("repo"), "key": key, "state": status_name, "note": note})
