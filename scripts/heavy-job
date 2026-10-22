@@ -30,6 +30,12 @@ Settings file: $HEAVY_JOB_CONFIG, default ~/.config/heavy-job.env (KEY=VALUE lin
 State dir: $HEAVY_JOB_STATE_DIR, default ~/.local/state/heavy-job (slots/, waits.ndjson,
 passed.ndjson, vitest/<repo-hash>-<gate-hash>-<tree>.json).
 Nested calls (HEAVY_JOB_HELD=1 already set) never wait.
+
+The slot lock fd is close-on-exec and is never passed to the job. `run` holds it itself and
+runs the job in its own process group: the slot frees when the job's direct child exits, even
+if a daemon it started lives on, and SIGINT/SIGTERM/SIGHUP to `run` go to the job's group.
+(Until 2026-10-22 the job inherited the fd so an orphaned tree kept its slot. A test daemon
+that inherited it got stuck exiting in the kernel and held both slots for hours.)
 """
 import argparse
 import datetime as dt
@@ -40,6 +46,7 @@ import os
 import re
 import shutil
 import shlex
+import signal
 import statistics
 import subprocess
 import sys
@@ -144,7 +151,7 @@ def acquire():
     last_report = None
     while True:
         for i in range(n):
-            fd = os.open(os.path.join(slots_dir, f"slot-{i}"), os.O_RDWR | os.O_CREAT, 0o644)
+            fd = os.open(os.path.join(slots_dir, f"slot-{i}"), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o644)
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
@@ -189,18 +196,28 @@ def cmd_run(cmd):
         os.execvpe(cmd[0], cmd, child_env())
     text, start = shlex.join(cmd), now_iso()
     fd, slot, wait = acquire()
-    pass_fds = ()
     if fd is not None:
         claim(fd, slot, wait, os.getpid(), text, start)
-        pass_fds = (fd,)
-    # The child inherits the lock fd, so an orphaned child tree keeps the slot until it exits.
+    # This process holds the lock; the job never sees the fd (O_CLOEXEC, no pass_fds).
+    # ponytail: the job's group is not the terminal's foreground group, so a job that reads
+    # the tty stops on SIGTTIN; heavy jobs do not read stdin.
     try:
-        rc = subprocess.run(cmd, env=child_env(), pass_fds=pass_fds).returncode
-    except KeyboardInterrupt:
-        rc = 130
+        p = subprocess.Popen(cmd, env=child_env(), preexec_fn=os.setpgrp)
     except FileNotFoundError:
         say(f"command not found: {cmd[0]}")
-        rc = 127
+        return 127
+
+    def forward(sig, _frame):
+        try:
+            os.killpg(p.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, forward)
+    rc = p.wait()
+    if fd is not None:
+        os.close(fd)  # free the slot now, whatever the job's descendants still do
     return 128 - rc if rc < 0 else rc
 
 
@@ -232,6 +249,7 @@ def cmd_acquire(pid):
         os.close(ready_r)
         os.write(ready_w, b"1")
         os.close(ready_w)
+        # The holder only sleeps and polls: it never execs, so the lock fd goes nowhere else.
         # ponytail: pid liveness by kill(0) every 0.5 s; a reused pid keeps the slot until it exits too.
         while True:
             try:
