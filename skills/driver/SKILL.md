@@ -386,8 +386,24 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
    python3 <skill-dir>/driver_state.py land \
      --work "$WORK" --target "driver/$RUN_ID" --source "<ticket-branch>" \
      --run-dir "$RUN_DIR" --ticket-id "<ticket-id>" --wait 1800 \
-     --gate "<typecheck && lint && tests, plus e2e only if the diff touches UI>"
+     --gate "scripts/ci-gate.sh --gate-only"
    ```
+
+   **The gate.** Where the repo has `scripts/ci-gate.sh` (v9 or later), the default gate is
+   `scripts/ci-gate.sh --gate-only`. It runs the repo's own gate line, checks the passed-tree
+   ledger first and takes its own heavy-job slot only when it must run, so `land` never wraps it.
+   A tree that differs from a passed one only in inert paths (root `*.md`, `docs/**/*.md`) skips
+   the suite, and `land` journals the skip as a `gate-skip` phase. Elsewhere, pass the repo's
+   typecheck, lint and tests (plus e2e only if the diff touches UI); `land` runs any such gate
+   under `heavy-job run --`.
+
+   `land` links `--work`'s `node_modules` and untracked `.env*` files into the temp worktree and
+   tells ci-gate so (`CI_GATE_IGNORE_UNTRACKED`), so the links do not count as a dirty tree. pnpm
+   11 records the absolute path of its last install, so it refuses a linked `node_modules` in any
+   other directory. Where the candidate's `pnpm-lock.yaml` is the same blob as `--work`'s HEAD,
+   `land` sets `pnpm_config_verify_deps_before_run=false` for the gate (pnpm 11 ignores the
+   `npm_config_` form). Where the lockfile differs, it runs `pnpm install --frozen-lockfile` in the
+   temp worktree instead of linking. Do not add your own install or env override to the gate.
 
    Exit codes: **0** landed (record the printed commit), **3** merge conflict, **4** gate red,
    **5** the target moved during the gate (re-run it, the gate has to see the new base),
