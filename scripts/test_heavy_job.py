@@ -169,9 +169,113 @@ def test_waits_report(tmp):
           all(f"/repo{i}" in o for i in range(3, 8)) and "/repo2" not in o and "/old" not in o, o)
 
 
+def git(repo, *args):
+    return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def make_repo(tmp):
+    """A temp repo with one commit. Returns (repo dir, git common dir, base tree sha)."""
+    repo = os.path.join(tmp, "repo")
+    os.makedirs(os.path.join(repo, "docs"))
+    git(repo, "init", "-q")
+    for path, text in (("src.ts", "x"), ("README.md", "r"), ("docs/a.md", "a"), ("docs/agent-surface.md", "s")):
+        with open(os.path.join(repo, path), "w") as f:
+            f.write(text)
+    git(repo, "add", "-A")
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "base")
+    return repo, git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"), git(repo, "rev-parse", "HEAD^{tree}")
+
+
+def tree_with(repo, path, text):
+    """Tree sha of the base commit plus one written file (staged, not committed)."""
+    os.makedirs(os.path.dirname(os.path.join(repo, path)), exist_ok=True)
+    with open(os.path.join(repo, path), "w") as f:
+        f.write(text)
+    git(repo, "add", "-A")
+    t = git(repo, "write-tree")
+    git(repo, "reset", "-q", "--hard")
+    git(repo, "clean", "-qfd")
+    return t
+
+
+def hj(env, *args):
+    return subprocess.run([TOOL, *args], env=env, capture_output=True, text=True, timeout=10)
+
+
+def test_ledger(tmp):
+    env = make_env(tmp)
+    repo, common, base = make_repo(tmp)
+    gate = "ci-gate v9 abc123def456"
+    q = lambda tree, g=gate, e=env: hj(e, "passed", "--repo", common, "--tree", tree, "--gate", g)
+    check("passed on an empty ledger is no match (exit 1)", q(base).returncode == 1, q(base))
+    r = hj(env, "record", "--repo", common, "--tree", base, "--gate", gate)
+    check("record exits 0", r.returncode == 0, r)
+    r = q(base)
+    check("exact tree matches (exit 0, prints exact)", r.returncode == 0 and f"matched {base} exact" in r.stdout, r)
+    r = q(base, g="ci-gate v9 000000000000")
+    check("a different gate-id does not match", r.returncode == 1, r)
+    md = tree_with(repo, "docs/new.md", "n")
+    r = q(md)
+    check("an inert-only diff matches and names the paths", r.returncode == 0 and f"matched {base} differs only in docs/new.md" in r.stdout, r)
+    r = q(tree_with(repo, "NOTES.md", "n"))
+    check("a root *.md diff matches", r.returncode == 0, r)
+    r = q(tree_with(repo, ".scratch/x/y.json", "{}"))
+    check("a .scratch/** diff matches", r.returncode == 0, r)
+    r = q(tree_with(repo, "docs/x.ts", "x"))
+    check("a docs/x.ts diff does not match", r.returncode == 1, r)
+    r = q(tree_with(repo, "docs/agent-surface.md", "changed"))
+    check("a docs/agent-surface.md diff does not match", r.returncode == 1, r)
+    r = q(tree_with(repo, "sub/README.md", "n"))
+    check("a non-root, non-docs *.md diff does not match", r.returncode == 1, r)
+    # A rename from code into an inert path must not hide the deleted code path.
+    git(repo, "mv", "src.ts", "docs/src.md")
+    renamed = git(repo, "write-tree")
+    git(repo, "reset", "-q", "--hard")
+    check("a rename from src.ts into docs/ does not match", q(renamed).returncode == 1, q(renamed))
+    r = q(md, e=dict(env, HEAVY_JOB_INERT="*.txt"))
+    check("HEAVY_JOB_INERT overrides the default list", r.returncode == 1, r)
+    r = q(tree_with(repo, "notes.txt", "n"), e=dict(env, HEAVY_JOB_INERT="*.txt"))
+    check("HEAVY_JOB_INERT pattern matches", r.returncode == 0, r)
+
+
+def test_ledger_age_gc_and_vitest(tmp):
+    env = make_env(tmp)
+    repo, common, base = make_repo(tmp)
+    gate = "ci-gate v9 abc123def456"
+    ledger = os.path.join(tmp, "state", "passed.ndjson")
+    os.makedirs(os.path.dirname(ledger), exist_ok=True)
+    with open(ledger, "w") as f:
+        f.write(json.dumps({"t": time.time() - 8 * 86400, "repo": os.path.realpath(common), "tree": base, "gate": gate}) + "\n")
+    r = hj(env, "passed", "--repo", common, "--tree", base, "--gate", gate)
+    check("an 8-day-old entry does not match", r.returncode == 1, r)
+    gone = "0123456789abcdef0123456789abcdef01234567"
+    hj(env, "record", "--repo", common, "--tree", gone, "--gate", gate)
+    r = hj(env, "passed", "--repo", common, "--tree", tree_with(repo, "docs/z.md", "z"), "--gate", gate)
+    check("a garbage-collected recorded tree is no match, not a crash", r.returncode == 1 and "Traceback" not in r.stderr, r)
+    vdir = os.path.join(tmp, "state", "vitest")
+    os.makedirs(vdir, exist_ok=True)
+    old = os.path.join(vdir, "old-tree.json")
+    with open(old, "w") as f:
+        f.write("{}")
+    os.utime(old, (time.time() - 8 * 86400,) * 2)
+    src = os.path.join(tmp, "vitest.json")
+    with open(src, "w") as f:
+        f.write('{"numFailedTests": 0}')
+    r = hj(env, "record", "--repo", common, "--tree", base, "--gate", gate, "--vitest-json", src)
+    check("record with --vitest-json exits 0", r.returncode == 0, r)
+    check("record deletes stored vitest json older than 7 days", not os.path.exists(old))
+    r = hj(env, "passed", "--repo", common, "--tree", tree_with(repo, "docs/q.md", "q"), "--gate", gate)
+    lines = [l for l in r.stdout.splitlines() if l.startswith("vitest-json ")]
+    stored = lines[0][len("vitest-json "):] if lines else ""
+    check("passed prints the stored vitest json path for the matched tree",
+          r.returncode == 0 and os.path.isfile(stored) and open(stored).read() == '{"numFailedTests": 0}' and base in stored, r)
+    r = hj(env, "record", "--repo", common, "--tree=--oops", "--gate", gate)
+    check("record refuses a non-sha tree (exit 64)", r.returncode == 64, r)
+
+
 if __name__ == "__main__":
     for t in (test_overlap, test_env_and_exit_code, test_kill9_frees, test_nested, test_waiting_message, test_acquire_eval,
-              test_max_wait_cap, test_bad_int_setting_falls_back, test_waits_report):
+              test_max_wait_cap, test_bad_int_setting_falls_back, test_waits_report, test_ledger, test_ledger_age_gc_and_vitest):
         with tempfile.TemporaryDirectory() as tmp:
             t(tmp)
     print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")

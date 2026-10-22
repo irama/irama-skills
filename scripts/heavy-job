@@ -5,25 +5,53 @@
   heavy-job acquire --for-pid <pid>  hold a slot until <pid> exits; prints export lines
                                      (use: eval "$(heavy-job acquire --for-pid $$)")
   heavy-job waits [--since DATE]     wait-time report (the counter-metric)
+  heavy-job record --repo <git-common-dir> --tree <tree-sha> --gate <gate-id> [--vitest-json <file>]
+                                     log a passed gate run (and keep a copy of its vitest json)
+  heavy-job passed --repo <git-common-dir> --tree <tree-sha> --gate <gate-id>
+                                     exit 0 if this tree already passed this gate, 1 if not
+
+Ledger (record / passed):
+  Key is (realpath of --repo, --tree, --gate). Entries live 7 days. passed matches an exact
+  entry, or one of the 20 most recent entries for (repo, gate) whose tree differs from --tree
+  only in inert paths (git diff --no-renames --name-only; a git error, such as a GC'd tree, is
+  no match). On a match, stdout is:
+    matched <recorded-tree> exact
+    matched <recorded-tree> differs only in <path>, <path>, ...
+  then, if record stored a vitest json for <recorded-tree>:
+    vitest-json <absolute path to the stored copy>
+  Exit codes: 0 match, 1 no match, 64 bad arguments (tree not a hex sha), 1 on record if the
+  --vitest-json file cannot be read (nothing is recorded then).
+  HEAVY_JOB_INERT: space-separated globs (* = within one path segment, ** = any depth,
+  leading ! excludes). Default: *.md docs/**/*.md docs/**/*.html !docs/agent-surface.md .scratch/**
 
 Settings (env overrides the file): HEAVY_SLOTS (default 2), HEAVY_WORKERS (default 4),
 HEAVY_MAX_WAIT_S (default 1800; past it, proceed unslotted with a stderr warning).
 Settings file: $HEAVY_JOB_CONFIG, default ~/.config/heavy-job.env (KEY=VALUE lines).
-State dir: $HEAVY_JOB_STATE_DIR, default ~/.local/state/heavy-job (slots/, waits.ndjson).
+State dir: $HEAVY_JOB_STATE_DIR, default ~/.local/state/heavy-job (slots/, waits.ndjson,
+passed.ndjson, vitest/<repo-hash>-<tree>.json).
 Nested calls (HEAVY_JOB_HELD=1 already set) never wait.
 """
 import argparse
 import datetime as dt
 import fcntl
+import hashlib
 import json
 import os
+import re
+import shutil
 import shlex
 import statistics
 import subprocess
 import sys
 import time
 
-DEFAULTS = {"HEAVY_SLOTS": "2", "HEAVY_WORKERS": "4", "HEAVY_MAX_WAIT_S": "1800"}
+DEFAULTS = {"HEAVY_SLOTS": "2", "HEAVY_WORKERS": "4", "HEAVY_MAX_WAIT_S": "1800",
+            # Never a .ts/.tsx/.js/.json: nav type-checks docs/design-bundle/*.ts(x), and
+            # report.mjs reads docs/agent-surface.md for its verdict.
+            "HEAVY_JOB_INERT": "*.md docs/**/*.md docs/**/*.html !docs/agent-surface.md .scratch/**"}
+LEDGER_TTL_S = 7 * 86400
+LEDGER_SCAN = 20
+SHA_RE = re.compile(r"[0-9a-f]{40}([0-9a-f]{24})?")
 REPORT_EVERY_S = 10
 POLL_S = 0.5
 _WARNED_BAD_INT = set()
@@ -250,6 +278,111 @@ def cmd_waits(since):
     return 0
 
 
+def glob_re(pattern):
+    """Path glob to regex: ** spans directories, * and ? stay inside one segment."""
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out, i = out + "(?:.*/)?", i + 3
+        elif pattern.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif pattern[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        elif pattern[i] == "?":
+            out, i = out + "[^/]", i + 1
+        else:
+            out, i = out + re.escape(pattern[i]), i + 1
+    return re.compile(out + r"\Z")
+
+
+def is_inert(path, patterns):
+    keep = [glob_re(p) for p in patterns if not p.startswith("!")]
+    drop = [glob_re(p[1:]) for p in patterns if p.startswith("!")]
+    return any(r.match(path) for r in keep) and not any(r.match(path) for r in drop)
+
+
+def vitest_store(repo, tree):
+    return os.path.join(state_dir(), "vitest", f"{hashlib.sha256(repo.encode()).hexdigest()[:12]}-{tree}.json")
+
+
+def ledger_args(args):
+    if not SHA_RE.fullmatch(args.tree):
+        say(f"--tree must be a hex tree sha, got {args.tree!r}")
+        return None
+    return os.path.realpath(args.repo)
+
+
+def cmd_record(args):
+    repo = ledger_args(args)
+    if repo is None:
+        return 64
+    vdir = os.path.join(state_dir(), "vitest")
+    os.makedirs(vdir, exist_ok=True)
+    cutoff = time.time() - LEDGER_TTL_S
+    for name in os.listdir(vdir):
+        path = os.path.join(vdir, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.unlink(path)
+        except OSError:
+            pass
+    if args.vitest_json:
+        try:
+            shutil.copyfile(args.vitest_json, vitest_store(repo, args.tree))
+        except OSError as e:
+            say(f"cannot store --vitest-json ({e}); nothing recorded")
+            return 1
+    # ponytail: append-only, never compacted; a line is ~200 bytes, prune when it matters.
+    with open(os.path.join(state_dir(), "passed.ndjson"), "a") as f:
+        f.write(json.dumps({"t": time.time(), "repo": repo, "tree": args.tree, "gate": args.gate}) + "\n")
+    return 0
+
+
+def recent_passes(repo, gate):
+    """Trees that passed (repo, gate) in the last 7 days, newest first, deduped."""
+    cutoff, trees = time.time() - LEDGER_TTL_S, []
+    try:
+        with open(os.path.join(state_dir(), "passed.ndjson")) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                    if r["repo"] == repo and r["gate"] == gate and r["t"] >= cutoff:
+                        trees.append(r["tree"])
+                except (ValueError, KeyError, TypeError):
+                    continue
+    except OSError:
+        pass
+    return list(dict.fromkeys(reversed(trees)))
+
+
+def matched(repo, tree, line):
+    print(line)
+    store = vitest_store(repo, line.split()[1])
+    if os.path.isfile(store):
+        print(f"vitest-json {store}")
+    return 0
+
+
+def cmd_passed(args):
+    repo = ledger_args(args)
+    if repo is None:
+        return 64
+    trees = recent_passes(repo, args.gate)
+    if args.tree in trees:
+        return matched(repo, args.tree, f"matched {args.tree} exact")
+    patterns = setting("HEAVY_JOB_INERT").split()
+    for old in trees[:LEDGER_SCAN]:
+        # --no-renames: a rename from src/ into docs/ must list the deleted code path too.
+        r = subprocess.run(["git", "--git-dir", repo, "diff", "--no-renames", "--name-only", "-z", old, args.tree],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            continue  # recorded tree garbage-collected (or repo gone): no match, never a crash
+        paths = [p for p in r.stdout.split("\0") if p]
+        if all(is_inert(p, patterns) for p in paths):
+            return matched(repo, old, f"matched {old} differs only in {', '.join(paths)}")
+    return 1
+
+
 def main():
     p = argparse.ArgumentParser(prog="heavy-job", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="sub", required=True)
@@ -259,11 +392,22 @@ def main():
     a.add_argument("--for-pid", type=int, required=True)
     w = sub.add_parser("waits")
     w.add_argument("--since", help="YYYY-MM-DD (local time)")
+    for name in ("record", "passed"):
+        q = sub.add_parser(name)
+        q.add_argument("--repo", required=True, help="git common dir (git rev-parse --path-format=absolute --git-common-dir)")
+        q.add_argument("--tree", required=True, help="tree sha (git rev-parse HEAD^{tree})")
+        q.add_argument("--gate", required=True, help="gate-id string, e.g. 'ci-gate v9 <12 hex>'")
+        if name == "record":
+            q.add_argument("--vitest-json", help="vitest json of this run, stored for later skips")
     args = p.parse_args()
     if args.sub == "run":
         return cmd_run(args.cmd)
     if args.sub == "acquire":
         return cmd_acquire(args.for_pid)
+    if args.sub == "record":
+        return cmd_record(args)
+    if args.sub == "passed":
+        return cmd_passed(args)
     return cmd_waits(args.since)
 
 
