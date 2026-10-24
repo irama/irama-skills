@@ -301,6 +301,10 @@ def _pnpm_fresh(work, tmp):
     for byte on pnpm 11), so bytes are compared. A missing or unreadable record, or one
     that differs only in layout, counts as differs: a needless install costs time, a wrong
     link gates the wrong deps."""
+    # Turbopack refuses a node_modules symlink that points outside the project root, so a gate
+    # that starts a Next dev server (Playwright webServer) needs a real install. Opt in per run.
+    if os.environ.get("DRIVER_LAND_INSTALL"):
+        return _lockfile_dirs(tmp)
     fresh = []
     for d in _lockfile_dirs(tmp):
         f = os.path.join(d, "pnpm-lock.yaml") if d else "pnpm-lock.yaml"
