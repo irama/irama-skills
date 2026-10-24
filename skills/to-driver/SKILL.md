@@ -148,6 +148,10 @@ Verify each finding yourself before accepting it; reviewers are confidently wron
 
 ### 6. `/to-tickets`
 
+Call the Skill tool with `to-tickets` (the wrapper in this repo, `skills/to-tickets`). It loads
+the installed plugin's `mattpocock-skills:to-tickets` and follows it, so this step runs
+without the user typing it. Never ask the user to run `/to-tickets` by hand.
+
 Tracer bullets, each sized to one context window, in dependency order. Its approval step runs,
 **optimistically**: publish the tickets first, then run step 7, then present the published tickets
 and the final command together as the approval turn (see "The breakdown gate assumes approval").
