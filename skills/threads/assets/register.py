@@ -277,15 +277,17 @@ def this_session():
     Measured 2026-09-04: every by-name claim from /push refused for exactly
     that reason, because the session was started in one repo and shipping
     another."""
-    sid = os.environ.get("CLAUDE_SESSION_ID")
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("CLAUDE_SESSION_ID")
     if sid:
         return sid
     sess, _, _, _ = picture()
     pid = claude_pid()
     if pid:
-        for s in sess.values():
-            if s.get("pid") == pid:
-                return s["session"]
+        # One agent process can host several sessions in turn (the VS Code panel starts a new
+        # conversation in the same process), so the newest session on the pid is this one.
+        on_pid = [s for s in sess.values() if s.get("pid") == pid]
+        if on_pid:
+            return max(on_pid, key=lambda s: s["ts"])["session"]
     here = str(Path.cwd())
     best = None
     for s in sess.values():
