@@ -32,6 +32,9 @@ diff --git a/src/lib/budget.ts b/src/lib/budget.ts
 @@ -1 +1 @@
 +++ b/src/a.spec.tsx
 @@ -1 +1 @@
++++ b/src/app/(member)/events/[id]/actions.ts
+@@ -3 +3,2 @@
+@@ -9 +10 @@
 +++ b/README.md
 @@ -1 +1 @@
 +++ /dev/null
@@ -43,7 +46,8 @@ class MutateRanges(unittest.TestCase):
     def test_keeps_source_ranges_and_skips_the_rest(self):
         self.assertEqual(md.mutate_ranges(DIFF),
                          ["src/lib/budget.ts:41-43", "src/lib/budget.ts:73-73",
-                          "src/app/x/notpage.tsx:5-6"])
+                          "src/app/x/notpage.tsx:5-6",
+                          "src/app/?member?/events/?id?/actions.ts"])
 
     def test_empty_diff(self):
         self.assertEqual(md.mutate_ranges(""), [])

@@ -8,11 +8,14 @@
 
 Keeps changed line ranges in .ts/.tsx source files. Skips tests (*.test.*, *.spec.*), Next.js
 page.tsx/layout.tsx, *.d.ts and *.config.*. Nothing left: prints "nothing to mutate", exits 0.
+A path with glob characters (a Next.js [id] or (group) folder) is mutated whole: Stryker refuses a
+line range on a glob and its matcher drops backslash escapes, so each such character becomes `?`.
 Otherwise runs `npx stryker run --mutate <path:start-end,...>` under heavy-job (one machine
 slot), reads reports/mutation/mutation.json, and prints at most 10 survivors, one per line.
 
-Report-only: exits 0 whatever the score. Exits with Stryker's code only if Stryker itself fails
-(a red initial test run, a bad config), so a broken run is never mistaken for a clean one.
+Report-only: exits 0 whatever the score, including a configured thresholds.break. Stryker writes
+the JSON report only when a run completes, so a missing report is a failed run (a red initial test
+run, a bad config, no json reporter): it exits non-zero and is never mistaken for a clean one.
 
 Pilot log: one JSON line per run appended to $MUTATE_DIFF_LOG, default
 ~/.local/state/mutate-diff/pilot-log.ndjson (repo, branch, base, mutants, killed, survived,
@@ -31,6 +34,7 @@ import time
 REPORT = "reports/mutation/mutation.json"
 MAX_SHOWN = 10
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+GLOB = re.compile(r"[\[\]{}()*?!+@]")
 SKIP = re.compile(r"(\.test\.|\.spec\.|\.d\.ts$|\.config\.|(^|/)(page|layout)\.tsx$)")
 
 
@@ -45,7 +49,13 @@ def mutate_ranges(diff_text):
                 path = None
         elif path and (m := HUNK.match(line)):
             start, count = int(m.group(1)), int(m.group(2) or 1)
-            if count:  # count 0 = pure deletion, nothing new to mutate
+            if not count:  # pure deletion, nothing new to mutate
+                continue
+            if GLOB.search(path):
+                whole = GLOB.sub("?", path)
+                if whole not in out:
+                    out.append(whole)
+            else:
                 out.append(f"{path}:{start}-{start + count - 1}")
     return out
 
@@ -102,13 +112,16 @@ def main():
 
     counts = {"mutants": 0, "killed": 0, "survived": 0, "no_coverage": 0}
     survivors = []
-    if os.path.exists(REPORT):
+    if os.path.exists(REPORT):  # written only on a completed run, so any exit code is the score
         with open(REPORT) as fh:
             counts, survivors = summarise(json.load(fh))
+        code = 0
+    elif not code:
+        code = 1  # finished without a report: no json reporter, nothing to count
 
     log = os.environ.get("MUTATE_DIFF_LOG") or os.path.expanduser(
         "~/.local/state/mutate-diff/pilot-log.ndjson")
-    os.makedirs(os.path.dirname(log), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(log)), exist_ok=True)
     row = {"ran_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
            "repo": os.path.basename(git("rev-parse", "--path-format=absolute",
                                         "--git-common-dir").strip().removesuffix("/.git")),
@@ -124,7 +137,8 @@ def main():
     if len(survivors) > MAX_SHOWN:
         print(f"  ... {len(survivors) - MAX_SHOWN} more in {REPORT}")
     if code:
-        print(f"mutate-diff: stryker exited {code}; the counts above are incomplete", file=sys.stderr)
+        print(f"mutate-diff: the run failed (exit {code}) and wrote no {REPORT}; nothing was "
+              "counted. Check the reporters include 'json'.", file=sys.stderr)
     return code
 
 
