@@ -157,7 +157,10 @@ def claims(records):
     out = {}
     for r in records:
         if r.get("kind") == "claim" and r.get("key"):
-            out[r["key"]] = r
+            # `since`: when this session's current hold on the key began, so a run's elapsed time survives note updates.
+            prev = out.get(r["key"])
+            held = prev and prev.get("session") == r.get("session") and prev.get("state") in OPEN | HELD
+            out[r["key"]] = {**r, "since": prev["since"] if held else r.get("ts")}
     return out
 
 
@@ -429,7 +432,8 @@ def cmd_list(as_json):
             {"thread": s.get("thread"), "session": sid, "status": status[sid],
              "cwd": s.get("cwd"),
              "quiet_minutes": round(quiet_minutes(s) or 0),
-             "claims": [{"key": c["key"], "state": c["state"], "note": c.get("note")}
+             "claims": [{"key": c["key"], "state": c["state"], "note": c.get("note"),
+                         "since": c.get("since")}
                         for c in by_thread.get(sid, [])]}
             for sid, s in live.items()]}, indent=1))
         return 0
