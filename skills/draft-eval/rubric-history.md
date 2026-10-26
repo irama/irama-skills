@@ -81,3 +81,14 @@ grader now names the link at each join between sections and lists every join whe
 then" fits. A run of parallel items (a set of moves, the steps of a method) counts as one beat
 when each item carries its own cause and the run is joined in and out by a but or a therefore.
 Flow is in its experimental phase, and rounds under 0.7 or earlier are not comparable on flow.
+
+## Rubric 0.9: the confession beat is optional
+
+Andrew ruled (26 October 2026) that the "I was wrong" confession beat in a deck or talk is
+optional. Use one only when a true story serves the throughline; otherwise leave it out and
+say so in one line on the arc sheet. Never ask for one by default, never block an arc or a
+build on its absence, and never fail a draft for its absence.
+
+`wrong_and_credible` now passes on the credibility story alone. A confession, if present, must
+still serve the argument: it moves the room toward the throughline and does not concede a
+counter-argument. Rounds scored under 0.8 or earlier are not comparable on `wrong_and_credible`.

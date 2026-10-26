@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.8",
+  "rubric_version": "0.9",
   "phase": "experimental",
   "changelog": [
     {
@@ -45,6 +45,10 @@
     {
       "version": "0.8",
       "note": "Fitted to the but or therefore rule from story writing, not to a reader's notes, so no deck is yet a fair test of it. The arc flow criterion now asks the grader to name the link at each join between sections and to list every join where only and then fits; a long run of parallel items without its own causes counts as and then joins. Flow moves to its experimental phase. Rounds scored under 0.7 or earlier are not comparable on flow."
+    },
+    {
+      "version": "0.9",
+      "note": "Andrew ruled the \"I was wrong\" confession beat optional (26 October 2026): use one only when a true story serves the throughline, never by default, and never block a draft on its absence. wrong_and_credible now passes on the credibility story alone; a confession, if present, must still serve the argument and must not concede a counter-argument. Rounds scored under 0.8 or earlier are not comparable on wrong_and_credible."
     }
   ],
   "scale": {
@@ -627,9 +631,9 @@
       },
       {
         "id": "wrong_and_credible",
-        "name": "An \"I was wrong\" beat, and credibility early through a story",
-        "pass": "The speaker has one \"I was wrong\" or vulnerability beat (a time they believed what the talk now argues against, or a failure of their own), and in the first three minutes a specific story shows why the speaker has the right to say this.",
-        "fail": "No confession or vulnerability anywhere, or credibility arrives as a CV, a list of titles or client logos, arrives late, or never arrives."
+        "name": "Credibility early through a story, and an optional \"I was wrong\" beat",
+        "pass": "In the first three minutes a specific story shows why the speaker has the right to say this. This passes on the credibility story alone; the \"I was wrong\" or vulnerability beat (a time they believed what the talk now argues against, or a failure of their own) is optional. When one is present, it must serve the argument: it moves the room toward the throughline and does not concede a counter-argument.",
+        "fail": "Credibility arrives as a CV, a list of titles or client logos, arrives late, or never arrives; or a present \"I was wrong\" beat concedes a counter-argument instead of serving the throughline."
       },
       {
         "id": "light_moment",

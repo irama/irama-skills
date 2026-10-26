@@ -30,7 +30,7 @@ RULINGS = [
 
 class Rubric05Test(unittest.TestCase):
     def test_version_and_changelog(self):
-        self.assertIn(RUBRIC["rubric_version"], ("0.5", "0.6", "0.7", "0.8"))  # 0.6 keeps these anchors
+        self.assertIn(RUBRIC["rubric_version"], ("0.5", "0.6", "0.7", "0.8", "0.9"))  # 0.6 keeps these anchors
         self.assertEqual(RUBRIC["phase"], "experimental")
         self.assertIn("eight lesson groups", {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.5"])
 
