@@ -92,6 +92,9 @@ def main():
 
     root = git("rev-parse", "--show-toplevel").strip()
     os.chdir(root)
+    if not os.path.exists("stryker.config.mjs"):  # a branch cut before the repo opted in
+        print("mutate-diff: no stryker.config.mjs on this branch, skipped")
+        return 0
     ranges = mutate_ranges(git("diff", "-U0", "--no-color", f"{a.base}...HEAD"))
     if not ranges:
         print("mutate-diff: nothing to mutate")
