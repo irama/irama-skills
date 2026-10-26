@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""mutate-diff: run StrykerJS on the lines this branch changed, report survivors, log the run.
+
+  mutate-diff [--base <ref>] [--dry-run]
+
+  --base     ref to diff against with `git diff <base>...HEAD` (default: main)
+  --dry-run  print the --mutate list and exit; runs nothing, logs nothing
+
+Keeps changed line ranges in .ts/.tsx source files. Skips tests (*.test.*, *.spec.*), Next.js
+page.tsx/layout.tsx, *.d.ts and *.config.*. Nothing left: prints "nothing to mutate", exits 0.
+Otherwise runs `npx stryker run --mutate <path:start-end,...>` under heavy-job (one machine
+slot), reads reports/mutation/mutation.json, and prints at most 10 survivors, one per line.
+
+Report-only: exits 0 whatever the score. Exits with Stryker's code only if Stryker itself fails
+(a red initial test run, a bad config), so a broken run is never mistaken for a clean one.
+
+Pilot log: one JSON line per run appended to $MUTATE_DIFF_LOG, default
+~/.local/state/mutate-diff/pilot-log.ndjson (repo, branch, base, mutants, killed, survived,
+no_coverage, wall_s, exit).
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+REPORT = "reports/mutation/mutation.json"
+MAX_SHOWN = 10
+HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+SKIP = re.compile(r"(\.test\.|\.spec\.|\.d\.ts$|\.config\.|(^|/)(page|layout)\.tsx$)")
+
+
+def mutate_ranges(diff_text):
+    """Unified diff (-U0) -> ['path:start-end', ...] for kept source files."""
+    out, path = [], None
+    for line in diff_text.splitlines():
+        if line.startswith("+++ "):
+            p = line[4:]
+            path = p[2:] if p.startswith("b/") else None  # '/dev/null' = deleted file
+            if path and (not path.endswith((".ts", ".tsx")) or SKIP.search(path)):
+                path = None
+        elif path and (m := HUNK.match(line)):
+            start, count = int(m.group(1)), int(m.group(2) or 1)
+            if count:  # count 0 = pure deletion, nothing new to mutate
+                out.append(f"{path}:{start}-{start + count - 1}")
+    return out
+
+
+def summarise(report):
+    """Stryker mutation-testing-report JSON -> (counts, survivors sorted by file and line)."""
+    counts = {"mutants": 0, "killed": 0, "survived": 0, "no_coverage": 0}
+    survivors = []
+    for path, f in report.get("files", {}).items():
+        for m in f.get("mutants", []):
+            status = m.get("status")
+            if status == "Ignored":
+                continue
+            counts["mutants"] += 1
+            if status in ("Killed", "Timeout"):
+                counts["killed"] += 1
+            elif status in ("Survived", "NoCoverage"):
+                counts["survived" if status == "Survived" else "no_coverage"] += 1
+                survivors.append((path, m["location"]["start"]["line"], m.get("mutatorName", "?"),
+                                  m.get("replacement", ""), status == "NoCoverage"))
+    survivors.sort(key=lambda s: (s[0], s[1]))
+    return counts, survivors
+
+
+def git(*args):
+    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--base", default="main")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+
+    root = git("rev-parse", "--show-toplevel").strip()
+    os.chdir(root)
+    ranges = mutate_ranges(git("diff", "-U0", "--no-color", f"{a.base}...HEAD"))
+    if not ranges:
+        print("mutate-diff: nothing to mutate")
+        return 0
+    if a.dry_run:
+        print("\n".join(ranges))
+        return 0
+
+    cmd = ["npx", "stryker", "run", "--mutate", ",".join(ranges)]
+    hj = shutil.which("heavy-job") or os.path.expanduser("~/.claude/scripts/heavy-job")
+    if os.access(hj, os.X_OK):
+        cmd = [hj, "run", "--", *cmd]
+    if os.path.exists(REPORT):
+        os.remove(REPORT)  # never read a stale report from an earlier run
+    t0 = time.monotonic()
+    code = subprocess.run(cmd).returncode
+    wall = round(time.monotonic() - t0, 1)
+
+    counts = {"mutants": 0, "killed": 0, "survived": 0, "no_coverage": 0}
+    survivors = []
+    if os.path.exists(REPORT):
+        with open(REPORT) as fh:
+            counts, survivors = summarise(json.load(fh))
+
+    log = os.environ.get("MUTATE_DIFF_LOG") or os.path.expanduser(
+        "~/.local/state/mutate-diff/pilot-log.ndjson")
+    os.makedirs(os.path.dirname(log), exist_ok=True)
+    row = {"ran_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "repo": os.path.basename(git("rev-parse", "--path-format=absolute",
+                                        "--git-common-dir").strip().removesuffix("/.git")),
+           "branch": git("rev-parse", "--abbrev-ref", "HEAD").strip(), "base": a.base,
+           **counts, "wall_s": wall, "exit": code}
+    with open(log, "a") as fh:
+        fh.write(json.dumps(row) + "\n")
+
+    print(f"\nmutate-diff: {counts['mutants']} mutants, {counts['killed']} killed, "
+          f"{counts['survived']} survived, {counts['no_coverage']} no coverage, {wall}s")
+    for path, line, mutator, repl, nocov in survivors[:MAX_SHOWN]:
+        print(f"  {path}:{line}  {mutator}  -> {repl!r}{'  [NoCoverage]' if nocov else ''}")
+    if len(survivors) > MAX_SHOWN:
+        print(f"  ... {len(survivors) - MAX_SHOWN} more in {REPORT}")
+    if code:
+        print(f"mutate-diff: stryker exited {code}; the counts above are incomplete", file=sys.stderr)
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
