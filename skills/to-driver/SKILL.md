@@ -17,7 +17,7 @@ expensive and user-triggered, and that boundary is the point.
 ## Explore before you coalesce — three optional front doors
 
 Step 1 may conclude the idea is not ready to be grilled into a spec. Say so, name the door,
-and run it before step 2 — a little more exploration up front is cheaper than tickets built
+and run it before step 2 (`/prototype` runs after it) — a little more exploration up front is cheaper than tickets built
 on an unproven design:
 
 - **`/wayfinder`** — the work is huge and foggy, spanning many sessions. Wayfind first, then
