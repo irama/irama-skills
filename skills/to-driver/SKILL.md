@@ -22,8 +22,9 @@ on an unproven design:
 
 - **`/wayfinder`** — the work is huge and foggy, spanning many sessions. Wayfind first, then
   run `/to-driver` per leg rather than trying to spec the whole thing at once.
-- **`/prototype`** — the design is unproven. Build the crude end-to-end version, look at it,
-  *then* grill. Skipping this on an unproven design is a flag, not a shortcut.
+- **`/prototype`** — the design is unproven. The order is always grill, then prototype, then
+  tickets: run step 2 first, then build the crude end-to-end version that tests the grilled
+  decisions, then write up. Skipping this on an unproven design is a flag, not a shortcut.
 - **`/impeccable`** — there is a UI surface. Shape the interface before the prototype, so the
   prototype tests a considered design rather than the first one that occurred to you.
 
