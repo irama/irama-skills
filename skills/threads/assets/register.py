@@ -251,7 +251,9 @@ def thread_name(cwd, session_id):
 
 def register_session(session_id, name, transcript, cwd):
     append({"kind": "session", "session": session_id, "thread": name,
-            "pid": claude_pid(), "cwd": str(cwd), "transcript": str(transcript or "")})
+            "pid": claude_pid(), "cwd": str(cwd), "transcript": str(transcript or ""),
+            # claude-vscode, cli or sdk-cli: Agent X makes glass notes for VS Code threads only.
+            "entrypoint": os.environ.get("CLAUDE_CODE_ENTRYPOINT")})
 
 
 def ensure_registered(session_id, cwd, transcript):
@@ -432,7 +434,7 @@ def cmd_list(as_json):
     if as_json:
         print(json.dumps({"threads": [
             {"thread": s.get("thread"), "session": sid, "status": status[sid],
-             "cwd": s.get("cwd"),
+             "cwd": s.get("cwd"), "entrypoint": s.get("entrypoint"),
              "quiet_minutes": round(quiet_minutes(s) or 0),
              "claims": [{"key": c["key"], "state": c["state"], "note": c.get("note"),
                          "since": c.get("since")}
