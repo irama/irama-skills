@@ -102,9 +102,10 @@ survives all the way into a built feature.
 
 ### 2. Grill (`/grill-with-docs`)
 
-Invoke the `grilling` skill. One question at a time, each with a recommended answer, each waiting
-for a reply. Look up every fact in the repo rather than asking. Walk the design tree in dependency
-order — the answer to one question usually changes which question comes next.
+Invoke the `grilling` skill, but deliver the questions as a `peakstate-brief`, never one at a time
+in chat. Each question carries a recommended answer. Look up every fact in the repo rather than
+asking. Walk the design tree in dependency order: when answers are likely to branch, send the first
+round as a brief and the follow-ups after it lands.
 
 Track decisions as they land; do **not** write files mid-interview. Batch the writing into step 3
 so the docs are coherent rather than a churn of half-decisions.
