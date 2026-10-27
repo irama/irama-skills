@@ -5,7 +5,8 @@
 # message, the watchdog, the failure comment with its retry on reply, the POLLER_SKIP_* switches
 # on all three pick paths, and box mode (mirror-sync, clone, ship through the broker) with a fake
 # sudo, and the lanes: runs in different repos start in one tick, a busy repo waits, the cap,
-# one ship and one untargeted run at a time, and a dead run record pruned. Touches no hub, no
+# one ship and one untargeted run at a time, and a dead run record pruned; the job time limit
+# (time_limit_s, clamped) and a scheduled job In review leaving the shared lane free. Touches no hub, no
 # launchd or systemd, no real config. Runs on macOS and Linux.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
@@ -72,7 +73,7 @@ settle() {
     alive=0
     for f in "$runs"/*.json; do
       [ -f "$f" ] || continue
-      p=$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$f")
+      p=$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$f" 2>/dev/null || true) # the run may delete it meanwhile
       [ -n "$p" ] && kill -0 "$p" 2>/dev/null && alive=1
     done
     n=$((n + 1))
@@ -407,6 +408,82 @@ FAKE_SCENE=ships tick
 : >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
 JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SCENE=untargeted tick
 [ "$(cat "$tmp/calls" | grep -c '^claude -p /jobs JOB-8[01] ' || true)" = 1 ] || fail "two untargeted runs in one tick"
+
+# xiv) Time limit. The job's time_limit_s reaches the worker (`poll.sh --run`, last argument),
+# clamped to 600 to 14400 s; none keeps JOBS_POLLER_LIMIT; a reply run carries it too. With the
+# floor lowered for the test, a short limit stops the run at about that limit.
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+a = sys.argv[1:]
+tl = json.loads(os.environ.get("FAKE_TL", "null"))
+if a[0] == "list" and "--awaiting" in a and os.environ.get("FAKE_PATH") == "awaiting":
+    print(json.dumps({"jobs": [{"id": 91, "column": "in_review", "claimed": True, "awaiting": True,
+                                "targets": ["o/r"], "time_limit_s": tl, "title": "reply"}]}))
+elif a[0] == "list" and "--column" in a and os.environ.get("FAKE_PATH") == "backlog":
+    print(json.dumps({"jobs": [{"id": 90, "column": "backlog", "targets": ["o/r"], "claimed": False,
+                                "time_limit_s": tl, "title": "limited"}]}))
+elif a[0] == "list":
+    print(json.dumps({"jobs": []}))
+elif a[0] == "get":
+    print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "ack_comment_id": 1,
+                               "comments": [{"id": 5, "author": "you", "kind": "message"}]}}))
+elif a[0] == "repos":
+    print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
+EOF
+for case in 'null 2700' '10 600' '99999 14400' '99999999999999999999 14400' '1800 1800'; do
+  read -r tl want <<<"$case"
+  : >"$HOME/.config/jobs/poller-tried"; : >"$tmp/log"
+  FAKE_PATH=backlog FAKE_TL=$tl FAKE_RUN_SECS=0 tick
+  cat "$tmp/log" | grep -q "JOB-90 limit ${want}s" || fail "time_limit_s $tl did not give a ${want}s limit"
+done
+echo 91 >>"$HOME/.config/jobs/poller-owned"
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/log"
+FAKE_PATH=awaiting FAKE_TL=10 FAKE_RUN_SECS=0 tick
+cat "$tmp/log" | grep -q 'JOB-91 limit 600s' || fail "reply run did not carry the job time limit"
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/log"; : >"$tmp/calls"
+t0=$(date +%s)
+FAKE_PATH=backlog FAKE_TL=3 JOBS_POLLER_LIMIT_MIN=1 FAKE_RUN_SECS=60 tick
+took=$(( $(date +%s) - t0 ))
+cat "$tmp/log" | grep -q 'JOB-90 limit 3s' || fail "short limit not applied"
+cat "$tmp/log" | grep -q 'JOB-90 stopped after 0 minutes' || fail "run past its time_limit_s not stopped"
+[ "$took" -lt 30 ] || fail "run with a 3 s limit lived ${took}s"
+
+# xv) A scheduled job In review does not hold the shared lane "-"; a board job In review does.
+# A scheduled job held by a busy lane says why on its card, once.
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+a = sys.argv[1:]
+src = os.environ.get("FAKE_SRC", "schedule")
+jobs = [{"id": 95, "source": src, "column": "in_review", "targets": [], "claimed": True, "title": "weekly"},
+        {"id": int(os.environ.get("FAKE_NEXT", "96")), "source": os.environ.get("FAKE_NEXT_SRC", "board"),
+         "column": "backlog", "targets": [], "claimed": False, "title": "next"}]
+if a[0] == "list" and ("--awaiting" in a or "--ship-approved" in a):
+    print(json.dumps({"jobs": []}))
+elif a[0] == "list" and "--column" in a:
+    c = a[a.index("--column") + 1]
+    print(json.dumps({"jobs": [j for j in jobs if j["column"] == c]}))
+elif a[0] == "list":
+    print(json.dumps({"jobs": jobs}))
+elif a[0] == "get":
+    print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "prompt": "/echo-test", "comments": []}}))
+elif a[0] == "repos":
+    print(json.dumps({"repos": []}))
+EOF
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
+JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SRC=schedule tick
+[ "$(started 96)" = 1 ] || fail "a scheduled job In review held the shared lane"
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
+JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SRC=board tick
+[ "$(started 96)" = 0 ] || fail "a board job In review no longer holds the shared lane"
+# Scheduled job 97 waits behind board job 95: one comment saying why, not two.
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
+for _ in 1 2; do JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SRC=board FAKE_NEXT=97 FAKE_NEXT_SRC=schedule tick; done
+[ "$(started 97)" = 0 ] || fail "scheduled job 97 started on a busy lane"
+[ "$(cat "$tmp/calls" | grep -c '^comment 97 --kind event --body Not started by the poller: another job holds its lane (-' || true)" = 1 ] \
+  || fail "scheduled job on a busy lane not explained exactly once"
+cat "$tmp/calls" | grep -q '^comment 96 ' && fail "a board job on a busy lane got a comment"
 
 # xii) Box mode: before a targeted run, mirror-sync through sudo, then clone the mirror into the
 # manifest path when missing. A ship-approved job then goes to POLLER_SHIP_CMD through sudo,

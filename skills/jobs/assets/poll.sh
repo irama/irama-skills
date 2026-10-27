@@ -17,7 +17,7 @@
 # Each worker runs `claude -p "/jobs JOB-<id> --background"` from the first target's checkout for
 # a targeted job, from the checkout whose path the prompt names for an untargeted job that names
 # one, else from $JOBS_DEFAULT_HOME, and kills it after 45 minutes (90 for a ship; macOS has no
-# `timeout`). Running in the checkout puts the thread under that repo, so the card's "Open
+# `timeout`), or after the job's time_limit_s (clamped to 600 to 14400 s) when the hub sends one. Running in the checkout puts the thread under that repo, so the card's "Open
 # thread" link finds it from that repo's VS Code window. It sends Telegram when the card reaches
 # In review or the run fails, and deletes its run record when it ends.
 #
@@ -85,15 +85,24 @@ notify() {
 }
 
 # ── Run (the worker) ─────────────────────────────────────────────────────────
-# `poll.sh --run <id> <ship|reply|backlog> <run folder> <reply comment id|-> <title>`: one run,
-# started detached by a tick, which has already recorded it as tried and trusted its folder.
+# `poll.sh --run <id> <ship|reply|backlog> <run folder> <reply comment id|-> <title> [<time limit s|->]`:
+# one run, started detached by a tick, which has already recorded it as tried and trusted its folder.
+# The time limit is the job's `time_limit_s`, clamped to 600 to 14400 s; absent keeps
+# JOBS_POLLER_LIMIT, and a ship run always keeps JOBS_POLLER_SHIP_LIMIT.
 run_worker() {
-  id=$1 kind=$2 run_dir=$3 reply_cid=$4 title=$5 ship=""
+  id=$1 kind=$2 run_dir=$3 reply_cid=$4 title=$5 tl=${6:--} ship=""
   [ "$reply_cid" != - ] || reply_cid=""
   if [ "$kind" = ship ]; then
     ship=1
     LIMIT="${JOBS_POLLER_SHIP_LIMIT:-5400}" # merge, review, build and deploy take longer
+  elif [[ $tl =~ ^[0-9]+$ ]]; then
+    lo="${JOBS_POLLER_LIMIT_MIN:-600}" hi=14400 # tests lower the floor
+    [[ $lo =~ ^[0-9]{1,5}$ ]] && [ "$lo" -le "$hi" ] || lo=600
+    if [ "${#tl}" -gt 9 ] || [ "$tl" -gt "$hi" ]; then tl=$hi; fi
+    [ "$tl" -ge "$lo" ] || tl=$lo
+    LIMIT=$tl
   fi
+  log "JOB-$id limit ${LIMIT}s"
   trap 'rm -f "$RUNS/$id.json"' EXIT # the tick wrote it; a dead record is pruned anyway
   cd "$run_dir" || exit 1
   # Drive for desktop keeps most files online-only, and a headless run reading one gets
@@ -254,7 +263,7 @@ print(json.load(sys.stdin)["data"].get("ack_comment_id") or 0)
 }
 
 if [ "${1:-}" = --run ]; then
-  run_worker "$2" "$3" "$4" "$5" "$6"
+  run_worker "$2" "$3" "$4" "$5" "$6" "${7:--}"
   exit 0
 fi
 
@@ -300,6 +309,9 @@ def lanes(targets):
     return list(dict.fromkeys(t for t in targets or [] if t)) or ["-"]
 def held(j, targets, own):
     return str(j.get("id")) in EXCLUDE or any(l in (LIVE if own else BUSY) for l in lanes(targets))
+def limit(j):  # the job time limit for poll.sh --run, "-" when the hub sends none
+    v = j.get("time_limit_s")
+    return str(v) if type(v) is int and v > 0 else "-"
 '
 
 # Log a skip once per job and reason, and say it on the card so a job never sits in
@@ -352,14 +364,19 @@ for p in sorted(glob.glob(os.path.join(sys.argv[1], "*.json"))):
 }
 
 # The repos the board holds busy: each job In progress or In review with a run not yet shipped,
-# or with no run yet, whoever claimed it. One line of targets per such job.
+# or with no run yet, whoever claimed it. One line of targets per such job. A scheduled job
+# (source "schedule") In review does not hold the shared lane "-": the weekly card waits there
+# until the operator archives it, and would block every other untargeted job meanwhile.
 board_lanes() {
   "${J[@]}" list --all-pages 2>/dev/null | "$PYTHON3_BIN" -c '
 import json, sys
 for j in json.load(sys.stdin).get("jobs", []):
     runs = j.get("runs") or []
     if j.get("column") in ("in_progress", "in_review") and not (runs and all(r.get("state") == "shipped" for r in runs)):
-        print(" ".join(j.get("targets") or j.get("targets_picked") or ["-"]))  # "-" = shared lane
+        held = j.get("targets") or j.get("targets_picked") or ["-"]  # "-" = shared lane
+        if held == ["-"] and j.get("column") == "in_review" and j.get("source") == "schedule":
+            continue
+        print(" ".join(held))
 '
 }
 
@@ -367,6 +384,7 @@ for j in json.load(sys.stdin).get("jobs", []):
 # when untargeted) and the bookkeeping keys. Returns 1 when no job is free.
 pick() {
   id="" kind="" title="" run_dir="$HOME" tried_key="" retry_key="" reply_cid="" target="" lanes="" branch="" ship_runs=1
+  time_limit=""
   # Before anything else: a run the operator approved to ship. Approving is the instruction to
   # ship, so the poller ships it unattended. One run per approved commit: "<id>#ship@<sha>".
   # A ship run merges and pushes the shared default branch, so only one is ever live.
@@ -408,7 +426,7 @@ for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"])
   # Next, a job this machine claimed that has an operator reply it has not read. One run per
   # reply: the key is "<id>@<newest operator comment id>", so a later reply starts another run.
   if [ -n "$awaiting" ]; then
-    while read -r cid clanes ctitle; do
+    while read -r cid clanes ctl ctitle; do
       case "$cid" in *[!0-9]*|"") continue ;; esac
       last=$("${J[@]}" get "$cid" 2>/dev/null | "$PYTHON3_BIN" -c '
 import json, sys
@@ -427,7 +445,7 @@ print(max(ids) if ids else "", d.get("session_id") or "")
         [ "$live" = 0 ] || continue
       fi
       grep -qxF "$cid@$last" "$TRIED" && continue
-      id=$cid kind=reply title=$ctitle tried_key="$cid@$last" reply_cid=$last lanes=$clanes
+      id=$cid kind=reply title=$ctitle tried_key="$cid@$last" reply_cid=$last lanes=$clanes time_limit=$ctl
       if [ "$clanes" != - ]; then
         target=${clanes%%,*}
         run_dir=$(first_target_dir "$target")
@@ -456,7 +474,7 @@ for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"])
         t = j.get("targets") or j.get("targets_picked") or []
         if left(t) or held(j, t, True):
             continue
-        print(j["id"], ",".join(lanes(t)), (j.get("title") or "")[:120].replace("\n", " "))
+        print(j["id"], ",".join(lanes(t)), limit(j), (j.get("title") or "")[:120].replace("\n", " "))
 ' "$OWNED" 2>/dev/null)
   fi
 
@@ -477,8 +495,9 @@ for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"])
     POLL_BUSY="$board_busy $POLL_LIVE"
     export POLL_BUSY
   fi
-  # One line per candidate, oldest first: "<id> <T|U> <lanes> <after|-> <title>" (T has a
-  # tagged target, U has none; lanes are its targets, comma-separated, or "-").
+  # One line per candidate, oldest first: "<id> <T|U|W> <lanes> <after|-> <limit|-> <title>" (T
+  # has a tagged target, U has none; lanes are its targets, comma-separated, or "-"; limit is
+  # its time_limit_s). W is a scheduled job held by a busy lane: the poller says why on its card.
   # A started job is left out too, unless its run failed: "<id>~<n>" in poller-tried records the
   # newest comment id at the failure, and <after> carries the highest such n. That job is a
   # retry candidate, retried only when the operator has commented since.
@@ -496,20 +515,30 @@ def wanted(j):
     return i not in skip or i in after
 jobs = [j for j in json.load(sys.stdin).get("jobs", [])
         if j.get("column") == "backlog"
-        and not j.get("claimed") and wanted(j) and not left(j.get("targets"))
-        and not held(j, j.get("targets"), False)]
+        and not j.get("claimed") and wanted(j) and not left(j.get("targets"))]
 for j in sorted(jobs, key=lambda j: str(j["id"]).zfill(20)):
     t = j.get("targets") or []
     i = str(j["id"])
-    print(j["id"], "T" if t else "U", ",".join(lanes(t)), after[i] if i in skip and i in after else "-",
+    k = "T" if t else "U"
+    if held(j, t, False):
+        if j.get("source") != "schedule" or i in EXCLUDE or i in after:  # a failed run retries only after a reply, so "starts when that job ends" would be untrue
+            continue
+        k = "W"
+    print(j["id"], k, ",".join(lanes(t)), after[i] if i in skip and i in after else "-", limit(j),
           (j.get("title") or "")[:120].replace("\n", " "))
 ' "$TRIED") || { log "could not parse the job list"; exit 1; }
 
-  while read -r cid ckind clanes cafter ctitle; do
+  while read -r cid ckind clanes cafter ctl ctitle; do
     [ -n "$cid" ] || continue
     case "$cid" in
       *[!0-9]*) log "bad id: refusing ($cid)"; exit 1 ;;
     esac
+    if [ "$ckind" = W ]; then
+      skip_once "$cid" lane-busy "another job holds its lane ($clanes; \"-\" is the lane every untargeted job shares)" \
+        "It starts when that job ends or leaves In progress and In review."
+      continue
+    fi
+    time_limit=$ctl
     retry_key=""
     if [ "$cafter" != - ]; then
       # A failed run: retry it once per operator reply posted after the failure.
@@ -679,7 +708,7 @@ start_run() {
   # Its own process group (set -m), so it outlives this tick: launchd (AbandonProcessGroup) and
   # systemd (KillMode=process) leave it running when the tick exits.
   set -m
-  "$BASH" "$0" --run "$id" "$kind" "$run_dir" "${reply_cid:--}" "$title" </dev/null >>"$LOG" 2>&1 &
+  "$BASH" "$0" --run "$id" "$kind" "$run_dir" "${reply_cid:--}" "$title" "${time_limit:--}" </dev/null >>"$LOG" 2>&1 &
   worker=$!
   set +m
   "$PYTHON3_BIN" -c '
