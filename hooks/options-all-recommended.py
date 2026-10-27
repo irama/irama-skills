@@ -18,8 +18,6 @@ import re
 import sys
 
 OPTION_LINE = re.compile(r"^\s*\d+[.)]\s+\S")
-# The decline button an Agent X ask must carry (rules/brief-delivery.md) and the reply must mirror.
-DECLINE = re.compile(r"^\s*\d+[.)]\s+\**not yet\b", re.IGNORECASE)
 
 
 def options_block(text):
@@ -31,8 +29,7 @@ def options_block(text):
 
 def unrecommended(text):
     return [ln.strip() for ln in options_block(text).splitlines()
-            if OPTION_LINE.match(ln) and not DECLINE.match(ln)
-            and "(recommended" not in ln.lower()]
+            if OPTION_LINE.match(ln) and "(recommended" not in ln.lower()]
 
 
 def last_assistant_text(transcript_path):
