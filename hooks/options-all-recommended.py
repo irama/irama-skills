@@ -18,6 +18,8 @@ import re
 import sys
 
 OPTION_LINE = re.compile(r"^\s*\d+[.)]\s+\S")
+# The decline button an Agent X ask must carry (rules/brief-delivery.md) and the reply must mirror.
+DECLINE = re.compile(r"^\s*\d+[.)]\s+\**not yet\b", re.IGNORECASE)
 
 
 def options_block(text):
@@ -29,7 +31,8 @@ def options_block(text):
 
 def unrecommended(text):
     return [ln.strip() for ln in options_block(text).splitlines()
-            if OPTION_LINE.match(ln) and "(recommended" not in ln.lower()]
+            if OPTION_LINE.match(ln) and not DECLINE.match(ln)
+            and "(recommended" not in ln.lower()]
 
 
 def last_assistant_text(transcript_path):
@@ -60,7 +63,12 @@ def main():
         return
     if payload.get("stop_hook_active"):
         return                      # already looping; do not stack another block
-    bad = unrecommended(last_assistant_text(payload.get("transcript_path", "")))
+    # The hook can fire before the final reply reaches the transcript, so the transcript's last
+    # text is then the previous reply. The reply in the hook input wins when there is one.
+    last = payload.get("last_assistant_message")
+    if not (isinstance(last, str) and last.strip()):
+        last = last_assistant_text(payload.get("transcript_path", ""))
+    bad = unrecommended(last)
     if bad:
         print(json.dumps({
             "decision": "block",
