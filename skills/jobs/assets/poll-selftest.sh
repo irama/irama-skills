@@ -461,10 +461,13 @@ open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
 a = sys.argv[1:]
 e = os.environ.get
 jobs = [{"id": 95, "source": e("FAKE_SRC", "board"), "template_id": e("FAKE_TPL") or None,
-         "column": e("FAKE_COL", "in_review"), "targets": json.loads(e("FAKE_T", "[]")), "claimed": True, "title": "held"},
+         "column": e("FAKE_COL", "in_review"), "targets": json.loads(e("FAKE_T", "[]")), "claimed": True, "title": "held",
+         "active_at": e("FAKE_ACTIVE") or None, "awaiting": bool(e("FAKE_AWAIT"))},
         {"id": 96, "source": e("FAKE_NEXT_SRC", "schedule"), "template_id": e("FAKE_NEXT_TPL") or None,
          "column": "backlog", "targets": json.loads(e("FAKE_NEXT_T", "[]")), "claimed": False, "title": "weekly"}]
-if a[0] == "list" and ("--awaiting" in a or "--ship-approved" in a):
+if a[0] == "list" and "--awaiting" in a and e("FAKE_AWAIT"):
+    print(json.dumps({"jobs": [jobs[0]]}))
+elif a[0] == "list" and ("--awaiting" in a or "--ship-approved" in a):
     print(json.dumps({"jobs": []}))
 elif a[0] == "list" and "--column" in a:
     c = a[a.index("--column") + 1]
@@ -472,7 +475,8 @@ elif a[0] == "list" and "--column" in a:
 elif a[0] == "list":
     print(json.dumps({"jobs": jobs}))
 elif a[0] == "get":
-    print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "prompt": "/echo-test", "comments": []}}))
+    cs = [{"id": 5, "author": "you", "kind": "message"}] if e("FAKE_AWAIT") else []
+    print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "prompt": "/echo-test", "comments": cs}}))
 elif a[0] == "repos":
     print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
 EOF
@@ -515,6 +519,26 @@ JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SRC=board FAKE_COL=archived FAKE_NEXT_TPL=7
 rm -f "$runs/99.json"
 settle
 [ "$(started 96)" = 1 ] || fail "a live untemplated scheduled run held template 7"
+# A scheduled job In review whose reply run is live (a fresh active_at heartbeat, on any
+# machine) holds its template lane.
+FAKE_SRC=schedule FAKE_TPL=7 FAKE_COL=in_review FAKE_NEXT_TPL=7 \
+  FAKE_ACTIVE="$("$py" -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())')" sched
+[ "$(started 96)" = 0 ] || fail "a scheduled job In review with a live run did not hold its template"
+# An untargeted scheduled run has no worktree: it also holds the folder it runs in, the shared
+# untargeted lane "-" and the repo whose checkout that folder is, against live runs only.
+: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
+for l in '"-"' '"o/r"'; do
+  echo "{\"pid\": $$, \"kind\": \"ship\", \"lanes\": [$l]}" >"$runs/99.json"
+  FAKE_REPO="$tmp/xcoach" FAKE_SRC=board FAKE_COL=archived FAKE_NEXT_TPL=7 bash "$here/poll.sh"
+  [ "$(started 96)" = 0 ] || fail "a live run holding lane $l shared its checkout with a scheduled run"
+done
+rm -f "$runs/99.json"
+: >"$tmp/log"
+FAKE_REPO="$tmp/xcoach" FAKE_SRC=board FAKE_COL=archived FAKE_NEXT_TPL=7 tick
+cat "$tmp/log" | grep -q 'JOB-96 start in .* (backlog, lanes schedule:7,-,o/r)' || fail "an untargeted scheduled run did not hold its folder"
+# An untargeted board job In review (no live run) still does not hold it there.
+FAKE_REPO="$tmp/xcoach" FAKE_SRC=board sched
+[ "$(started 96)" = 1 ] || fail "an In review board job held a scheduled run's folder"
 # JOBS_POLLER_SOURCES: "!schedule" leaves scheduled jobs alone before any side effect;
 # "schedule" takes only them; unset takes all (every case above).
 FAKE_SRC=board FAKE_COL=archived JOBS_POLLER_SOURCES='!schedule' sched
@@ -523,6 +547,28 @@ FAKE_SRC=board FAKE_COL=archived JOBS_POLLER_SOURCES=schedule sched
 [ "$(started 96)" = 1 ] || fail "JOBS_POLLER_SOURCES=schedule did not take a scheduled job"
 FAKE_SRC=board FAKE_COL=archived FAKE_NEXT_SRC=board JOBS_POLLER_SOURCES=schedule sched
 [ "$(side_effects)" = 0 ] || fail "JOBS_POLLER_SOURCES=schedule took a board job"
+# The filter is for Backlog picks only: a reply on a scheduled job this machine already claimed
+# still runs after a switch to "!schedule".
+echo 95 >>"$HOME/.config/jobs/poller-owned"
+FAKE_SRC=schedule FAKE_TPL=8 FAKE_AWAIT=1 FAKE_NEXT_SRC=board FAKE_NEXT_T='["o/r"]' JOBS_POLLER_SOURCES='!schedule' sched
+[ "$(started 95)" = 1 ] || fail "!schedule stopped a reply run of a claimed scheduled job"
+# Unknown sources, and a lone "!", stop the poller at start-up with exit 2.
+for v in 'shedule' '!' 'board,!nope'; do
+  : >"$tmp/log"; : >"$tmp/calls"; rc=0
+  JOBS_POLLER_SOURCES=$v bash "$here/poll.sh" || rc=$?
+  [ "$rc" = 2 ] || fail "JOBS_POLLER_SOURCES=$v: exit $rc, not 2"
+  cat "$tmp/log" | grep -q "JOBS_POLLER_SOURCES" || fail "JOBS_POLLER_SOURCES=$v not logged"
+  [ ! -s "$tmp/calls" ] || fail "JOBS_POLLER_SOURCES=$v still read the board"
+done
+# install-poller.sh --sources VAL sets the filter on a reinstall; an empty VAL clears it.
+mkdir -p "$tmp/bin2"; cp "$tmp/claude" "$tmp/bin2/claude"
+echo "JOBS_POLLER_SOURCES='!schedule'" >>"$HOME/.config/jobs/poller.env"
+inst() { PATH="$tmp/bin2:$PATH" bash "$here/install-poller.sh" --dry-run --repos-root "$tmp" "$@" 2>/dev/null; }
+inst | grep -qx 'JOBS_POLLER_SOURCES=\\!schedule' || fail "reinstall dropped the source filter"
+inst --sources schedule | grep -qx 'JOBS_POLLER_SOURCES=schedule' || fail "--sources did not set the filter"
+inst --sources '' | grep -q JOBS_POLLER_SOURCES && fail "--sources '' did not clear the filter"
+"$py" -c 'import sys; p = sys.argv[1]; k = [l for l in open(p) if not l.startswith("JOBS_POLLER_SOURCES")]; open(p, "w").writelines(k)' \
+  "$HOME/.config/jobs/poller.env"
 # Set in poller.env, the filter still applies.
 echo "JOBS_POLLER_SOURCES='!schedule'" >>"$HOME/.config/jobs/poller.env"
 FAKE_SRC=board FAKE_COL=archived sched

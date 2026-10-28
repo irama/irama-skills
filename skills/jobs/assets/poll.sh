@@ -37,9 +37,11 @@
 # Optional, for a machine that shares the board with another poller (all unset by default):
 #   POLLER_SKIP_UNTARGETED=1  never pick a job with no target, on any of the three pick paths
 #   POLLER_SKIP_LOCAL=1       never pick a job with a local/* target, likewise
-#   JOBS_POLLER_SOURCES=<s>   take only jobs whose source is listed (comma-separated); a "!"
-#                             entry leaves that source instead: "schedule" takes only scheduled
-#                             jobs, "!schedule" takes all but them
+#   JOBS_POLLER_SOURCES=<s>   start only Backlog jobs whose source is listed (comma-separated); a
+#                             "!" entry leaves that source instead: "schedule" takes only scheduled
+#                             jobs, "!schedule" takes all but them. Reply and ship runs of jobs this
+#                             machine already claimed still run. An unknown source stops the tick
+#                             (exit 2)
 #   POLLER_MIRROR_SYNC=<cmd>  before a targeted run: `sudo -n -u broker <cmd> <target>`, which
 #                             prints {"mirror": <path>}; then clone that mirror into the
 #                             target's manifest path (JOBS_TARGET_MANIFEST) when it is missing
@@ -84,6 +86,16 @@ export PATH="${POLLER_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 [ -n "${JOBS_REPOS_READONLY:-}" ] && export JOBS_REPOS_READONLY
 export POLLER_SKIP_UNTARGETED="${POLLER_SKIP_UNTARGETED:-}" POLLER_SKIP_LOCAL="${POLLER_SKIP_LOCAL:-}"
 export JOBS_POLLER_SOURCES="${JOBS_POLLER_SOURCES:-}"
+# A misspelt source would leave every job, or take every job, without a word: stop instead.
+IFS=, read -r -a srcs <<<"$JOBS_POLLER_SOURCES"
+for s in ${srcs[@]+"${srcs[@]}"}; do # bash 3.2 calls an empty array unbound
+  s="${s//[[:space:]]/}"
+  [ -n "$s" ] || continue
+  case "${s#!}" in
+    board|zero|schedule) ;;
+    *) log "JOBS_POLLER_SOURCES has an unknown source '$s' (known: board, zero, schedule, each with an optional !)"; exit 2 ;;
+  esac
+done
 J=("$PYTHON3_BIN" "$SKILL_DIR/assets/jobs.py")
 
 notify() {
@@ -299,17 +311,18 @@ trap 'rm -rf "$LOCK"' EXIT
 
 # ── Pick ─────────────────────────────────────────────────────────────────────
 touch "$TRIED" "$SKIPPED" "$OWNED"
-# Python prelude for the three pickers. left(targets, j) is true for a job this machine leaves to
-# another poller (POLLER_SKIP_*, JOBS_POLLER_SOURCES). lanes(targets, j) is a scheduled job's
+# Python prelude for the three pickers. left(targets, j, backlog) is true for a job this machine
+# leaves to another poller (POLLER_SKIP_*; JOBS_POLLER_SOURCES on the Backlog path only, so a job
+# this machine already claimed still gets its reply and ship runs after a switch). lanes(targets, j) is a scheduled job's
 # template lane, else its repos, else "-". held(job, targets, own) is true for a job that is live or was
 # already picked this tick, or whose lanes are busy (see Lanes in the header). own marks a reply
 # or ship run, which only a live run holds back. Both run inside the pick, before any side effect.
 LEFT='
 import os
 SOURCES = [s.strip() for s in os.environ.get("JOBS_POLLER_SOURCES", "").split(",") if s.strip()]
-def left(targets, j):
+def left(targets, j, backlog=False):
     src = j.get("source") or ""
-    if "!" + src in SOURCES or any(not s.startswith("!") for s in SOURCES) and src not in SOURCES:
+    if backlog and ("!" + src in SOURCES or any(not s.startswith("!") for s in SOURCES) and src not in SOURCES):
         return True
     targets = [t for t in targets or [] if t]
     if os.environ.get("POLLER_SKIP_UNTARGETED") == "1" and not targets:
@@ -319,12 +332,27 @@ BUSY = set(os.environ.get("POLL_BUSY", "").split())
 LIVE = set(os.environ.get("POLL_LIVE", "").split())
 EXCLUDE = set(os.environ.get("POLL_EXCLUDE", "").split())
 def lanes(targets, j=None):
+    repos = list(dict.fromkeys(t for t in targets or [] if t))
     if j and j.get("source") == "schedule":
         tid = "".join(c for c in str(j.get("template_id") or "") if c.isalnum() or c in "._-")
-        return ["schedule:" + tid if tid else "schedule"]
-    return list(dict.fromkeys(t for t in targets or [] if t)) or ["-"]
+        # Untargeted, it runs with no worktree in a shared folder, so it also holds "-".
+        return ["schedule:" + tid if tid else "schedule"] + ([] if repos else ["-"])
+    return repos or ["-"]
 def held(j, targets, own):
-    return str(j.get("id")) in EXCLUDE or any(l in (LIVE if own else BUSY) for l in lanes(targets, j))
+    # A scheduled job meets the board only in its template lane; its folder lane ("-") waits
+    # only for live runs, so no card In review or In progress holds it.
+    sched = j.get("source") == "schedule"
+    return str(j.get("id")) in EXCLUDE or any(
+        l in (LIVE if own or (sched and not l.startswith("schedule")) else BUSY) for l in lanes(targets, j))
+def fresh(ts):  # a live heartbeat (active_at) means some run, on any machine, is on the job
+    from datetime import datetime, timezone
+    try:
+        t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return False
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - t).total_seconds() < 180
 def limit(j):  # the job time limit for poll.sh --run, "-" when the hub sends none
     v = j.get("time_limit_s")
     return str(v) if type(v) is int and v > 0 else "-"
@@ -347,6 +375,21 @@ import json, sys
 m = [r["path"] for r in json.load(sys.stdin)["repos"] if r["target"] == sys.argv[1]]
 print(m[0] if m else "")
 ' "$1" 2>/dev/null
+}
+
+# An untargeted run works with no worktree in the folder it runs in, so it also holds the repo
+# whose checkout that folder is (a ship run there merges in the same index). Adds it to lanes;
+# returns 1 when a live run holds it, and the job waits for the next tick.
+own_folder() {
+  f=$("${J[@]}" repos --dry-run 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, os, sys
+d = os.path.realpath(sys.argv[1])
+m = [r["target"] for r in json.load(sys.stdin)["repos"] if os.path.realpath(r["path"]) == d]
+print(m[0] if m else "")
+' "$run_dir" 2>/dev/null)
+  [ -n "$f" ] || return 0
+  case " $POLL_LIVE " in *" $f "*) return 1 ;; esac
+  case ",$lanes," in *",$f,"*) ;; *) lanes="$lanes,$f" ;; esac
 }
 
 # The live runs: live_n, live_ship, and the POLL_* sets the prelude reads. A record whose PID is
@@ -381,15 +424,15 @@ for p in sorted(glob.glob(os.path.join(sys.argv[1], "*.json"))):
 
 # The repos the board holds busy: each job In progress or In review with a run not yet shipped,
 # or with no run yet, whoever claimed it. One line of lanes per such job. A scheduled job
-# In review holds nothing: the weekly card waits there until the operator archives it, and
-# would block the next run of its template meanwhile.
+# In review holds nothing while no run is on it (no fresh active_at heartbeat): the weekly card
+# waits there until the operator archives it, and would block the next run of its template.
 board_lanes() {
   "${J[@]}" list --all-pages 2>/dev/null | "$PYTHON3_BIN" -c "$LEFT"'
 import json, sys
 for j in json.load(sys.stdin).get("jobs", []):
     runs = j.get("runs") or []
     if j.get("column") in ("in_progress", "in_review") and not (runs and all(r.get("state") == "shipped" for r in runs)):
-        if j.get("column") == "in_review" and j.get("source") == "schedule":
+        if j.get("column") == "in_review" and j.get("source") == "schedule" and not fresh(j.get("active_at")):
             continue
         print(" ".join(lanes(j.get("targets") or j.get("targets_picked"), j)))
 '
@@ -414,14 +457,15 @@ except (OSError, ValueError):
 for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"]).zfill(20)):
     runs = [r for r in j.get("runs") or [] if r.get("state") == "approved" and r.get("approved_sha")]
     t = [r.get("target") for r in runs]
-    if not runs or str(j["id"]) not in mine or left(t, j) or held(j, t, True):
+    # A ship merges in the checkouts of its repos, so the ship of a scheduled job holds its repos too.
+    if not runs or str(j["id"]) not in mine or left(t, j) or held(j, t, True) or any(l in LIVE for l in lanes(t)):
         continue
     # The approval time changes with every Approve ship, so a re-approval of the same
     # commit (after a refused ship voided the first) ships again.
     key = ("%s#ship@%s" % (j["id"], j.get("ship_approved_at") or runs[0]["approved_sha"])).replace(" ", "_")
     if key in tried:
         continue
-    print(j["id"], ",".join(lanes(t, j)), lanes(t)[0], key.split("@", 1)[1], runs[0]["approved_sha"][:7],
+    print(j["id"], ",".join(dict.fromkeys(lanes(t, j) + lanes(t))), lanes(t)[0], key.split("@", 1)[1], runs[0]["approved_sha"][:7],
           runs[0].get("branch") or "-", len(runs), (j.get("title") or "")[:120].replace("\n", " "))
     break
 ' "$TRIED" 2>/dev/null)
@@ -468,21 +512,13 @@ print(max(ids) if ids else "", d.get("session_id") or "")
         run_dir=${JOBS_DEFAULT_HOME:-}
       fi
       [ -n "$run_dir" ] && [ -d "$run_dir" ] || run_dir=$HOME
+      [ "$ctarget" != - ] || own_folder || continue
       log "JOB-$id has a reply to read (comment $last)"
       return 0
     done < <(printf '%s' "$awaiting" | "$PYTHON3_BIN" -c "$LEFT"'
 import json, sys
-from datetime import datetime, timezone
 # Only jobs a poller run claimed: an interactive thread answers replies on its own jobs.
 mine = {l.strip() for l in open(sys.argv[1]) if l.strip()}
-def fresh(ts):  # a live heartbeat means some run is already on it
-    try:
-        t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except (AttributeError, ValueError):
-        return False
-    if t.tzinfo is None:
-        t = t.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - t).total_seconds() < 180
 for j in sorted(json.load(sys.stdin).get("jobs", []), key=lambda j: str(j["id"]).zfill(20)):
     if j.get("awaiting") and j.get("claimed") and str(j["id"]) in mine \
             and j.get("column") in ("in_progress", "in_review") and not fresh(j.get("active_at")):
@@ -530,7 +566,7 @@ def wanted(j):
     return i not in skip or i in after
 jobs = [j for j in json.load(sys.stdin).get("jobs", [])
         if j.get("column") == "backlog"
-        and not j.get("claimed") and wanted(j) and not left(j.get("targets"), j)]
+        and not j.get("claimed") and wanted(j) and not left(j.get("targets"), j, True)]
 for j in sorted(jobs, key=lambda j: str(j["id"]).zfill(20)):
     t = j.get("targets") or []
     i = str(j["id"])
@@ -538,8 +574,10 @@ for j in sorted(jobs, key=lambda j: str(j["id"]).zfill(20)):
     if held(j, t, False):
         if j.get("source") != "schedule" or i in EXCLUDE or i in after:  # a failed run retries only after a reply, so "starts when that job ends" would be untrue
             continue
+        if lanes(t, j)[0] not in BUSY:  # only its folder lane is held, by a live run: next tick
+            continue
         k = "W"
-    print(j["id"], k, ",".join(lanes(t, j)), lanes(t)[0], after[i] if i in skip and i in after else "-", limit(j),
+    print(j["id"], k, lanes(t, j)[0] if k == "W" else ",".join(lanes(t, j)), lanes(t)[0], after[i] if i in skip and i in after else "-", limit(j),
           (j.get("title") or "")[:120].replace("\n", " "))
 ' "$TRIED") || { log "could not parse the job list"; exit 1; }
 
@@ -577,8 +615,9 @@ print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", []) if 
     # refuses on the card only when it cannot. Run it from the checkout whose path the prompt
     # names, so the thread and that repo's permission rules belong to it; else from the
     # default home. The title and the email comment are never read for this.
-    # ponytail: an untargeted run holds only the shared "-" lane, so it may pick a repo another
-    # run holds busy. Upgrade path: pass the busy repos into the run, which then avoids them.
+    # ponytail: an untargeted run holds only the shared "-" lane and the repo of the folder it
+    # starts in, so it may still pick another repo a run holds busy. Upgrade path: pass the busy
+    # repos into the run, which then avoids them.
     if [ -z "${JOBS_DEFAULT_HOME:-}" ] || [ ! -d "$JOBS_DEFAULT_HOME" ]; then
       skip_once "$cid" no-home "no target and JOBS_DEFAULT_HOME is unset or missing (${JOBS_DEFAULT_HOME:-unset})" \
         "Tag a target repo to run it."
@@ -599,6 +638,7 @@ print(max(hits, key=len) if hits else "-")
     fi
     id=$cid kind=backlog title=$ctitle lanes=$clanes run_dir=$JOBS_DEFAULT_HOME
     [ "$named" != - ] && [ -d "$named" ] && run_dir=$named
+    own_folder || continue
     return 0
   done <<<"$cands"
   return 1

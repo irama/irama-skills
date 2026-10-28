@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install, or remove, the launchd agent that runs poll.sh every 60 s.
 #
-#   install-poller.sh [--repos-root DIR] [--default-home DIR] [--dry-run]   install and load
+#   install-poller.sh [--repos-root DIR] [--default-home DIR] [--sources VAL] [--dry-run]   install and load
 #   install-poller.sh --uninstall [--dry-run]          unload and delete
 #
 # Install resolves the absolute paths of claude, python3 and this skill from the current
@@ -11,7 +11,8 @@
 # the tick) and loads it. --dry-run prints both files and writes nothing.
 # --default-home DIR is where a ZERO job with no target runs (JOBS_DEFAULT_HOME). Without it,
 # the value already in poller.env is kept, else $JOBS_DEFAULT_HOME from this shell.
-# JOBS_POLLER_SOURCES (the source filter, for example !schedule) is carried over the same way.
+# --sources VAL sets JOBS_POLLER_SOURCES (the source filter, for example !schedule); an empty VAL
+# clears it. Without it, the filter is carried over the same way.
 # It never changes the Mac's sleep or Energy settings.
 set -euo pipefail
 
@@ -33,7 +34,8 @@ while [ $# -gt 0 ]; do
     --dry-run) dry=1 ;;
     --repos-root) repos_root="${2:?--repos-root needs a folder}"; shift ;;
     --default-home) default_home="${2:?--default-home needs a folder}"; shift ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --sources) sources="${2?--sources needs a value (empty clears it)}"; shift ;;
+    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
