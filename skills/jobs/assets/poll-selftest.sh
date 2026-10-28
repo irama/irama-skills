@@ -6,7 +6,7 @@
 # on all three pick paths, and box mode (mirror-sync, clone, ship through the broker) with a fake
 # sudo, and the lanes: runs in different repos start in one tick, a busy repo waits, the cap,
 # one ship and one untargeted run at a time, and a dead run record pruned; the job time limit
-# (time_limit_s, clamped) and a scheduled job In review leaving the shared lane free. Touches no hub, no
+# (time_limit_s, clamped), the scheduled-job lane per template and the JOBS_POLLER_SOURCES filter. Touches no hub, no
 # launchd or systemd, no real config. Runs on macOS and Linux.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
@@ -449,16 +449,21 @@ cat "$tmp/log" | grep -q 'JOB-90 limit 3s' || fail "short limit not applied"
 cat "$tmp/log" | grep -q 'JOB-90 stopped after 0 minutes' || fail "run past its time_limit_s not stopped"
 [ "$took" -lt 30 ] || fail "run with a 3 s limit lived ${took}s"
 
-# xv) A scheduled job In review does not hold the shared lane "-"; a board job In review does.
-# A scheduled job held by a busy lane says why on its card, once.
+# xv) A scheduled job (source "schedule") has its own lane, "schedule:<template_id>": no other
+# job holds it and it holds no other job's lane. Job 95 sits on the board (FAKE_COL, FAKE_SRC,
+# FAKE_TPL, FAKE_T targets); job 96 is in Backlog (FAKE_NEXT_SRC, FAKE_NEXT_TPL, FAKE_NEXT_T).
+# A scheduled job In review holds nothing: the weekly card waits there until it is archived.
+# A scheduled job held by a run of its own template says why on its card, once.
+# JOBS_POLLER_SOURCES (schedule, !schedule) picks which sources this poller takes.
 cat >"$tmp/skill/assets/jobs.py" <<'EOF'
 import json, os, sys
 open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
 a = sys.argv[1:]
-src = os.environ.get("FAKE_SRC", "schedule")
-jobs = [{"id": 95, "source": src, "column": "in_review", "targets": [], "claimed": True, "title": "weekly"},
-        {"id": int(os.environ.get("FAKE_NEXT", "96")), "source": os.environ.get("FAKE_NEXT_SRC", "board"),
-         "column": "backlog", "targets": [], "claimed": False, "title": "next"}]
+e = os.environ.get
+jobs = [{"id": 95, "source": e("FAKE_SRC", "board"), "template_id": e("FAKE_TPL") or None,
+         "column": e("FAKE_COL", "in_review"), "targets": json.loads(e("FAKE_T", "[]")), "claimed": True, "title": "held"},
+        {"id": 96, "source": e("FAKE_NEXT_SRC", "schedule"), "template_id": e("FAKE_NEXT_TPL") or None,
+         "column": "backlog", "targets": json.loads(e("FAKE_NEXT_T", "[]")), "claimed": False, "title": "weekly"}]
 if a[0] == "list" and ("--awaiting" in a or "--ship-approved" in a):
     print(json.dumps({"jobs": []}))
 elif a[0] == "list" and "--column" in a:
@@ -469,21 +474,61 @@ elif a[0] == "list":
 elif a[0] == "get":
     print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "prompt": "/echo-test", "comments": []}}))
 elif a[0] == "repos":
-    print(json.dumps({"repos": []}))
+    print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
 EOF
-: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
-JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SRC=schedule tick
-[ "$(started 96)" = 1 ] || fail "a scheduled job In review held the shared lane"
-: >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
-JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SRC=board tick
+sched() {
+  : >"$HOME/.config/jobs/poller-tried"; : >"$HOME/.config/jobs/poller-skipped"; : >"$tmp/calls"
+  JOBS_DEFAULT_HOME="$tmp/xcoach" tick
+}
+side_effects() { cat "$tmp/calls" | grep -v '^list ' | grep -c . || true; }
+# An untargeted board job In review (the 28 Oct case) does not hold an untargeted scheduled job.
+FAKE_SRC=board sched
+[ "$(started 96)" = 1 ] || fail "an untargeted board job In review held a scheduled job"
+# Control: the same board job still holds an untargeted board job.
+FAKE_SRC=board FAKE_NEXT_SRC=board sched
 [ "$(started 96)" = 0 ] || fail "a board job In review no longer holds the shared lane"
-# Scheduled job 97 waits behind board job 95: one comment saying why, not two.
+# A targeted board job In progress does not hold a scheduled job on the same repo, and the
+# scheduled job still runs from its target's checkout.
+FAKE_SRC=board FAKE_COL=in_progress FAKE_T='["o/r"]' FAKE_NEXT_T='["o/r"]' FAKE_NEXT_TPL=7 sched
+[ "$(started 96)" = 1 ] || fail "a board job on o/r held a scheduled job"
+cat "$tmp/calls" | grep -q "JOB-96 --background .* @ $repo_real\$" || fail "targeted scheduled job not run from its checkout"
+# A scheduled job of template 8 In progress does not hold template 7; template 7 holds template 7.
+FAKE_SRC=schedule FAKE_TPL=8 FAKE_COL=in_progress FAKE_NEXT_TPL=7 sched
+[ "$(started 96)" = 1 ] || fail "template 8 held template 7"
+: >"$HOME/.config/jobs/poller-tried"; : >"$HOME/.config/jobs/poller-skipped"; : >"$tmp/calls"
+for _ in 1 2; do
+  JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SRC=schedule FAKE_TPL=7 FAKE_COL=in_progress FAKE_NEXT_TPL=7 tick
+done
+[ "$(started 96)" = 0 ] || fail "two runs of template 7 at once"
+[ "$(cat "$tmp/calls" | grep -c '^comment 96 --kind event --body Not started by the poller: another run of its job template holds its lane (schedule:7)' || true)" = 1 ] \
+  || fail "scheduled job held by its own template not explained exactly once"
+# The weekly card of template 7 left In review holds nothing.
+FAKE_SRC=schedule FAKE_TPL=7 FAKE_COL=in_review FAKE_NEXT_TPL=7 sched
+[ "$(started 96)" = 1 ] || fail "a scheduled job In review held its template"
+# A live run of template 7 holds template 7; a live untemplated scheduled run ("schedule") does not.
 : >"$HOME/.config/jobs/poller-tried"; : >"$tmp/calls"
-for _ in 1 2; do JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SRC=board FAKE_NEXT=97 FAKE_NEXT_SRC=schedule tick; done
-[ "$(started 97)" = 0 ] || fail "scheduled job 97 started on a busy lane"
-[ "$(cat "$tmp/calls" | grep -c '^comment 97 --kind event --body Not started by the poller: another job holds its lane (-' || true)" = 1 ] \
-  || fail "scheduled job on a busy lane not explained exactly once"
-cat "$tmp/calls" | grep -q '^comment 96 ' && fail "a board job on a busy lane got a comment"
+echo "{\"pid\": $$, \"kind\": \"backlog\", \"lanes\": [\"schedule:7\"]}" >"$runs/99.json"
+JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SRC=board FAKE_COL=archived FAKE_NEXT_TPL=7 bash "$here/poll.sh"
+[ "$(started 96)" = 0 ] || fail "a live run of template 7 did not hold template 7"
+echo "{\"pid\": $$, \"kind\": \"backlog\", \"lanes\": [\"schedule\"]}" >"$runs/99.json"
+JOBS_DEFAULT_HOME="$tmp/xcoach" FAKE_SRC=board FAKE_COL=archived FAKE_NEXT_TPL=7 bash "$here/poll.sh"
+rm -f "$runs/99.json"
+settle
+[ "$(started 96)" = 1 ] || fail "a live untemplated scheduled run held template 7"
+# JOBS_POLLER_SOURCES: "!schedule" leaves scheduled jobs alone before any side effect;
+# "schedule" takes only them; unset takes all (every case above).
+FAKE_SRC=board FAKE_COL=archived JOBS_POLLER_SOURCES='!schedule' sched
+[ "$(side_effects)" = 0 ] || fail "!schedule: a scheduled job had a side effect"
+FAKE_SRC=board FAKE_COL=archived JOBS_POLLER_SOURCES=schedule sched
+[ "$(started 96)" = 1 ] || fail "JOBS_POLLER_SOURCES=schedule did not take a scheduled job"
+FAKE_SRC=board FAKE_COL=archived FAKE_NEXT_SRC=board JOBS_POLLER_SOURCES=schedule sched
+[ "$(side_effects)" = 0 ] || fail "JOBS_POLLER_SOURCES=schedule took a board job"
+# Set in poller.env, the filter still applies.
+echo "JOBS_POLLER_SOURCES='!schedule'" >>"$HOME/.config/jobs/poller.env"
+FAKE_SRC=board FAKE_COL=archived sched
+[ "$(side_effects)" = 0 ] || fail "JOBS_POLLER_SOURCES in poller.env ignored"
+"$py" -c 'import sys; p = sys.argv[1]; k = [l for l in open(p) if not l.startswith("JOBS_POLLER_SOURCES")]; open(p, "w").writelines(k)' \
+  "$HOME/.config/jobs/poller.env"
 
 # xii) Box mode: before a targeted run, mirror-sync through sudo, then clone the mirror into the
 # manifest path when missing. A ship-approved job then goes to POLLER_SHIP_CMD through sudo,

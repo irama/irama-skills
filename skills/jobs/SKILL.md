@@ -491,9 +491,12 @@ a job targeting it sits In progress or In review with a run not yet shipped (or 
 interactive claims included. A reply or ship run waits only for a live run of another job in
 its repos, never for the board, so two jobs In review on one repo never block each other's
 ships. Untargeted jobs share one lane, so one runs at a time (it may still pick a busy repo).
-A scheduled job (`source` `schedule`, from a hub job template) waiting In review does not hold
-that shared lane, because the weekly card stays In review until the operator archives it. A
-scheduled job that still waits on a busy lane gets one event comment saying why.
+A scheduled job (`source` `schedule`, from a hub job template) holds only its own lane,
+`schedule:<template_id>` (`schedule` when the job has no template), in place of its repos: no
+other job blocks it and it blocks no other job, but two runs of one template never overlap. It
+holds that lane while In progress, not In review, because the weekly card stays In review
+until the operator archives it. A scheduled job that waits on a run of its own template gets
+one event comment saying why.
 One ship run at a time on the machine. Each live run has a record,
 `~/.config/jobs/runs/<id>.json` (pid, kind, lanes); a record whose PID is dead is deleted at
 the next tick.
@@ -531,7 +534,13 @@ would prompt, so an unattended run cannot stall on a question.
   `loginctl enable-linger <user>` (root) for the timer to run.
 - **Shared board switches** (in `poller.env`, all off by default): `POLLER_SKIP_UNTARGETED=1`
   and `POLLER_SKIP_LOCAL=1` leave untargeted and `local/*` jobs to another machine's poller,
-  on all three pick paths and before any side effect. `POLLER_MIRROR_SYNC=<cmd>` runs
+  on all three pick paths and before any side effect. `JOBS_POLLER_SOURCES` filters by the
+  job's `source` the same way: a comma-separated list of sources to take, where a `!` entry
+  leaves that source instead. `JOBS_POLLER_SOURCES=schedule` takes only scheduled jobs (a
+  second machine that runs the job templates); `JOBS_POLLER_SOURCES=!schedule` takes every job
+  but them (the machine that leaves them to it). Unset takes every job. The macOS installer
+  keeps the value already in `poller.env`, else uses `$JOBS_POLLER_SOURCES` from the shell; on
+  Linux put it in the `--env-file` FILE. `POLLER_MIRROR_SYNC=<cmd>` runs
   `sudo -n -u broker <cmd> <target>` before a targeted run and clones the mirror it names into
   the target's manifest path (`JOBS_TARGET_MANIFEST`) when that folder is missing.
   `POLLER_SHIP_CMD=<cmd>` hands a ship-approved job to `sudo -n -u broker <cmd> --job <id>`,

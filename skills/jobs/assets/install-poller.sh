@@ -11,6 +11,7 @@
 # the tick) and loads it. --dry-run prints both files and writes nothing.
 # --default-home DIR is where a ZERO job with no target runs (JOBS_DEFAULT_HOME). Without it,
 # the value already in poller.env is kept, else $JOBS_DEFAULT_HOME from this shell.
+# JOBS_POLLER_SOURCES (the source filter, for example !schedule) is carried over the same way.
 # It never changes the Mac's sleep or Energy settings.
 set -euo pipefail
 
@@ -22,6 +23,9 @@ SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd -P)"
 
 # shellcheck disable=SC1090
 prev_home=$( [ -f "$CONF" ] && . "$CONF" 2>/dev/null; printf '%s' "${JOBS_DEFAULT_HOME:-}")
+# shellcheck disable=SC1090
+prev_sources=$( [ -f "$CONF" ] && . "$CONF" 2>/dev/null; printf '%s' "${JOBS_POLLER_SOURCES:-}")
+sources="${prev_sources:-${JOBS_POLLER_SOURCES:-}}"
 mode=install dry=0 repos_root="" default_home="${prev_home:-${JOBS_DEFAULT_HOME:-}}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -72,6 +76,7 @@ env_body=$(
   printf 'JOBS_REPOS_ROOT=%q\n' "$repos_root"
   printf 'JOBS_DEFAULT_HOME=%q\n' "$default_home"
   printf 'POLLER_PATH=%q\n' "$PATH"
+  [ -z "$sources" ] || printf 'JOBS_POLLER_SOURCES=%q\n' "$sources"
 )
 # ponytail: paths go into the plist unescaped; a path holding & or < breaks the XML.
 plist_body=$(cat <<EOF

@@ -7,7 +7,7 @@
 # Install resolves the absolute paths of claude, python3 and this skill from the current shell,
 # because a systemd user unit gives poll.sh no login-shell PATH. It writes them to
 # ~/.config/jobs/poller.env (mode 600), then appends FILE when given: that is where a machine's
-# own settings go (POLLER_SKIP_*, POLLER_MIRROR_SYNC, POLLER_SHIP_CMD, JOBS_TARGET_MANIFEST,
+# own settings go (POLLER_SKIP_*, JOBS_POLLER_SOURCES, POLLER_MIRROR_SYNC, POLLER_SHIP_CMD, JOBS_TARGET_MANIFEST,
 # JOBS_REPOS_READONLY), so none of them lives in this repo. It writes jobs-poller.service and
 # jobs-poller.timer under ~/.config/systemd/user and enables the timer. --dry-run prints the
 # three files and writes nothing.
