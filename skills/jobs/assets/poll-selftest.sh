@@ -565,9 +565,10 @@ done
 mkdir -p "$tmp/bin2"; cp "$tmp/claude" "$tmp/bin2/claude"
 echo "JOBS_POLLER_SOURCES='!schedule'" >>"$HOME/.config/jobs/poller.env"
 inst() { PATH="$tmp/bin2:$PATH" bash "$here/install-poller.sh" --dry-run --repos-root "$tmp" "$@" 2>/dev/null; }
-inst | grep -qx 'JOBS_POLLER_SOURCES=\\!schedule' || fail "reinstall dropped the source filter"
-inst --sources schedule | grep -qx 'JOBS_POLLER_SOURCES=schedule' || fail "--sources did not set the filter"
-inst --sources '' | grep -q JOBS_POLLER_SOURCES && fail "--sources '' did not clear the filter"
+# Capture first: grep -q exits on the first match and, under pipefail, the writer's SIGPIPE fails the check.
+out=$(inst); grep -qx 'JOBS_POLLER_SOURCES=\\!schedule' <<<"$out" || fail "reinstall dropped the source filter"
+out=$(inst --sources schedule); grep -qx 'JOBS_POLLER_SOURCES=schedule' <<<"$out" || fail "--sources did not set the filter"
+out=$(inst --sources ''); grep -q JOBS_POLLER_SOURCES <<<"$out" && fail "--sources '' did not clear the filter"
 "$py" -c 'import sys; p = sys.argv[1]; k = [l for l in open(p) if not l.startswith("JOBS_POLLER_SOURCES")]; open(p, "w").writelines(k)' \
   "$HOME/.config/jobs/poller.env"
 # Set in poller.env, the filter still applies.
