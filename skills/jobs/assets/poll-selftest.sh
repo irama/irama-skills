@@ -803,7 +803,9 @@ FAKE_MS="$tmp/ms" FAKE_T=o/ms FAKE_ID=73 FAKE_PATH=backlog tick
 FAKE_MS="$tmp/ms" FAKE_GET_T=o/ms FAKE_ID=74 FAKE_PATH=backlog tick
 grep -q '^claude ' "$tmp/calls" && fail "claude ran for a job retagged between list and get"
 grep -q '^comment 74 --kind event --body Not started by the poller' "$tmp/calls" || fail "retag not commented on the card"
-ls -d "$sl_real-wt/job-74-"* "$ms_real-wt/job-74-"* >/dev/null 2>&1 && fail "worktree added for a retagged job"
+for d in "$sl_real-wt" "$ms_real-wt"; do
+  ls -d "$d/job-74-"* >/dev/null 2>&1 && fail "worktree added for a retagged job in $d"
+done
 # A missing checkout falls back to $HOME, here a dotfiles repo with an origin: refused, no worktree.
 g init -q "$HOME"
 g -C "$HOME" remote add origin "$tmp/sl-origin.git"
