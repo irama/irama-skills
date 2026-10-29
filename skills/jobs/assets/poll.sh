@@ -697,33 +697,47 @@ mirror_sync() {
 # the main checkout, the command would run from main and commit to main's branch. A reply run
 # reuses the job's worktree. Any other job keeps run_dir. Returns 1 to skip the pick this tick.
 slash_worktree() {
-  local is wt br def slug out
+  local is wt br def slug out want top
   is=$("${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
 import json, re, sys
 d = json.load(sys.stdin)["data"]
 t = [x for x in d.get("targets") or [] if x]
-print("y" if len(t) == 1 and re.match(r"/[a-z][\w-]*(\s|$)", (d.get("prompt") or "").strip()) else "n")
+print("y " + t[0] if len(t) == 1 and re.match(r"/[a-z][\w-]*(\s|$)", (d.get("prompt") or "").strip()) else "n")
 ' 2>/dev/null) || { log "JOB-$id could not read the job; trying again next tick"; return 1; }
-  [ "$is" = y ] || return 0
-  # No checkout: the run fails the target on the card, as for any targeted job.
-  git -C "$run_dir" rev-parse -q --git-dir >/dev/null 2>&1 || return 0
+  [ "${is%% *}" = y ] || return 0
+  # The checkout comes from the freshly fetched job's one target, never from the list call: a job
+  # retagged in between, or a missing checkout that fell back to $HOME (perhaps a dotfiles repo),
+  # would put the worktree in an unrelated repo.
+  want=$(first_target_dir "${is#y }")
+  [ -n "$want" ] && [ -d "$want" ] && want=$(cd "$want" && pwd -P) || want=""
+  top=$(git -C "$run_dir" rev-parse --show-toplevel 2>/dev/null) && top=$(cd "$top" && pwd -P) || top=""
+  if [ -z "$want" ] || [ "$top" != "$want" ] || [ "$want" = "$(cd "$HOME" && pwd -P)" ]; then
+    skip_once "$id" no-checkout "no checkout of ${is#y } to make the worktree in (run folder $run_dir)" \
+      "Clone the target into the manifest's path; the poller tries again every minute."
+    return 1
+  fi
   # On the box mirror_sync has just synced the mirror; this fetches the clone from it.
   if ! out=$(git -C "$run_dir" fetch -q origin 2>&1); then
     skip_once "$id" fetch "git fetch in $run_dir failed: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-200)" \
       "The poller tries again every minute."
     return 1
   fi
+  # A reply run finds its worktree first, so a dirty main checkout never blocks it.
+  wt=$(git -C "$run_dir" worktree list --porcelain 2>/dev/null | awk -v p="branch refs/heads/job/$id-" '
+    /^worktree /{w=substr($0, 10)} index($0, p) == 1 {print w; exit}')
   # ponytail: tracked files only; untracked scratch in the main checkout never blocks a job.
-  if [ -n "$(git -C "$run_dir" status --porcelain --untracked-files=no 2>&1)" ]; then
+  if [ ! -d "$wt" ] && [ -n "$(git -C "$run_dir" status --porcelain --untracked-files=no 2>&1)" ]; then
     skip_once "$id" dirty-main "the main checkout $run_dir has uncommitted changes" \
       "Commit or stash them; the poller tries again every minute."
     return 1
   fi
-  wt=$(git -C "$run_dir" worktree list --porcelain 2>/dev/null | awk -v p="branch refs/heads/job/$id-" '
-    /^worktree /{w=substr($0, 10)} index($0, p) == 1 {print w; exit}')
   if [ -z "$wt" ] || [ ! -d "$wt" ]; then
     git -C "$run_dir" worktree prune 2>/dev/null
-    def=$(git -C "$run_dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || def=origin/main
+    # origin/HEAD, else origin/main, then origin/master, whichever the fetch brought (as jobs.py
+    # default_branch does for local branches).
+    def=$(git -C "$run_dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) \
+      || { def=origin/main; git -C "$run_dir" rev-parse -q --verify refs/remotes/origin/main >/dev/null \
+        || ! git -C "$run_dir" rev-parse -q --verify refs/remotes/origin/master >/dev/null || def=origin/master; }
     br=$(git -C "$run_dir" for-each-ref --count=1 --format='%(refname:short)' "refs/heads/job/$id-*" 2>/dev/null)
     if [ -n "$br" ]; then
       wt="$run_dir-wt/${br//\//-}"
