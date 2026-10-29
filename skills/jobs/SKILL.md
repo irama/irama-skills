@@ -192,7 +192,8 @@ has no usable token set.
 ## Background mode (`/jobs JOB-<id> --background`)
 
 The poller (see [Background pickup](#background-pickup)) starts this mode with `claude -p`, from
-the first tagged target's checkout for a job with tagged targets, from the checkout whose path
+the first tagged target's checkout for a job with tagged targets (from the job's own worktree
+for a targeted slash job, step 1), from the checkout whose path
 an untargeted prompt names, else from `$JOBS_DEFAULT_HOME` (below). Nobody is watching, so never ask a question in the session: every question,
 refusal and result goes on the card. `$J repos` and `$J repos --dry-run` find the checkouts
 through `JOBS_REPOS_ROOT`, which the poller exports.
@@ -219,6 +220,11 @@ through `JOBS_REPOS_ROOT`, which the poller exports.
       result comment, the ack, and In review. A reply such as "go" is never only acknowledged:
       the command runs first. On failure, comment what failed, still ack the reply, and leave
       the card where it is.
+      **A targeted slash job** (step 1's test) does not go to b) to e) either. The poller has
+      reused the job's worktree, so the current folder is it. Re-run the prompt's slash command
+      there, with the operator comments as labelled input as above, make no second worktree,
+      then finish as step 4's targeted slash path does (the clean-tree rule and the
+      nothing-to-commit path), and ack the reply.
    b) A change request on a quick or build job: work on the job's existing branch (the run's
       `branch` from `$J get`). Reuse its worktree (`git worktree list` in the target checkout)
       or add one on that branch. Make the change, run the repo's gate once, commit, and record
@@ -256,6 +262,13 @@ through `JOBS_REPOS_ROOT`, which the poller exports.
      one repo is a reasonable reading, it is the target: go on, and step 3 records it. Refuse
      only when no reading holds up, or two repos fit equally, and name what you checked.
 
+   A job with exactly one tagged target whose `prompt`, trimmed, starts with a slash command
+   (the same test) is a **targeted slash job**. The poller started this session in the job's
+   own worktree of that target, on `job/<id>-<slug>` from the fetched `origin/<default>`
+   (`git rev-parse --abbrev-ref HEAD` shows the branch). If the current folder is not on such a
+   branch (an interactive run, or an older poller), refuse on the card: running the command from
+   the main checkout would commit to the default branch.
+
    A refusal is one comment,
    `$J comment <id> --kind event --body "Background run refused: <reason>"`, then stop
    without a claim.
@@ -275,6 +288,21 @@ through `JOBS_REPOS_ROOT`, which the poller exports.
    Post the result as one comment
    (`$J comment <id> --kind message --body-file <f>`), then `$J patch <id> --column in_review`.
    On failure, comment what failed and leave the job in In progress.
+   **Targeted slash job,** in place of this step and step 5: run the prompt's slash command as
+   the task, in the current folder (the job's worktree), in this session. Make no second
+   worktree, in this repo or any other. The email comment stays labelled context, as above.
+   `<default>` is `git symbolic-ref --short refs/remotes/origin/HEAD`, else `origin/main`.
+   - i) **The command stops part-way** (it says it is not finished, or leaves a "continue" card):
+     record no `$J run` and leave the card where the command put it.
+   - ii) **The clean-tree rule.** When the command reports finished, the worktree's tracked
+     files must be clean: `git status --porcelain --untracked-files=no` prints nothing. If it
+     prints anything, comment the files, record no run, and leave the card In progress.
+   - iii) **Nothing to commit.** If `git rev-list --count <default>..HEAD` is 0 (the head equals
+     `origin/<default>`, a week with nothing new), record no `$J run`, post one comment saying
+     there was nothing to commit, and move the card to Done: `$J patch <id> --column done`.
+   - iv) Otherwise record the commit,
+     `$J run <id> --target <t> --branch <job branch> --base-sha <git merge-base HEAD <default>> --head-sha <HEAD> --state committed`,
+     post one result comment, and move the card: `$J patch <id> --column in_review`.
 5. **Any other size:** do not start the work. For `grill`, post the questions as one message
    on the card. For `prototype`, `to_driver` or `wayfinder`, post the reason and the exact
    command, as in Execution step 5. Then move the job to In review.
@@ -480,6 +508,24 @@ the run then picks the target itself (Background mode step 1), or refuses on the
 Before the run it marks that folder trusted with `assets/trust.py`: a headless run in a folder
 that was never trusted ignores the folder's permission allow rules and stalls.
 `python3 <skill-dir>/assets/trust.py --all` trusts every main checkout at once.
+
+**A targeted slash job gets its worktree before Claude starts.** For a job with exactly one
+tagged target and a slash-command prompt (Background mode step 1), on a Backlog or reply run,
+the tick reads the prompt with `$J get`, then works in the target's main checkout: after
+mirror-sync on the box, it runs `git fetch origin` (the box clone fetches from its mirror). A
+main checkout with uncommitted changes to tracked files is refused with one event comment
+("Not started by the poller: the main checkout ... has uncommitted changes"), and the job is
+tried again every tick. A worktree whose branch is `job/<id>-*` is reused (a reply run); else
+the tick adds `<checkout>-wt/job-<id>-<slug>` on a new `job/<id>-<slug>` branch from
+`origin/<default>` (never local `main`), with no upstream. Claude then starts with that
+worktree as its folder, so project skills and repo-relative paths are the worktree's, on the
+job branch. A failed fetch or worktree add is a logged skip with one card comment. Worktree
+creation is allowed under `JOBS_REPOS_READONLY=1`: that switch stops registry writes only. A
+targeted job whose prompt is not a slash command, and every untargeted job, keeps the run
+folder above. A scheduled targeted slash job holds only its template lane (see Lanes), not
+its repo, so another job may run in the same main checkout at the same time; the worktree
+keeps their files apart, and a run that leaves the main checkout dirty holds the slash job
+back until it is clean.
 
 **Lanes: several runs at once, one per repo.** A tick picks, starts each run as a detached
 worker (`poll.sh --run ...`, its own process group, with its own watchdog, heartbeat and

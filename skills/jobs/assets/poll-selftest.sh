@@ -6,7 +6,8 @@
 # on all three pick paths, and box mode (mirror-sync, clone, ship through the broker) with a fake
 # sudo, and the lanes: runs in different repos start in one tick, a busy repo waits, the cap,
 # one ship and one untargeted run at a time, and a dead run record pruned; the job time limit
-# (time_limit_s, clamped), the scheduled-job lane per template and the JOBS_POLLER_SOURCES filter. Touches no hub, no
+# (time_limit_s, clamped), the scheduled-job lane per template, the JOBS_POLLER_SOURCES filter and the
+# targeted slash job worktree (fetch, dirty main refused, reuse on reply). Touches no hub, no
 # launchd or systemd, no real config. Runs on macOS and Linux.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
@@ -564,9 +565,10 @@ done
 mkdir -p "$tmp/bin2"; cp "$tmp/claude" "$tmp/bin2/claude"
 echo "JOBS_POLLER_SOURCES='!schedule'" >>"$HOME/.config/jobs/poller.env"
 inst() { PATH="$tmp/bin2:$PATH" bash "$here/install-poller.sh" --dry-run --repos-root "$tmp" "$@" 2>/dev/null; }
-inst | grep -qx 'JOBS_POLLER_SOURCES=\\!schedule' || fail "reinstall dropped the source filter"
-inst --sources schedule | grep -qx 'JOBS_POLLER_SOURCES=schedule' || fail "--sources did not set the filter"
-inst --sources '' | grep -q JOBS_POLLER_SOURCES && fail "--sources '' did not clear the filter"
+# Capture first: grep -q exits on the first match and, under pipefail, the writer's SIGPIPE fails the check.
+out=$(inst); grep -qx 'JOBS_POLLER_SOURCES=\\!schedule' <<<"$out" || fail "reinstall dropped the source filter"
+out=$(inst --sources schedule); grep -qx 'JOBS_POLLER_SOURCES=schedule' <<<"$out" || fail "--sources did not set the filter"
+out=$(inst --sources ''); grep -q JOBS_POLLER_SOURCES <<<"$out" && fail "--sources '' did not clear the filter"
 "$py" -c 'import sys; p = sys.argv[1]; k = [l for l in open(p) if not l.startswith("JOBS_POLLER_SOURCES")]; open(p, "w").writelines(k)' \
   "$HOME/.config/jobs/poller.env"
 # Set in poller.env, the filter still applies.
@@ -704,4 +706,92 @@ for t in '../r' 'o/..' './r'; do
   grep -q 'mirror-sync' "$tmp/calls" && fail "target $t reached mirror-sync"
   grep -q "target $t is not owner/repo" "$tmp/log" || fail "target $t not refused"
 done
+# xvi) Targeted slash job: one tagged target and a slash prompt. Before claude starts, the poller
+# fetches the target's checkout, refuses a dirty main checkout with a card comment, and adds a
+# worktree on job/<id>-<slug> from the fetched origin/<default>; the run starts in that worktree. A
+# reply run reuses it. A targeted job whose prompt is not a slash command still starts in the main
+# checkout. First on a Mac (no mirror), then in box mode, where mirror-sync runs first.
+printf 'CLAUDE_BIN=%q\nPYTHON3_BIN=%q\nSKILL_DIR=%q\nTELEGRAM_SEND=%q\nPOLLER_PATH=%q\n' \
+  "$tmp/claude" "$py" "$tmp/skill" "$tmp/send.sh" "$PATH" >"$HOME/.config/jobs/poller.env"
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+a = sys.argv[1:]
+jid = int(os.environ.get("FAKE_ID", "70"))
+prompt = os.environ.get("FAKE_PROMPT", "/exec-news-brief weekly")
+job = {"id": jid, "source": "schedule", "template_id": "w", "targets": ["o/sl"], "title": "Weekly exec news!"}
+if a[0] == "list" and "--column" in a and os.environ.get("FAKE_PATH") == "backlog":
+    print(json.dumps({"jobs": [dict(job, column="backlog", claimed=False)]}))
+elif a[0] == "list" and "--awaiting" in a and os.environ.get("FAKE_PATH") == "reply":
+    print(json.dumps({"jobs": [dict(job, column="in_review", claimed=True, awaiting=True)]}))
+elif a[0] == "list":
+    print(json.dumps({"jobs": []}))
+elif a[0] == "get":
+    print(json.dumps({"data": dict(job, column="in_review", prompt=prompt, ack_comment_id=0,
+                                   comments=[{"id": 9, "author": "you", "kind": "message"}])}))
+elif a[0] == "repos":
+    print(json.dumps({"repos": [{"target": "o/sl", "display": "sl", "path": os.environ["FAKE_SL"]}]}))
+EOF
+g init -q "$tmp/sl-seed"
+echo one >"$tmp/sl-seed/f"
+g -C "$tmp/sl-seed" add f
+g -C "$tmp/sl-seed" commit -q -m A
+g clone -q --bare "$tmp/sl-seed" "$tmp/sl-origin.git"
+mkdir -p "$tmp/sl"
+g clone -q "$tmp/sl-origin.git" "$tmp/sl/r"
+# The origin moves on after the clone: only a fetch sees B, and local main stays at A.
+g -C "$tmp/sl-seed" commit -q --allow-empty -m B
+g -C "$tmp/sl-seed" push -q "$tmp/sl-origin.git" main
+head_b=$(git -C "$tmp/sl-seed" rev-parse HEAD)
+export FAKE_SL="$tmp/sl/r"
+sl_real=$(cd "$tmp/sl/r" && pwd -P)
+wt="$sl_real-wt/job-70-weekly-exec-news"
+: >"$tried"; : >"$tmp/calls"; : >"$tmp/log"
+FAKE_PATH=backlog tick
+[ -d "$wt" ] || fail "no worktree at $wt"
+[ "$(git -C "$wt" rev-parse HEAD)" = "$head_b" ] || fail "worktree not based on the fetched origin/main"
+[ "$(git -C "$wt" rev-parse --abbrev-ref HEAD)" = job/70-weekly-exec-news ] || fail "worktree not on job/70-weekly-exec-news"
+[ "$(git -C "$sl_real" rev-parse main)" = "$head_b" ] && fail "the test origin did not move past local main"
+git -C "$wt" rev-parse -q --verify '@{upstream}' >/dev/null 2>&1 && fail "job branch tracks the default branch"
+grep -q "claude -p /jobs JOB-70 --background .* @ $wt\$" "$tmp/calls" || fail "slash job did not start in its worktree"
+grep -q "trust $wt\$" "$tmp/calls" || fail "worktree not trusted before the run"
+# A reply run reuses the same worktree, and adds none.
+echo 70 >>"$HOME/.config/jobs/poller-owned"
+n_wt=$(git -C "$sl_real" worktree list | wc -l)
+: >"$tmp/calls"; : >"$tmp/log"
+FAKE_PATH=reply tick
+grep -q "claude -p /jobs JOB-70 --background .* @ $wt\$" "$tmp/calls" || fail "reply run did not reuse the worktree"
+[ "$(git -C "$sl_real" worktree list | wc -l)" = "$n_wt" ] || fail "reply run added a second worktree"
+# A dirty main checkout is refused with one card comment, and claude never starts.
+echo two >"$sl_real/f"
+: >"$tmp/calls"; : >"$tmp/log"
+FAKE_ID=71 FAKE_PATH=backlog tick
+grep -q '^claude ' "$tmp/calls" && fail "claude ran with a dirty main checkout"
+grep -q 'JOB-71 skipped: the main checkout .* has uncommitted changes' "$tmp/log" || fail "dirty main not logged"
+grep -q '^comment 71 --kind event --body Not started by the poller: the main checkout' "$tmp/calls" \
+  || fail "dirty main not commented on the card"
+[ -d "$sl_real-wt/job-71-weekly-exec-news" ] && fail "worktree added for a dirty main checkout"
+git -C "$sl_real" checkout -q -- f
+# A targeted job whose prompt is not a slash command keeps today's run folder: the main checkout.
+: >"$tmp/calls"
+FAKE_ID=72 FAKE_PROMPT="fix the footer" FAKE_PATH=backlog tick
+grep -q "claude -p /jobs JOB-72 --background .* @ $sl_real\$" "$tmp/calls" || fail "non-slash targeted job left the main checkout"
+[ -d "$sl_real-wt/job-72-weekly-exec-news" ] && fail "worktree added for a non-slash job"
+# Box mode: mirror-sync, then the clone is fetched from the mirror, so a later mirror commit is the base.
+printf 'POLLER_PATH=%q\nPOLLER_MIRROR_SYNC=%q\n' "$tmp/bin:$PATH" "$tmp/mirror-sync" >>"$HOME/.config/jobs/poller.env"
+export FAKE_MIRROR="$tmp/mirror.git" FAKE_SL="$tmp/repos/o/sl"
+: >"$tmp/calls"; : >"$tmp/log"
+FAKE_ID=80 FAKE_PATH=backlog tick
+box_real=$(cd "$tmp/repos/o/sl" && pwd -P)
+[ -d "$box_real-wt/job-80-weekly-exec-news" ] || fail "box: no worktree for the fresh clone"
+g -C "$tmp/seed" commit -q --allow-empty -m mirror-moves
+g -C "$tmp/seed" push -q "$tmp/mirror.git" main
+mirror_head=$(git -C "$tmp/seed" rev-parse HEAD)
+: >"$tmp/calls"; : >"$tmp/log"
+FAKE_ID=81 FAKE_PATH=backlog tick
+grep -qx 'sudo -n -u broker .*/mirror-sync o/sl' "$tmp/calls" || fail "box: mirror-sync not run first"
+[ "$(git -C "$box_real-wt/job-81-weekly-exec-news" rev-parse HEAD)" = "$mirror_head" ] \
+  || fail "box: worktree not based on the clone fetched from the mirror"
+grep -q "claude -p /jobs JOB-81 --background .* @ $box_real-wt/job-81-weekly-exec-news\$" "$tmp/calls" \
+  || fail "box: slash job did not start in its worktree"
 echo "poll.sh selftest: ok"
