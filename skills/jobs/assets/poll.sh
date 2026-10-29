@@ -15,7 +15,7 @@
 #   4. Marks each pick's run folder trusted (trust.py) and starts it DETACHED as a worker
 #      (`poll.sh --run ...`, its own process group), then releases the lock and exits.
 # Each worker runs `claude -p "/jobs JOB-<id> --background"` from the first target's checkout for
-# a targeted job, from the checkout whose path the prompt names for an untargeted job that names
+# a targeted job (from the job's own worktree for a targeted slash job; see slash_worktree), from the checkout whose path the prompt names for an untargeted job that names
 # one, else from $JOBS_DEFAULT_HOME, and kills it after 45 minutes (90 for a ship; macOS has no
 # `timeout`), or after the job's time_limit_s (clamped to 600 to 14400 s) when the hub sends one. Running in the checkout puts the thread under that repo, so the card's "Open
 # thread" link finds it from that repo's VS Code window. It sends Telegram when the card reaches
@@ -690,6 +690,63 @@ mirror_sync() {
   return 0
 }
 
+# ── Targeted slash job: its own worktree before Claude starts ────────────────
+# A job with exactly one tagged target and a prompt that starts with a slash command runs in a
+# worktree of that target, on job/<id>-<slug> from the freshly fetched origin/<default>. Project
+# skills resolve from the folder Claude starts in, so the worktree must exist first: started in
+# the main checkout, the command would run from main and commit to main's branch. A reply run
+# reuses the job's worktree. Any other job keeps run_dir. Returns 1 to skip the pick this tick.
+slash_worktree() {
+  local is wt br def slug out
+  is=$("${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, re, sys
+d = json.load(sys.stdin)["data"]
+t = [x for x in d.get("targets") or [] if x]
+print("y" if len(t) == 1 and re.match(r"/[a-z][\w-]*(\s|$)", (d.get("prompt") or "").strip()) else "n")
+' 2>/dev/null) || { log "JOB-$id could not read the job; trying again next tick"; return 1; }
+  [ "$is" = y ] || return 0
+  # No checkout: the run fails the target on the card, as for any targeted job.
+  git -C "$run_dir" rev-parse -q --git-dir >/dev/null 2>&1 || return 0
+  # On the box mirror_sync has just synced the mirror; this fetches the clone from it.
+  if ! out=$(git -C "$run_dir" fetch -q origin 2>&1); then
+    skip_once "$id" fetch "git fetch in $run_dir failed: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-200)" \
+      "The poller tries again every minute."
+    return 1
+  fi
+  # ponytail: tracked files only; untracked scratch in the main checkout never blocks a job.
+  if [ -n "$(git -C "$run_dir" status --porcelain --untracked-files=no 2>&1)" ]; then
+    skip_once "$id" dirty-main "the main checkout $run_dir has uncommitted changes" \
+      "Commit or stash them; the poller tries again every minute."
+    return 1
+  fi
+  wt=$(git -C "$run_dir" worktree list --porcelain 2>/dev/null | awk -v p="branch refs/heads/job/$id-" '
+    /^worktree /{w=substr($0, 10)} index($0, p) == 1 {print w; exit}')
+  if [ -z "$wt" ] || [ ! -d "$wt" ]; then
+    git -C "$run_dir" worktree prune 2>/dev/null
+    def=$(git -C "$run_dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || def=origin/main
+    br=$(git -C "$run_dir" for-each-ref --count=1 --format='%(refname:short)' "refs/heads/job/$id-*" 2>/dev/null)
+    if [ -n "$br" ]; then
+      wt="$run_dir-wt/${br//\//-}"
+      out=$(git -C "$run_dir" worktree add -q "$wt" "$br" 2>&1)
+    else
+      slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-40 | sed 's/^-*//; s/-*$//')
+      br="job/$id-${slug:-job}"
+      wt="$run_dir-wt/${br//\//-}"
+      # --no-track: the job branch must never push to the default branch.
+      out=$(git -C "$run_dir" worktree add -q --no-track -b "$br" "$wt" "$def" 2>&1)
+    fi
+    # shellcheck disable=SC2181
+    if [ $? != 0 ]; then
+      skip_once "$id" worktree "could not add the worktree $wt: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-200)" \
+        "The poller tries again every minute."
+      return 1
+    fi
+    log "JOB-$id worktree $wt on $br from $def"
+  fi
+  run_dir=$wt
+  return 0
+}
+
 # ── Ship through the broker (POLLER_SHIP_CMD) ────────────────────────────────
 # The broker ships; this machine only hands over the claim token and the job branch's commits.
 # ship-request spools the request and returns at once; the broker reports the result itself.
@@ -787,6 +844,9 @@ while :; do
   tick_picked="$tick_picked $id" # never picked twice in one tick, whatever happens below
   if [ -n "${POLLER_MIRROR_SYNC:-}" ] && [ -n "$target" ]; then
     mirror_sync || continue
+  fi
+  if [ "$kind" != ship ] && [ -n "$target" ]; then
+    slash_worktree || continue
   fi
   if [ "$kind" = ship ] && [ -n "${POLLER_SHIP_CMD:-}" ]; then
     broker_ship
