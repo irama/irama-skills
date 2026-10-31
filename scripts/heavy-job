@@ -9,6 +9,8 @@
                                      log a passed gate run (and keep a copy of its vitest json)
   heavy-job passed --repo <git-common-dir> --tree <tree-sha> --gate <gate-id>
                                      exit 0 if this tree already passed this gate, 1 if not
+  heavy-job inert                    read NUL-separated paths on stdin, print each one that is
+                                     NOT inert (one per line); ci-gate.sh uses it for tree_clean
 
 Ledger (record / passed):
   Key is (realpath of --repo, --tree, --gate). Entries live 7 days. passed matches an exact
@@ -419,6 +421,14 @@ def cmd_passed(args):
     return 1
 
 
+def cmd_inert():
+    patterns = setting("HEAVY_JOB_INERT").split()
+    for p in sys.stdin.read().split("\0"):
+        if p and not is_inert(p, patterns):
+            print(p)
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser(prog="heavy-job", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="sub", required=True)
@@ -428,6 +438,7 @@ def main():
     a.add_argument("--for-pid", type=int, required=True)
     w = sub.add_parser("waits")
     w.add_argument("--since", help="YYYY-MM-DD (local time)")
+    sub.add_parser("inert")
     for name in ("record", "passed"):
         q = sub.add_parser(name)
         q.add_argument("--repo", required=True, help="git common dir (git rev-parse --path-format=absolute --git-common-dir)")
@@ -444,6 +455,8 @@ def main():
         return cmd_record(args)
     if args.sub == "passed":
         return cmd_passed(args)
+    if args.sub == "inert":
+        return cmd_inert()
     return cmd_waits(args.since)
 
 

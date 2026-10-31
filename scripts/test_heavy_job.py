@@ -340,11 +340,20 @@ def test_sigint_forwarded(tmp):
     check("the slot is free after the interrupt", free_slots(tmp, env))
 
 
+def test_inert(tmp):
+    env = make_env(tmp)
+    paths = ["README.md", "docs/plans/x.html", "docs/agent-surface.md", "src/a.ts", "docs/plans/x.json", "sub/README.md"]
+    r = subprocess.run([TOOL, "inert"], input="\0".join(paths), capture_output=True, text=True, env=env)
+    out = r.stdout.split()
+    check("inert prints only the paths that are not inert", r.returncode == 0
+          and out == ["docs/agent-surface.md", "src/a.ts", "docs/plans/x.json", "sub/README.md"], r.stdout)
+
+
 if __name__ == "__main__":
     for t in (test_overlap, test_env_and_exit_code, test_kill9_frees, test_nested, test_waiting_message, test_acquire_eval,
               test_max_wait_cap, test_bad_int_setting_falls_back, test_waits_report, test_ledger, test_ledger_age_gc_and_vitest,
               test_ledger_submodule_and_empty_diff, test_vitest_store_keyed_by_gate,
-              test_daemon_does_not_keep_slot, test_sigint_forwarded):
+              test_daemon_does_not_keep_slot, test_sigint_forwarded, test_inert):
         with tempfile.TemporaryDirectory() as tmp:
             t(tmp)
     print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")
