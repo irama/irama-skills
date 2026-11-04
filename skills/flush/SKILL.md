@@ -7,6 +7,8 @@ Flush the current work all the way out: **`/commit` → `/merge` → `/push` →
 
 **`/flush all` means ALL — every branch and worktree in this repo, including other threads' merged-but-unpushed work.** Working across several repos, it means every repo touched. Passing `all` is the user authorising exactly that, so `/push`'s "extra commits in the range" guard does not apply: name whose commits they are in the report and ship them. Stopping to ask makes the user repeat an instruction they already gave in full.
 
+**`all` is not limited to the work this thread did.** It also covers uncommitted and untracked files in the main checkout (briefs, handoffs, plans, scratch files), whichever thread wrote them, and orphan worktree folders that `git worktree list` no longer shows. `/commit` stages them with `git add -A`. Only a gate failure, a sensitive file or an obsolete artefact (for example a snapshot entry no test writes) is left out, and the report names each one with its reason. A report that says "nothing this thread touched is left" while the editor's Source Control list still shows changes is an incomplete `/flush all`.
+
 **Invoking `/flush` IS the explicit request for every verb in it — including `/push`.** That is the whole point of the verb, so it does not re-ask for permission to merge or deploy. This is the one place where the standing "never merge or push without being asked" rule is already satisfied up-front: the user asked, by name, for the pipeline. Nothing else — not "go", not "ship it", not a green gate — expands into a `/flush`.
 
 ## Read the state first, then pick the verbs
