@@ -8,7 +8,9 @@ non-recommended option onto the screen every time there were two. This checks th
 label mechanically.
 
 Blocks when a numbered line inside the *Next steps for us (options)* block lacks
-"(Recommended". A DECIDE item that collapses mutually exclusive roads counts as one
+"(Recommended". When the list ends with a combined "Both" / "All of the above"
+option, that line is the only one tagged, and a tag on any other line blocks
+instead (the user asked for one obvious button to press). A DECIDE item that collapses mutually exclusive roads counts as one
 option and must carry the recommended road. It cannot check that the analysis was
 done, only that each option was individually judged worth doing.
 """
@@ -27,9 +29,23 @@ def options_block(text):
     return m.group(1) if m else ""
 
 
+COMBINED = re.compile(r"^\s*\d+[.)]\s+\**\s*(both|all of the above)\b", re.IGNORECASE)
+
+
 def unrecommended(text):
-    return [ln.strip() for ln in options_block(text).splitlines()
-            if OPTION_LINE.match(ln) and "(recommended" not in ln.lower()]
+    """Option lines that break the rule.
+
+    Two or more independent options end with one combined option ("Both" or
+    "All of the above"), and that is the only line tagged (Recommended): it is the
+    button to press. Without a combined line, every option carries the tag.
+    """
+    lines = [ln for ln in options_block(text).splitlines() if OPTION_LINE.match(ln)]
+    combined = [ln for ln in lines if COMBINED.match(ln)]
+    if combined:
+        bad = [ln for ln in combined if "(recommended" not in ln.lower()]
+        bad += [ln for ln in lines if ln not in combined and "(recommended" in ln.lower()]
+        return [ln.strip() for ln in bad]
+    return [ln.strip() for ln in lines if "(recommended" not in ln.lower()]
 
 
 def last_assistant_text(transcript_path):
@@ -70,11 +86,14 @@ def main():
         print(json.dumps({
             "decision": "block",
             "reason": (
-                "Next steps for us offers %d option(s) without (Recommended): %s. "
-                "Offer only steps you recommend after weighing cost, benefit and "
-                "risk. Drop each one that fails, and say in one line what you "
-                "checked and why it is not worth doing. Mutually exclusive roads "
-                "collapse into one DECIDE item carrying the recommended road."
+                "Next steps for us has %d option line(s) with the wrong (Recommended) "
+                "tag: %s. Offer only steps you recommend after weighing cost, benefit "
+                "and risk. Drop each one that fails, and say in one line what you "
+                "checked and why it is not worth doing. Two or more independent "
+                "options end with 'Both (Recommended)' or 'All of the above "
+                "(Recommended)', and that combined line is the only one tagged. "
+                "Mutually exclusive roads collapse into one DECIDE item carrying "
+                "the recommended road."
                 % (len(bad), " | ".join(b[:80] for b in bad))
             ),
         }))
