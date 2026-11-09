@@ -2,6 +2,11 @@
 """mutate-diff: run StrykerJS on the lines this branch changed, report survivors, log the run.
 
   mutate-diff [--base <ref>] [--dry-run]
+  mutate-diff --outcome SHARPENED,NEW_TESTS,DISABLED,REAL_GAPS [--base <ref>]
+
+  --outcome  after fixing survivors, log how each was handled (four counts) and how many were
+             real gaps: a survivor showing the tests never checked behaviour the code relies on
+             (not an equivalent mutant, not cosmetic). Runs nothing else.
 
   --base     ref to diff against with `git diff <base>...HEAD` (default: main)
   --dry-run  print the --mutate list and exit; runs nothing, logs nothing
@@ -19,7 +24,7 @@ run, a bad config, no json reporter): it exits non-zero and is never mistaken fo
 
 Pilot log: one JSON line per run appended to $MUTATE_DIFF_LOG, default
 ~/.local/state/mutate-diff/pilot-log.ndjson (repo, branch, base, mutants, killed, survived,
-no_coverage, wall_s, exit).
+no_coverage, wall_s, exit). An --outcome row carries kind "outcome" and the four counts.
 """
 import argparse
 import datetime as dt
@@ -84,11 +89,39 @@ def git(*args):
     return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
 
 
+OUTCOME_KEYS = ("sharpened", "new_tests", "disabled", "real_gaps")
+
+
+def parse_outcome(text):
+    """'2,1,0,1' -> {'sharpened': 2, 'new_tests': 1, 'disabled': 0, 'real_gaps': 1}."""
+    parts = text.split(",")
+    if len(parts) != 4 or not all(p.strip().isdigit() for p in parts):
+        raise argparse.ArgumentTypeError("--outcome takes four counts: S,N,D,G")
+    return dict(zip(OUTCOME_KEYS, (int(p) for p in parts)))
+
+
+def log_row(base, fields):
+    log = os.environ.get("MUTATE_DIFF_LOG") or os.path.expanduser(
+        "~/.local/state/mutate-diff/pilot-log.ndjson")
+    os.makedirs(os.path.dirname(os.path.abspath(log)), exist_ok=True)
+    row = {"ran_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "repo": os.path.basename(git("rev-parse", "--path-format=absolute",
+                                        "--git-common-dir").strip().removesuffix("/.git")),
+           "branch": git("rev-parse", "--abbrev-ref", "HEAD").strip(), "base": base, **fields}
+    with open(log, "a") as fh:
+        fh.write(json.dumps(row) + "\n")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--base", default="main")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--outcome", type=parse_outcome)
     a = ap.parse_args()
+    if a.outcome:
+        log_row(a.base, {"kind": "outcome", **a.outcome})
+        print("mutate-diff: outcome logged")
+        return 0
 
     root = git("rev-parse", "--show-toplevel").strip()
     os.chdir(root)
@@ -122,16 +155,7 @@ def main():
     elif not code:
         code = 1  # finished without a report: no json reporter, nothing to count
 
-    log = os.environ.get("MUTATE_DIFF_LOG") or os.path.expanduser(
-        "~/.local/state/mutate-diff/pilot-log.ndjson")
-    os.makedirs(os.path.dirname(os.path.abspath(log)), exist_ok=True)
-    row = {"ran_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-           "repo": os.path.basename(git("rev-parse", "--path-format=absolute",
-                                        "--git-common-dir").strip().removesuffix("/.git")),
-           "branch": git("rev-parse", "--abbrev-ref", "HEAD").strip(), "base": a.base,
-           **counts, "wall_s": wall, "exit": code}
-    with open(log, "a") as fh:
-        fh.write(json.dumps(row) + "\n")
+    log_row(a.base, {**counts, "wall_s": wall, "exit": code})
 
     print(f"\nmutate-diff: {counts['mutants']} mutants, {counts['killed']} killed, "
           f"{counts['survived']} survived, {counts['no_coverage']} no coverage, {wall}s")

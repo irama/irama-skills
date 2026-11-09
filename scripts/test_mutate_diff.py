@@ -1,4 +1,4 @@
-"""Tests for mutate-diff's two pure functions. Run: python3 scripts/test_mutate_diff.py"""
+"""Tests for mutate-diff's pure functions. Run: python3 scripts/test_mutate_diff.py"""
 import importlib.machinery
 import importlib.util
 import os
@@ -66,6 +66,17 @@ class Summarise(unittest.TestCase):
         self.assertEqual(counts, {"mutants": 5, "killed": 2, "survived": 2, "no_coverage": 1})
         self.assertEqual([(s[0], s[1], s[4]) for s in surv],
                          [("a.ts", 3, False), ("a.ts", 5, True), ("b.ts", 9, False)])
+
+
+class ParseOutcome(unittest.TestCase):
+    def test_four_counts(self):
+        self.assertEqual(md.parse_outcome("2,1,0,1"),
+                         {"sharpened": 2, "new_tests": 1, "disabled": 0, "real_gaps": 1})
+
+    def test_rejects_wrong_shape(self):
+        for bad in ("1,2,3", "1,2,3,x", "1,2,3,-1"):
+            with self.assertRaises(md.argparse.ArgumentTypeError):
+                md.parse_outcome(bad)
 
 
 if __name__ == "__main__":

@@ -378,6 +378,18 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
      likelihood in its own text. A failure on any of the three is returned at **P2**.
    - Only a *failed* review blocks — the fallback couldn't run at all, or it left a P0/P1/P2
      finding unresolved. That's an ordinary `blocked`, handled like any other ticket failure.
+   - **Then the mutation check, if the repo has `stryker.config.mjs`** (a pilot, report-only: it
+     never blocks a ticket). On the ticket branch, run
+     `~/.claude/scripts/mutate-diff --base "driver/$RUN_ID"`. It mutates only the lines this
+     ticket changed and prints at most 10 survivors. Fix each survivor in this order, and stop at
+     the first that fits: (i) sharpen an assertion in a test that already runs the line; (ii) if
+     the line is `[NoCoverage]`, add the one test it needs; (iii) if the mutant is equivalent,
+     add `// Stryker disable next-line <Mutator>: <reason>` above the line. Commit the fixes on
+     the ticket branch, then log the outcome:
+     `~/.claude/scripts/mutate-diff --base "driver/$RUN_ID" --outcome S,N,D,G` (sharpened, new
+     tests, disable comments, real gaps). A real gap is a survivor that shows the tests never
+     checked behaviour the code relies on. Log `0,0,0,0` when nothing survived or nothing was
+     fixed. A Stryker error (non-zero exit) goes in the ticket's handoff and the ticket lands.
 6. **Land the reviewed ticket with `driver_state.py land`. Never merge onto the integration
    branch by hand.** The primitive merges on a detached HEAD, runs the gate there, and moves the
    integration branch only when the gate is green and the branch has not moved underneath it:
