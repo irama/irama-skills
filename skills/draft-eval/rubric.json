@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.9",
+  "rubric_version": "0.10",
   "phase": "experimental",
   "changelog": [
     {
@@ -49,6 +49,10 @@
     {
       "version": "0.9",
       "note": "Andrew ruled the \"I was wrong\" confession beat optional (26 October 2026): use one only when a true story serves the throughline, never by default, and never block a draft on its absence. wrong_and_credible now passes on the credibility story alone; a confession, if present, must still serve the argument and must not concede a counter-argument. Rounds scored under 0.8 or earlier are not comparable on wrong_and_credible."
+    },
+    {
+      "version": "0.10",
+      "note": "Fitted to an author's ruling that a talk gives the background and the pains before any solution, after an arc reached its first promise two and a half minutes into a 30-minute talk; no deck is yet a fair test of it. A new moments check, pain_before_solution: the notes or the run sheet show the change in the world, what it costs this audience and why it is hard before the first slide that offers a fix, and that fix arrives at or after 40% of the running time. Because moments_must_pass holds the group in the bar, a deck that fails it cannot finish. Its counter-metric is the spine's existing rule that every section answers a starting belief, so padding the background with sections that move nobody still fails the arc. Rounds scored under 0.9 or earlier are not comparable on moments or on the bar."
     }
   ],
   "scale": {
@@ -646,6 +650,12 @@
         "name": "Stage directions in the notes",
         "pass": "The speaker notes carry stage directions in square brackets: a [MOVE: <move>] tag on each slide that makes a move, [STORY] where a story starts, [ASK] where the room is asked something, and [PAUSE] at least at the peak and after the S.T.A.R. moment.",
         "fail": "The notes carry no stage directions, or only a stray one, so the presenter has no planned pauses, asks or moves."
+      },
+      {
+        "id": "pain_before_solution",
+        "name": "The background and the pains come before the first solution",
+        "pass": "The notes or the run sheet show the background (the change in the world, what it costs this audience, and why it is hard) before the first slide that offers a fix, and that first fix arrives at or after 40% of the running time.",
+        "fail": "A slide offering a fix, a method or the piece's answer appears before 40% of the running time, or the pains it answers carry no evidence."
       }
     ]
   }

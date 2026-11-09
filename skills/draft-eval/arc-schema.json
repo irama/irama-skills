@@ -230,7 +230,8 @@
     "people_and_stories",
     "wrong_and_credible",
     "light_moment",
-    "stage_directions"
+    "stage_directions",
+    "pain_before_solution"
    ],
    "properties": {
     "star_moment": {
@@ -336,6 +337,23 @@
      }
     },
     "stage_directions": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "pass",
+      "reason"
+     ],
+     "properties": {
+      "pass": {
+       "type": "boolean"
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "pain_before_solution": {
      "type": "object",
      "additionalProperties": false,
      "required": [

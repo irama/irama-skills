@@ -82,7 +82,8 @@ Return one JSON object and nothing else:
         "people_and_stories": {"pass": false, "reason": "..."},
         "wrong_and_credible": {"pass": false, "reason": "..."},
         "light_moment": {"pass": false, "reason": "..."},
-        "stage_directions": {"pass": false, "reason": "..."}
+        "stage_directions": {"pass": false, "reason": "..."},
+        "pain_before_solution": {"pass": false, "reason": "..."}
       }
     }
 

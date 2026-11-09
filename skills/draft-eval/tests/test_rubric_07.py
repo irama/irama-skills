@@ -15,7 +15,7 @@ import score_round as sr  # noqa: E402
 RUBRIC = json.loads((HERE / "rubric.json").read_text())
 M = RUBRIC["moments"]
 IDS = ["star_moment", "peak_and_end", "five_moves", "people_and_stories", "wrong_and_credible",
-       "light_moment", "stage_directions"]
+       "light_moment", "stage_directions", "pain_before_solution"]
 CRITS = [c["id"] for c in RUBRIC["criteria"]]
 UNITS = {"kind": "deck", "units": [{"id": u} for u in "abc"]}
 SCORES = {c: {"score": 5, "reason": 'Slide 2 says "x".'} for c in RUBRIC["bars"]["arc_criteria"]}
@@ -33,7 +33,7 @@ def bar(arc_by_grader):
 
 class Rubric07Test(unittest.TestCase):
     def test_version_and_changelog(self):
-        self.assertIn(RUBRIC["rubric_version"], ("0.7", "0.8", "0.9"))  # 0.8 and 0.9 keep moments
+        self.assertIn(RUBRIC["rubric_version"], ("0.7", "0.8", "0.9", "0.10"))  # 0.8 and 0.9 keep moments
         self.assertEqual(M["phase"], "experimental")
         note = {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.7"]
         self.assertIn("not comparable", note)

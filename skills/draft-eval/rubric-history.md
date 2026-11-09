@@ -1,6 +1,6 @@
 # draft-eval rubric history
 
-What rubric versions 0.3 to 0.4.2 and 0.7 added. Every rule here still holds in later versions;
+What rubric versions 0.3 to 0.4.2, 0.7 and later added. Every rule here still holds in later versions;
 the rubric's `changelog` says what each version was fitted to.
 
 ## Rubric 0.7: the moments group
@@ -92,3 +92,23 @@ build on its absence, and never fail a draft for its absence.
 `wrong_and_credible` now passes on the credibility story alone. A confession, if present, must
 still serve the argument: it moves the room toward the throughline and does not concede a
 counter-argument. Rounds scored under 0.8 or earlier are not comparable on `wrong_and_credible`.
+
+## Rubric 0.10: the background and the pains before the first solution
+
+A talk arc reached its first promise two and a half minutes into a 30-minute talk, and no check
+marked it down: the moves check asks only that a confirm or a justify comes before the first
+promise, and one slide can do that. The author ruled that a talk gives the background first, so
+the room feels the problem before it hears a fix.
+
+- **`pain_before_solution`** is a new `moments` check. It passes when the notes or the run sheet
+  show the background (the change in the world, what it costs this audience, and why it is hard)
+  before the first slide that offers a fix, and that first fix arrives at or after 40% of the
+  running time. It fails when a fix, a method or the piece's answer appears earlier, or when the
+  pains it answers carry no evidence.
+- **The counter-metric.** A clock floor can be met by padding the background. The arc still
+  fails any section that answers no starting belief, so watch two numbers together: the minute
+  the first solution starts (should reach 40% or later) and the count of background sections
+  that answer no belief (should stay at zero).
+- The 40% floor matches the narrative-arc skill's clock test, so changing it means changing both.
+  The check is experimental with the rest of the group, and needs one calibration round before
+  it binds a deck. Rounds scored under 0.9 or earlier are not comparable on moments or on the bar.

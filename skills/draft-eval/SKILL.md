@@ -67,6 +67,13 @@ report). Until then, score only: run one round with no rewrite.
   reader praises in a review goes on it. The rewrite step reads it, and the review brief reports
   each element against the run's rewrites.
 
+### Rubric 0.10
+
+Adds an eighth `moments` check, `pain_before_solution`: the notes or the run sheet show the
+background (the change in the world, what it costs this audience, and why it is hard) before the
+first slide that offers a fix, and that fix arrives at or after 40% of the running time. It pairs
+with the narrative-arc skill's default spine and its clock test. Detail in `rubric-history.md`.
+
 ### Rubric 0.7
 
 Adds the deck-level `moments` group, graded pass or fail per check in the arc pass and held in the
