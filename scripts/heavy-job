@@ -41,7 +41,10 @@ that inherited it got stuck exiting in the kernel and held both slots for hours.
 """
 import argparse
 import datetime as dt
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows: no flock; the ledger runs unlocked and run/acquire take no slot
+    fcntl = None
 import hashlib
 import json
 import os
@@ -447,6 +450,12 @@ def main():
         if name == "record":
             q.add_argument("--vitest-json", help="vitest json of this run, stored for later skips")
     args = p.parse_args()
+    if fcntl is None and args.sub in ("run", "acquire"):
+        # ponytail: no slots on Windows (one-user box); port the slot lock if two heavy jobs ever collide there
+        if args.sub == "acquire":
+            return 0
+        cmd = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
+        return subprocess.run(cmd, env={**os.environ, "HEAVY_JOB_HELD": "1"}).returncode
     if args.sub == "run":
         return cmd_run(args.cmd)
     if args.sub == "acquire":
