@@ -5,6 +5,9 @@
     jobs.py list [--column C] [--target T|none] [--source board|zero] [--awaiting] [--ship-approved] [--all-pages]
     jobs.py get ID                                one job, runs, last 200 comments
     jobs.py attachments ID                        1-hour signed image URLs
+    jobs.py fetch ID [--comment N]                download the attachments on operator comments above
+                                                  ack_comment_id (or on comment N) to
+                                                  $TMPDIR/jobs/<id>/<comment>/<name>; one path per line
     jobs.py claim ID [--agent LABEL]              claim with this machine's token for the job
     jobs.py patch ID [--column C] [--size S] [--size-reason R] [--targets-picked a,b] [--ack N] [--active on|off]
     jobs.py run ID --target T [--branch B] [--base-sha S] [--head-sha S] [--state claimed|committed|failed]
@@ -42,7 +45,9 @@ import socket
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -332,6 +337,71 @@ def cmd_get(a):
 
 def cmd_attachments(a):
     return emit(*api("GET", f"/api/jobs/{a.id}/attachments"))
+
+
+def safe_name(name, fallback):
+    """One path component from an operator-given name: no separators, no .., no control chars."""
+    name = re.sub(r"[\x00-\x1f\x7f/\\]", "_", str(name or "")).strip()
+    name = name.encode()[:200].decode(errors="ignore")  # filesystems cap a name at 255 bytes
+    return fallback if name.strip(".") == "" else name
+
+
+def cmd_fetch(a):
+    """Download reply attachments now: the signed URLs expire an hour after the GET.
+
+    Default scope is operator comments above ack_comment_id, never the whole history: the
+    hub's database shares an egress quota with another app. Prints one path per line on
+    stdout; each attachment it could not fetch goes to stderr as `not fetched: ...`, exit 1.
+    """
+    status, payload = api("GET", f"/api/jobs/{a.id}")
+    if not 200 <= status < 300:
+        return emit(status, payload)
+    job = payload.get("data") or {}
+    comments = job.get("comments") or []
+    if a.comment is not None:
+        picked = [c for c in comments if c.get("id") == a.comment]
+        if not picked:
+            return emit(404, {"error": f"comment {a.comment} is not in the job's last 200 comments",
+                              "code": "COMMENT_NOT_FOUND"})
+    else:
+        ack = job.get("ack_comment_id") or 0
+        picked = [c for c in comments if c.get("author") == "you" and (c.get("id") or 0) > ack]
+    root = Path(tempfile.gettempdir()) / "jobs" / str(int(a.id))
+    failed = 0
+    for c in picked:
+        folder = (root / str(int(c["id"]))).resolve()
+        used, n_img = set(), 0
+        for att in c.get("attachments") or []:
+            if att.get("kind") == "image":
+                n_img += 1
+                ext = Path(urllib.parse.urlparse(att.get("url") or "").path).suffix.lower()
+                name = f"image-{n_img}{ext if ext in ('.webp', '.jpg', '.jpeg', '.png') else '.img'}"
+            else:
+                name = safe_name(att.get("name"), f"file-{att.get('id')}")
+            if name in used:
+                name = f"{att.get('id')}-{name}"
+            used.add(name)
+            url = att.get("url") or ""
+            if not url.startswith(("https://", "http://")):  # null (signing failed) or a hub-login route
+                print(f"not fetched: {c['id']}/{name}: no download URL", file=sys.stderr)
+                failed += 1
+                continue
+            dest = folder / name
+            if dest.resolve().parent != folder:  # belt and braces after safe_name
+                print(f"not fetched: {c['id']}/{name}: unsafe name", file=sys.stderr)
+                failed += 1
+                continue
+            try:  # signed URL: it carries its own token, so no bearer
+                with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT) as r:
+                    data = r.read()
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
+                print(f"not fetched: {c['id']}/{name}: {getattr(e, 'code', '') or e}", file=sys.stderr)
+                failed += 1
+                continue
+            folder.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+            print(dest)
+    return 1 if failed else 0
 
 
 def cmd_claim_token(a):
@@ -955,6 +1025,18 @@ def selftest():
                                                      "headers": {"content-type": sent["mime"]}}})
                 self.reply(201, {"data": {"id": 99}})
 
+            def do_GET(self):
+                hits.append(("GET", self.path, self.headers.get("Authorization")))
+                if self.path.startswith("/api/jobs/"):
+                    return self.reply(200, {"data": Hub.job})
+                if self.path.startswith("/gone/"):
+                    return self.reply(400, {"error": "expired"})
+                body = self.path.encode()  # a stored object: its bytes are its own path
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
             def do_PUT(self):
                 data = self.rfile.read(int(self.headers["Content-Length"]))
                 hits.append(("PUT", self.path, (self.headers["Content-Type"], data,
@@ -1053,6 +1135,59 @@ def selftest():
             assert cmd_comment(argparse.Namespace(id=5, kind="event", body="x", body_file=None,
                                                   agent="t", image=None)) == 0
         assert hits == [("POST", "/api/jobs/5/comments", {"kind": "event", "body": "x", "agent": "t"})]
+
+        # fetch: operator comments above the cursor only, into $TMPDIR/jobs/<id>/<comment>/<name>.
+        u = f"http://127.0.0.1:{srv.server_port}"
+        Hub.job = {"id": 5, "ack_comment_id": 20, "comments": [
+            {"id": 10, "author": "you", "attachments": [{"id": 1, "kind": "image", "url": f"{u}/s/old.webp?t"}]},
+            {"id": 21, "author": "agent", "attachments": [{"id": 2, "kind": "image", "url": f"{u}/s/ag.png?t"},
+                                                          {"id": 3, "kind": "result", "url": "/jobs/files/3"}]},
+            {"id": 22, "author": "you", "body": "no files"},
+            {"id": 23, "author": "you", "attachments": [
+                {"id": 4, "kind": "image", "url": f"{u}/s/a.webp?t", "expires_in": 3600},
+                {"id": 5, "kind": "file", "url": f"{u}/s/b.bin?t", "name": "brief.pdf",
+                 "mime": "application/octet-stream", "bytes": 9},
+                {"id": 6, "kind": "image", "url": f"{u}/s/c.jpg?t"},
+                {"id": 7, "kind": "file", "url": f"{u}/s/d.bin?t", "name": "../../../etc/passwd"},
+                {"id": 8, "kind": "file", "url": f"{u}/s/e.bin?t", "name": "/abs\\..\\x\nname"},
+                {"id": 9, "kind": "file", "url": f"{u}/s/f.bin?t", "name": ".."},
+                {"id": 11, "kind": "file", "url": f"{u}/s/g.bin?t", "name": "brief.pdf"},
+                {"id": 12, "kind": "file", "url": None, "name": "unsigned.txt"},
+                {"id": 13, "kind": "file", "url": f"{u}/gone/h.bin?t", "name": "late.zip"}]}]}
+        tempfile.tempdir = str(tmp / "T")
+        jroot = tmp / "T" / "jobs" / "5"
+
+        def fetch(comment=None):
+            hits.clear()
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = cmd_fetch(argparse.Namespace(id=5, comment=comment))
+            return rc, out.getvalue().splitlines(), err.getvalue()
+
+        rc, paths, err = fetch()
+        assert rc == 1, "two attachments could not be fetched"
+        d = (jroot / "23").resolve()
+        names = ["image-1.webp", "brief.pdf", "image-2.jpg", ".._.._.._etc_passwd", "_abs_.._x_name",
+                 "file-9", "11-brief.pdf"]
+        assert paths == [str(d / n) for n in names], paths
+        assert all(Path(x).resolve().parent == d for x in paths), "no name escapes its folder"
+        assert (d / "brief.pdf").read_bytes() == b"/s/b.bin?t" and (d / "11-brief.pdf").read_bytes() == b"/s/g.bin?t"
+        assert "not fetched: 23/unsigned.txt: no download URL" in err and "23/late.zip: 400" in err, err
+        assert not (jroot / "10").exists() and not (jroot / "21").exists(), "below the cursor or agent: skipped"
+        assert hits[0] == ("GET", "/api/jobs/5", "Bearer t"), hits[0]
+        assert all(h[2] is None for h in hits[1:]), "signed URLs carry no bearer"
+        assert sorted(os.listdir(tmp / "T")) == ["jobs"] and sorted(os.listdir(tmp / "T" / "jobs")) == ["5"]
+        # --comment N: that comment only, cursor or not.
+        rc, paths, _ = fetch(10)
+        assert rc == 0 and paths == [str((jroot / "10").resolve() / "image-1.webp")], paths
+        assert [h[1] for h in hits] == ["/api/jobs/5", "/s/old.webp?t"], hits
+        rc, paths, _ = fetch(999)
+        assert rc == 1 and paths[0] == "{" and [h[1] for h in hits] == ["/api/jobs/5"]
+        # Nothing new above the cursor: no downloads, no output.
+        Hub.job = {**Hub.job, "ack_comment_id": 23}
+        assert fetch()[:2] == (0, []) and len(hits) == 1
+        tempfile.tempdir = None
+        assert len(safe_name("\u00e9" * 300, "f").encode()) <= 200 and safe_name(" . ", "f") == "f"
         srv.shutdown()
         srv.server_close()
         for k in ("JOBS_BASE_URL", "JOBS_AGENT_TOKEN"):
@@ -1186,6 +1321,10 @@ def main():
         s = sub.add_parser(name)
         s.add_argument("id", type=int)
         s.set_defaults(fn=fn)
+    s = sub.add_parser("fetch")
+    s.add_argument("id", type=int)
+    s.add_argument("--comment", type=int)
+    s.set_defaults(fn=cmd_fetch)
     s = sub.add_parser("claim-token")
     s.add_argument("id", type=int)
     s.set_defaults(fn=cmd_claim_token)
