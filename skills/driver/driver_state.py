@@ -28,7 +28,11 @@ Exit codes: 0 ok, 1 error (e.g. lock held), 2 bad usage.
 """
 
 import argparse
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows: no flock, so lock one byte past any content with msvcrt
+    fcntl = None
+    import msvcrt
 import json
 import os
 import re
@@ -144,21 +148,44 @@ def replay_journal(run_dir):
     return state
 
 
+def _win_procs():
+    """Windows has no ps. One PowerShell call: {pid: (ppid, start ticks, command line)}."""
+    script = ("Get-CimInstance Win32_Process | ForEach-Object { "
+              "\"$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CreationDate.Ticks)`t$($_.CommandLine)\" }")
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", script],
+                             capture_output=True, text=True, check=True).stdout
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    table = {}
+    for line in out.splitlines():
+        parts = line.split("\t", 3)
+        if len(parts) == 4 and parts[0].isdigit():
+            table[int(parts[0])] = (parts[1], parts[2], parts[3])
+    return table
+
+
 def _owner_pid():
     """The long-lived agent process above this short-lived CLI call.
 
     This process exits as soon as the command returns, so its own pid is
     useless as a liveness signal. Same walk register.py does."""
     pid = os.getpid()
+    table = _win_procs() if os.name == "nt" else None
     for _ in range(12):
-        try:
-            out = subprocess.run(["ps", "-o", "ppid=,command=", "-p", str(pid)],
-                                 capture_output=True, text=True, check=True).stdout.strip()
-        except (subprocess.CalledProcessError, OSError):
-            return None
-        if not out:
-            return None
-        parent, _, command = out.partition(" ")
+        if table is not None:
+            if pid not in table:
+                return None
+            parent, _, command = table[pid]
+        else:
+            try:
+                out = subprocess.run(["ps", "-o", "ppid=,command=", "-p", str(pid)],
+                                     capture_output=True, text=True, check=True).stdout.strip()
+            except (subprocess.CalledProcessError, OSError):
+                return None
+            if not out:
+                return None
+            parent, _, command = out.partition(" ")
         if "claude" in command and "native-binary" in command:
             return pid
         try:
@@ -174,6 +201,9 @@ def _pid_start(pid):
     """Start time of a pid, so a recycled pid is not mistaken for the owner."""
     if not pid:
         return None
+    if os.name == "nt":
+        row = (_win_procs() or {}).get(int(pid))
+        return row[1] if row else None
     try:
         out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)],
                              capture_output=True, text=True, check=True).stdout.strip()
@@ -233,7 +263,12 @@ def _flock(repo, name, wait_seconds):
     deadline = time.time() + max(0.0, wait_seconds)
     while True:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if fcntl:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                # ponytail: lock a byte far past the record, so truncate and write below stay legal
+                handle.seek(1 << 20)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
             handle.seek(0)
             handle.truncate()
             handle.write(json.dumps(_owner_record()) + "\n")
