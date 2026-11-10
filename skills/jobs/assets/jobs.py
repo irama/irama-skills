@@ -18,6 +18,8 @@
                                                   outside a repo, --root defaults to $JOBS_REPOS_ROOT
     jobs.py claim-token ID                        print this machine's claim token for one job
     jobs.py preflight ID --target T --repo PATH [--void] [--recheck]   ship preflight; --recheck before the push
+    jobs.py data-scope --target T --repo PATH --base S --head S   on the box: paths boxd would refuse
+                                                  for a data repo (ADR 0122), from data-repos.json
     jobs.py --selftest
 
 Config: JOBS_BASE_URL, JOBS_AGENT_TOKEN and JOBS_ORCHESTRATORS from ~/.config/jobs/env.
@@ -700,6 +702,49 @@ def cmd_preflight(a):
     return 0 if not reasons else 1
 
 
+# ── Data repos on the box (MARIPOSA ADR 0122) ─────────────────────────────
+
+DATA_REPOS_FILE = "/etc/box-agent/data-repos.json"  # root 0644; absent off the box
+BOXD_FILE = "/opt/box-agent/boxd.py"                 # root 0755; its sensitive() is the broker's own
+
+
+def data_scope(repo, target, base, head, cfg=DATA_REPOS_FILE, boxd=BOXD_FILE):
+    """Whether boxd would refuse to ship base...head of target for leaving its data-repo prefixes.
+    Loads boxd itself and calls its data_repos(), named_in_data_repos() and sensitive(), so the
+    answer is the broker's own, then mirrors outside_prefixes: renames off, a symlink or submodule
+    counts anywhere, and a sensitive path counts inside a prefix too. "error" means boxd would
+    refuse too (a malformed file naming the target) or the answer is unknown: treat it as outside."""
+    if not Path(cfg).exists():
+        return {"data_repo": False}
+    t = target.lower()
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("boxd", boxd)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.CFG["etc"] = str(Path(cfg).parent)
+        repos = mod.data_repos()
+        if repos is None:
+            return {"data_repo": True, "error": f"{cfg} is malformed"} if mod.named_in_data_repos(t) \
+                else {"data_repo": False}
+        if t not in repos:
+            return {"data_repo": False}
+        r = subprocess.run(["git", "-C", str(repo), "diff", "--raw", "-z", "--no-renames", "--no-ext-diff",
+                            "--no-abbrev", f"{base}...{head}", "--"], capture_output=True, text=True, check=True)
+    except Exception as e:  # no boxd, a bad SHA: unknown, so never offer an Approve boxd may refuse
+        return {"data_repo": True, "error": f"data-scope check failed: {e}"}
+    out = r.stdout.split("\0")
+    outside = [path for meta, path in zip(out[0::2], out[1::2])
+               if not path.startswith(repos[t]) or mod.sensitive(path)
+               or {"120000", "160000"} & set(meta.lstrip(":").split(" ")[:2])]
+    return {"data_repo": True, "prefixes": list(repos[t]), "outside": outside}
+
+
+def cmd_data_scope(a):
+    print(json.dumps(data_scope(a.repo, a.target, a.base, a.head), indent=1))
+    return 0
+
+
 # ── Self-test ───────────────────────────────────────────────────────────────
 
 
@@ -1082,6 +1127,43 @@ def selftest():
         sh(tmp, "init", "--quiet", str(tmp / "repo" / "child"))
         found = sibling_repos(tmp)
         assert [r["display"] for r in found] == ["inner", "repo", "child"], "child repo inside a checkout found"
+    # data_scope: what boxd would refuse for a data repo, read from data-repos.json.
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        repo, cfg, fake = d / "r", d / "data-repos.json", d / "boxd.py"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+
+        def commit(path):
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(path)
+            for c in (("add", "-A"), ("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", path)):
+                subprocess.run(["git", "-C", str(repo), *c], check=True, capture_output=True)
+            return git(repo, "rev-parse", "HEAD")
+        base = commit("README")
+        inside = commit("network/a/index.md")
+        cfg.write_text(json.dumps({"version": 1, "repos": {"owner/Data": ["exec-news/", "network/"]}}))
+        fake.write_text(  # boxd's three calls, cut down: the real ones live in MARIPOSA box/agent/boxd.py
+            "import json, pathlib\nCFG = {'etc': '/nowhere'}\n"
+            "def data_repos():\n"
+            "    try:\n        m = json.loads((pathlib.Path(CFG['etc']) / 'data-repos.json').read_text())\n"
+            "    except ValueError:\n        return None\n"
+            "    return {k.lower(): tuple(v) for k, v in m['repos'].items()}\n"
+            "def named_in_data_repos(t):\n"
+            "    return t in (pathlib.Path(CFG['etc']) / 'data-repos.json').read_text().lower()\n"
+            "def sensitive(p):\n    return p.lower().endswith('claude.md')\n")
+        scope = lambda head, t="owner/data", c=cfg: data_scope(repo, t, base, head, cfg=c, boxd=fake)  # noqa: E731
+        assert scope(inside) == {"data_repo": True, "prefixes": ["exec-news/", "network/"], "outside": []}
+        out = commit(".claude/settings.json")
+        assert scope(out)["outside"] == [".claude/settings.json"], scope(out)
+        nested = commit("network/CLAUDE.md")
+        assert "network/CLAUDE.md" in scope(nested)["outside"], "boxd's sensitive() counts inside a prefix"
+        assert scope(inside, t="owner/other") == {"data_repo": False}
+        assert scope(inside, c=d / "missing.json") == {"data_repo": False}
+        assert "error" in scope("0" * 40), "a bad SHA is unknown, never a clean pass"
+        assert "error" in data_scope(repo, "owner/data", base, inside, cfg=cfg, boxd=d / "nope.py")
+        cfg.write_text('{not json "owner/data"')
+        assert "error" in scope(inside), "malformed and naming the target: boxd refuses it too"
+        assert scope(inside, t="owner/other") == {"data_repo": False}
     print("jobs.py selftest: ok")
     return 0
 
@@ -1164,6 +1246,12 @@ def main():
     s.add_argument("--recheck", action="store_true",
                    help="just before the push: approval and SHA only, skip the unpushed check")
     s.set_defaults(fn=cmd_preflight)
+    s = sub.add_parser("data-scope", help="on the box: paths boxd would refuse for a data repo")
+    s.add_argument("--target", required=True)
+    s.add_argument("--repo", required=True)
+    s.add_argument("--base", required=True)
+    s.add_argument("--head", required=True)
+    s.set_defaults(fn=cmd_data_scope)
     a = p.parse_args()
     return a.fn(a)
 
