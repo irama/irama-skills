@@ -30,4 +30,17 @@ assert oar.unrecommended(ok) == []
 # iii) no options section at all
 assert oar.unrecommended("## App > X\n\nDone. Nothing outstanding.\n") == []
 
+# iv) a crossroad: bare DECIDE line, numbered roads, exactly one tagged
+cross = """### Next steps for us (options)
+DECIDE: what the tag becomes /options
+1. Role tag 'potential client' (Recommended): no clash
+2. No tag, use closeness stage
+3. Rename the pool
+"""
+assert oar.unrecommended(cross) == []
+
+# v) a crossroad with two roads tagged, or none, blocks
+assert len(oar.unrecommended(cross.replace("2. No tag, use closeness stage", "2. No tag (Recommended)"))) == 2
+assert len(oar.unrecommended(cross.replace(" (Recommended)", ""))) == 3
+
 print("ok")

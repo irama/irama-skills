@@ -11,8 +11,13 @@ Blocks when a numbered line inside the *Next steps for us (options)* block lacks
 "(Recommended". When the list ends with a combined "Both" / "All of the above"
 option, that line is the only one tagged, and a tag on any other line blocks
 instead (the user asked for one obvious button to press). A DECIDE item that collapses mutually exclusive roads counts as one
-option and must carry the recommended road. It cannot check that the analysis was
-done, only that each option was individually judged worth doing.
+option and must carry the recommended road. A crossroad may also be written as a bare
+`DECIDE:` line with its roads numbered under it (the numbers match the Agent X buttons);
+then exactly one road carries the tag. It cannot check that the analysis was done, only
+that each option was individually judged worth doing.
+
+The block message asks for a delta: the corrected list only, because the question and
+its analysis sit directly above the reply that fixes it.
 """
 
 import json
@@ -29,6 +34,8 @@ def options_block(text):
     return m.group(1) if m else ""
 
 
+CROSSROAD = re.compile(r"^\s*\**\s*DECIDE:", re.MULTILINE)
+
 COMBINED = re.compile(r"^\s*\d+[.)]\s+\**\s*(both|all of the above)\b", re.IGNORECASE)
 
 
@@ -39,7 +46,12 @@ def unrecommended(text):
     "All of the above"), and that is the only line tagged (Recommended): it is the
     button to press. Without a combined line, every option carries the tag.
     """
-    lines = [ln for ln in options_block(text).splitlines() if OPTION_LINE.match(ln)]
+    block = options_block(text)
+    lines = [ln for ln in block.splitlines() if OPTION_LINE.match(ln)]
+    if lines and CROSSROAD.search(block):
+        # Mutually exclusive roads under one DECIDE line: one road is the recommendation.
+        tagged = [ln for ln in lines if "(recommended" in ln.lower()]
+        return [] if len(tagged) == 1 else [ln.strip() for ln in (tagged or lines)]
     combined = [ln for ln in lines if COMBINED.match(ln)]
     if combined:
         bad = [ln for ln in combined if "(recommended" not in ln.lower()]
@@ -92,8 +104,10 @@ def main():
                 "checked and why it is not worth doing. Two or more independent "
                 "options end with 'Both (Recommended)' or 'All of the above "
                 "(Recommended)', and that combined line is the only one tagged. "
-                "Mutually exclusive roads collapse into one DECIDE item carrying "
-                "the recommended road."
+                "Mutually exclusive roads sit under one bare 'DECIDE:' line, numbered, "
+                "with exactly one road tagged. Reply with the corrected options list "
+                "only: do not restate the question, the roads' analysis or anything "
+                "else from the reply above, which the reader can still see."
                 % (len(bad), " | ".join(b[:80] for b in bad))
             ),
         }))
