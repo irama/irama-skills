@@ -19,6 +19,27 @@ read, and are absent from context otherwise — see `~/.claude/CLAUDE.md`
 existing one, read this file first**: a rule that never loaded is not a rule you
 were exempt from.
 
+## Full CRUD in the UI, visible on the page
+
+**Every page that shows a user's content lets them create, read, update and delete it from that
+page, with a visible control.** A hub page (an event, a person, a project, a deal) is where the
+content gets built up and then corrected, so a hub that only displays is unfinished. This rule
+binds specs, tickets and driver runs: a ticket that adds an element to a page also adds its add,
+edit and delete, or it names why one does not apply.
+
+- **Visible, not hidden.** Each control is a labelled button or an obviously editable field on
+  the page. A tiny text link, a disclosure that looks like a caption, a hint that says "edit X is
+  under Y", or a flow that only exists in another screen does not count.
+- **Every element, not just the record.** The header fields (name, date, cost), each list item
+  (an action, a note, a tag) and each list (an "Add" at the list itself) all get their controls.
+  A number the user can supply (a cost, a target) is editable where it is shown.
+- **An empty state offers the add.** "Nothing yet" sits beside the button that adds the first one.
+- **Delete is never the only way out.** It asks first (or offers undo) and says what stays.
+- **What does not apply is said once, in the ticket.** Computed values (a funnel count) and
+  imported records are read-only; say so in the spec, not by leaving the control out silently.
+- **Check before calling a page done:** for each element on it, find the add, the edit and the
+  delete without reading code. A missing one is a defect, not a follow-up.
+
 ## Cursor affordance
 
 **The cursor says what a click will do.** Pick from this table, and nothing else:
