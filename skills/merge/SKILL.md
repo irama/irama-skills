@@ -10,7 +10,7 @@ Merge feature branch(es) onto the default branch **locally**. `/merge` does NOT 
 ## Scope
 
 - **`/merge`** — merge **the current branch** (the branch of the cwd/worktree you invoked from) onto the default branch.
-- **`/merge all`** — merge **every** feature branch, oldest-committed first. Run from one coordinator thread after the others have each run `/commit`.
+- **`/merge all`** — merge **every** feature branch, oldest-committed first, in each repo the job touched (this thread plus any thread earlier in its handoff chain). Never in a repo the job did not touch. The flush skill defines the scope. Run from one coordinator thread after the others have each run `/commit`.
 
 ## Preconditions
 

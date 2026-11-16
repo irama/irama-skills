@@ -5,7 +5,16 @@ description: Run the whole shipping pipeline end-to-end — /commit, /merge, /pu
 
 Flush the current work all the way out: **`/commit` → `/merge` → `/push` → `/prune`**, running only the verbs that are relevant to the repo's actual state. It is exactly the four-verb flow from `~/.claude/docs/multithread-workflow.md`, invoked in one word instead of four turns.
 
-**`/flush all` means ALL — every branch and worktree in this repo, including other threads' merged-but-unpushed work.** Working across several repos, it means every repo touched. Passing `all` is the user authorising exactly that, so `/push`'s "extra commits in the range" guard does not apply: name whose commits they are in the report and ship them. Stopping to ask makes the user repeat an instruction they already gave in full.
+**Which repos `all` covers: the repos the job touched, never the whole workspace.** The job is
+the piece of work this thread is doing. If the thread picked up a handoff, the job also includes
+the threads earlier in that handoff chain. A repo is in scope when the job edited, committed,
+merged or made a worktree in it. A repo the job only read is not in scope. Before the first
+mutation, list the in-scope repos and say how you know each one (this thread's edits, or the
+handoff that names it). Name any other repo that has pending work in one line, and leave it
+alone: other threads ship their own repos. (A flush once ran across ten repos for a job that
+touched one, and it pushed other threads' unreleased commits.)
+
+**Inside an in-scope repo, `/flush all` means ALL: every branch and worktree, including other threads' merged-but-unpushed work.** Passing `all` is the user authorising exactly that, so `/push`'s "extra commits in the range" guard does not apply: name whose commits they are in the report and ship them. Stopping to ask makes the user repeat an instruction they already gave in full.
 
 **`all` is not limited to the work this thread did.** It also covers uncommitted and untracked files in the main checkout (briefs, handoffs, plans, scratch files), whichever thread wrote them, and orphan worktree folders that `git worktree list` no longer shows. `/commit` stages them with `git add -A`. Only a gate failure, a sensitive file or an obsolete artefact (for example a snapshot entry no test writes) is left out, and the report names each one with its reason. A report that says "nothing this thread touched is left" while the editor's Source Control list still shows changes is an incomplete `/flush all`.
 
@@ -52,7 +61,7 @@ These come from the underlying skills and `/flush` does not soften any of them:
 - **`/flush` claims nothing itself.** Each verb claims and releases its own key in the
   cross-thread work register. Do not claim `<repo>:flush` — there is no such key, and
   a claim the verbs do not know about is one they will not release.
-- **One repo.** `/flush` acts on the repo containing the cwd. If the user meant a different repo, stop and say so rather than `cd`-ing on their behalf.
+- **One repo, unless `all`.** Bare `/flush` acts on the repo containing the cwd. `/flush all` acts on the job's repos (see above). If the user meant a different repo, stop and say so rather than `cd`-ing on their behalf.
 
 ## Report
 

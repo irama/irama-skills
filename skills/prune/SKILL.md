@@ -10,7 +10,7 @@ Clean up worktrees and branches after they have been merged and pushed. `/prune`
 ## Scope
 
 - **`/prune`** — remove **the current worktree** (the cwd/worktree you invoked from) and its branch.
-- **`/prune all`** — remove **every** merged worktree and branch.
+- **`/prune all`** — remove **every** merged worktree and branch in each repo the job touched (this thread plus any thread earlier in its handoff chain). Never in a repo the job did not touch. The flush skill defines the scope.
 
 ## Guard (do this before removing anything)
 
