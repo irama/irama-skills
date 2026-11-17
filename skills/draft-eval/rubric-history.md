@@ -84,7 +84,7 @@ Flow is in its experimental phase, and rounds under 0.7 or earlier are not compa
 
 ## Rubric 0.9: the confession beat is optional
 
-Andrew ruled (26 October 2026) that the "I was wrong" confession beat in a deck or talk is
+The author ruled (26 October 2026) that the "I was wrong" confession beat in a deck or talk is
 optional. Use one only when a true story serves the throughline; otherwise leave it out and
 say so in one line on the arc sheet. Never ask for one by default, never block an arc or a
 build on its absence, and never fail a draft for its absence.
@@ -112,3 +112,39 @@ the room feels the problem before it hears a fix.
 - The 40% floor matches the narrative-arc skill's clock test, so changing it means changing both.
   The check is experimental with the rest of the group, and needs one calibration round before
   it binds a deck. Rounds scored under 0.9 or earlier are not comparable on moments or on the bar.
+
+## Rubric 0.11: four acts, notes as a briefing, and the backstage layer
+
+A talk built in four acts (you are here and it is normal, why the gap is hard, the way through and
+proof it has been walked, your first steps) has beats every talk needs and beats that only
+strengthen it. The 0.10 moments group could not tell the two apart, and it asked for stage
+directions in the notes, which crowded out what a speaker needs at a glance. This is an
+experimental-phase change: no deck has yet been built to it, so its checks may move round to round.
+
+- **The backstage layer.** Move tags, clock times and stage directions leave the notes for a hidden
+  planning slide, `data-role="backstage-plan"`. `arc.py` adds every hidden slide whose `data-role`
+  starts `backstage-` to `units.md` under the heading "Backstage, not presented". Only the moments
+  checks read it, and no other hidden slide reaches `units.md`.
+- **`stage_directions` is retired.** It asked for [MOVE: ...], [STORY], [ASK] and [PAUSE] tags in
+  the notes. Those now sit on the planning slide, so a check that looked for them in the notes
+  would fail every deck built to the new rules. **`notes_briefing`** replaces it: every presented
+  content slide's notes carry five lines (the point in quotes with the reason in brackets, a story
+  cue, one number with its source, the bridge, the likely question), and the planning slide
+  carries the moves and the clock times.
+- **`quoted_close`** is new and recommended: the closing line is written out in quotes. It was part of
+  `peak_and_end`, but the confirmed beat tiers make the quoted close a recommended beat, so a
+  missing quote is reported and never blocks the bar.
+- **`four_acts`** is new: the deck places every required beat on a slide or on the planning slide,
+  or the planning slide says why a beat is left out.
+- **Revised to read the planning slide:** `star_moment`, `peak_and_end` (the peak at the end of
+  act 3), `five_moves` and `wrong_and_credible` (a mission in act 1
+  is required, an opening story is recommended, "I was wrong" stays optional). `people_and_stories`
+  counts per act, and `pain_before_solution` reads the planning slide's clock times.
+- **Must-pass follows the tier.** Each check carries `tier`. A required check holds the bar
+  (`bars.moments_must_pass`); a recommended check (`star_moment`, `quoted_close`, `light_moment`) is reported in
+  the brief and never blocks it. A required check missing from a grader's reply counts as failed.
+- **`notes_actionable`** now reads against the five briefing lines.
+- **The counter-metric** is the arc's `flow` criterion: a deck that ticks every beat with
+  box-filling slides still fails flow at the joins where only "and then" fits.
+- Rounds scored under 0.10 or earlier are not comparable on moments, on `notes_actionable` or on
+  whether the bar was met.

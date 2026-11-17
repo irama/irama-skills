@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.10",
+  "rubric_version": "0.11",
   "phase": "experimental",
   "changelog": [
     {
@@ -12,7 +12,7 @@
     },
     {
       "version": "0.3",
-      "note": "Fitted to the 24 calibration units and Andrew's round-two rulings, so those units are not a fair test of it; the blind preference test is the hold-out. Each unit now carries the base criteria plus one device: guess_reveal and delight are retired as per-unit criteria and replaced by device, which names the device type, and the arc gains variety, which checks that the types vary across the deck. New base criterion economy (no filler on the unit) with a short list of filler patterns check.py gates on slide text. New deck criterion notes_actionable (every instruction in the notes names the exact move and defines what it refers to). Flow gains a 4 anchor: a topic change the narrative supports. An exercise with no fixed answer is not a failed guess before reveal; it scores on its own device. The arc keeps flow, delight and participation; arc flow now accepts a supported topic change."
+      "note": "Fitted to the 24 calibration units and the author's round-two rulings, so those units are not a fair test of it; the blind preference test is the hold-out. Each unit now carries the base criteria plus one device: guess_reveal and delight are retired as per-unit criteria and replaced by device, which names the device type, and the arc gains variety, which checks that the types vary across the deck. New base criterion economy (no filler on the unit) with a short list of filler patterns check.py gates on slide text. New deck criterion notes_actionable (every instruction in the notes names the exact move and defines what it refers to). Flow gains a 4 anchor: a topic change the narrative supports. An exercise with no fixed answer is not a failed guess before reveal; it scores on its own device. The arc keeps flow, delight and participation; arc flow now accepts a supported topic change."
     },
     {
       "version": "0.3.1",
@@ -24,15 +24,15 @@
     },
     {
       "version": "0.4.1",
-      "note": "Fitted to Andrew's fair-or-harsh calls on 8 slides from the A4 deck that he did not flag in the preference test and Claude marked down under 0.4 (7 fair or partly fair, 1 harsh), so those slides are not a fair test of it. Clear: loaded wording such as \"kill\" is a guess only when its object is not clear on the slide, nearby or before it; a term the deck's hidden terms slide defines is not a guess from the slide that introduces it onwards, and still is before it. Arc gains terms_introduced (every non-plain term is introduced visually, with a metaphor or example, before its first use) and taxonomy_ids (an id such as D1 uses a letter that means something and is reused wherever its item appears). Visual: findings and recommendations on one slide need visibly different treatment; mixing them caps visual at 3. Codex no longer sets the bar: Claude does, and Codex audits each round's rewritten units for self-preference."
+      "note": "Fitted to the author's fair-or-harsh calls on 8 slides from the A4 deck that he did not flag in the preference test and Claude marked down under 0.4 (7 fair or partly fair, 1 harsh), so those slides are not a fair test of it. Clear: loaded wording such as \"kill\" is a guess only when its object is not clear on the slide, nearby or before it; a term the deck's hidden terms slide defines is not a guess from the slide that introduces it onwards, and still is before it. Arc gains terms_introduced (every non-plain term is introduced visually, with a metaphor or example, before its first use) and taxonomy_ids (an id such as D1 uses a letter that means something and is reused wherever its item appears). Visual: findings and recommendations on one slide need visibly different treatment; mixing them caps visual at 3. Codex no longer sets the bar: Claude does, and Codex audits each round's rewritten units for self-preference."
     },
     {
       "version": "0.4.2",
-      "note": "Fitted to Andrew's round-three notes on the A4 deck, so those slides are not a fair test of it. Device gains curiosity: a signal that a mental model is coming, such as framework ids shown ahead of the framework. Clear: items in a list or sequence must be parallel in form and questions in a sequence share one polarity; a non-parallel list counts as one guess. A chart that does not say what it measures, for whom, and its takeaway, or a recommendation that does not say what to do and in what situation, counts as one guess under clear and caps visual at 3. Arc: taxonomy_ids also asks that a recurring emblem or id has exactly the same visual treatment every time; a new arc criterion one_model, in the bar, asks for one model per idea, so two slides that model the same idea with different axes or terms lower it."
+      "note": "Fitted to the author's round-three notes on the A4 deck, so those slides are not a fair test of it. Device gains curiosity: a signal that a mental model is coming, such as framework ids shown ahead of the framework. Clear: items in a list or sequence must be parallel in form and questions in a sequence share one polarity; a non-parallel list counts as one guess. A chart that does not say what it measures, for whom, and its takeaway, or a recommendation that does not say what to do and in what situation, counts as one guess under clear and caps visual at 3. Arc: taxonomy_ids also asks that a recurring emblem or id has exactly the same visual treatment every time; a new arc criterion one_model, in the bar, asks for one model per idea, so two slides that model the same idea with different axes or terms lower it."
     },
     {
       "version": "0.5",
-      "note": "Fitted to the eight lesson groups Andrew confirmed on 1 October 2026 from five rounds of notes on the A4 deck, so that deck is not a fair test of it. Clear: slides build on earlier slides, so a term introduced on an earlier slide is not a guess where it is reused, and a question or label that makes sense only beside the speaker is one. Economy: a hedge or provenance caveat on the face of a slide is filler; it belongs in the speaker notes or the slide's sources field. Honest numbers can be met in the sources field. Notes: a provenance caveat written for the presenter to say aloud belongs in the sources field. Visual: draw the shape the idea already has, true to the rules of what it depicts and recognisable at a glance, with the fewest encodings the story needs. Arc: taxonomy_ids asks for one distinct look per framework; variety names curiosity. The arc pass now reads the deck-level rulings. A lessons list carries the confirmed groups as checks for the pre-review and the lessons step."
+      "note": "Fitted to the eight lesson groups the author confirmed on 1 October 2026 from five rounds of notes on the A4 deck, so that deck is not a fair test of it. Clear: slides build on earlier slides, so a term introduced on an earlier slide is not a guess where it is reused, and a question or label that makes sense only beside the speaker is one. Economy: a hedge or provenance caveat on the face of a slide is filler; it belongs in the speaker notes or the slide's sources field. Honest numbers can be met in the sources field. Notes: a provenance caveat written for the presenter to say aloud belongs in the sources field. Visual: draw the shape the idea already has, true to the rules of what it depicts and recognisable at a glance, with the fewest encodings the story needs. Arc: taxonomy_ids asks for one distinct look per framework; variety names curiosity. The arc pass now reads the deck-level rulings. A lessons list carries the confirmed groups as checks for the pre-review and the lessons step."
     },
     {
       "version": "0.6",
@@ -48,11 +48,15 @@
     },
     {
       "version": "0.9",
-      "note": "Andrew ruled the \"I was wrong\" confession beat optional (26 October 2026): use one only when a true story serves the throughline, never by default, and never block a draft on its absence. wrong_and_credible now passes on the credibility story alone; a confession, if present, must still serve the argument and must not concede a counter-argument. Rounds scored under 0.8 or earlier are not comparable on wrong_and_credible."
+      "note": "The author ruled the \"I was wrong\" confession beat optional (26 October 2026): use one only when a true story serves the throughline, never by default, and never block a draft on its absence. wrong_and_credible now passes on the credibility story alone; a confession, if present, must still serve the argument and must not concede a counter-argument. Rounds scored under 0.8 or earlier are not comparable on wrong_and_credible."
     },
     {
       "version": "0.10",
       "note": "Fitted to an author's ruling that a talk gives the background and the pains before any solution, after an arc reached its first promise two and a half minutes into a 30-minute talk; no deck is yet a fair test of it. A new moments check, pain_before_solution: the notes or the run sheet show the change in the world, what it costs this audience and why it is hard before the first slide that offers a fix, and that fix arrives at or after 40% of the running time. Because moments_must_pass holds the group in the bar, a deck that fails it cannot finish. Its counter-metric is the spine's existing rule that every section answers a starting belief, so padding the background with sections that move nobody still fails the arc. Rounds scored under 0.9 or earlier are not comparable on moments or on the bar."
+    },
+    {
+      "version": "0.11",
+      "note": "Fitted to a review of how a talk is built in four acts (you are here and it is normal, why the gap is hard, the way through and proof it has been walked, your first steps) and to notes written as a briefing, so no deck is yet a fair test of it. Move tags, clock times and stage directions leave the speaker notes for a hidden planning slide (data-role=\"backstage-plan\"), and the arc pass now sees every data-role=\"backstage-*\" slide under \"Backstage, not presented\". The moments check stage_directions is retired and replaced by notes_briefing (five lines per presented content slide: the point in quotes, a story cue, one number with its source, the bridge, the likely question). A new check, four_acts, asks that every required beat is placed on a slide or on the planning slide, or that the planning slide says why one is left out. star_moment, peak_and_end, five_moves and wrong_and_credible read the planning slide too; wrong_and_credible now requires a mission in act 1. Each check carries a tier: a required check holds the bar, and a recommended check (star_moment, quoted_close, light_moment) is reported and never blocks it. The closing line in quotes is the recommended check quoted_close, so peak_and_end (required) no longer asks for it. notes_actionable reads against the briefing format. Its counter-metric is the arc's flow criterion: a deck that ticks every beat with box-filling slides still fails flow at the joins where only \"and then\" fits. Rounds scored under 0.10 or earlier are not comparable on moments, on notes_actionable or on the bar."
     }
   ],
   "scale": {
@@ -297,16 +301,16 @@
     },
     {
       "id": "notes_actionable",
-      "name": "Actionable notes",
+      "name": "Actionable briefing notes",
       "kind": "judged",
       "applies_to": [
         "deck"
       ],
-      "question": "Does every instruction in the speaker notes name the exact move and define what it refers to? \"Ask them for the forbidden list out loud\" fails, because the notes never say which list; \"Ask the room for an agentic opportunity, then ask what is forbidden in that example\" passes. Notes with no instruction score on whether every reference they make is defined. A provenance caveat written for the presenter to say aloud (\"if asked, the study did not test this\") is not an instruction; it belongs in the slide's sources field, and in the notes it counts as one vague instruction.",
+      "question": "Do the speaker notes work as a briefing the speaker can act on? Read them against the five briefing lines (the point in quotes with the reason in brackets, a story cue, one number with its source, the bridge to the next slide, the likely question with a short answer). Each line must be specific: a story cue names the story, the number names its source, the bridge is a question that leads into the next slide. Every instruction names the exact move and defines what it refers to. \"Ask them for the forbidden list out loud\" fails, because the notes never say which list; \"Ask the room for an agentic opportunity, then ask what is forbidden in that example\" passes. A provenance caveat written for the presenter to say aloud (\"if asked, the study did not test this\") belongs in the slide's sources field, and in the notes it counts as one vague line. Move tags, clock times and stage directions belong on the hidden planning slide, not in the notes; this criterion never scores them.",
       "anchors": {
-        "1": "Two or more instructions a presenter could not carry out as written: the move is vague, or it refers to something the notes never define.",
-        "3": "One instruction is vague or refers to something undefined; the rest name the exact move.",
-        "5": "Every instruction names the exact move and defines what it refers to."
+        "1": "Two or more briefing lines are missing or vague, or two or more instructions a presenter could not carry out as written.",
+        "3": "One briefing line is missing or vague, or one instruction refers to something undefined; the rest are specific.",
+        "5": "All five briefing lines are present and specific, and every instruction names the exact move and defines what it refers to."
       },
       "na_allowed": {
         "roles": [],
@@ -580,7 +584,7 @@
       "deck"
     ],
     "phase": "experimental",
-    "note": "Graded in the arc pass, one pass or fail per check, judged from every slide's text and notes and the contact sheet. The group passes only when every check passes. A deck that is all argument and no moments fails it.",
+    "note": "Graded in the arc pass, one pass or fail per check, judged from every slide's text and notes, the hidden planning slide and any other backstage slide, and the contact sheet. Each check has a tier. The group holds the bar only on its required checks; a recommended check is reported and never blocks the bar. A deck that is all argument and no moments fails it.",
     "moves": [
       {
         "id": "dreams",
@@ -612,50 +616,72 @@
       {
         "id": "star_moment",
         "name": "A S.T.A.R. moment is named and built",
-        "pass": "The notes name one moment as the S.T.A.R. moment (Something They'll Always Remember), say its type (a dramatisation, a repeatable line, a striking visual, a story or a shocking statistic made physical) and the slide it lives on, and that slide builds it: a prop, a live demonstration, a line written to be repeated, or a slide that breaks the deck's visual system on purpose.",
-        "fail": "No moment is named, or one is named but its slide is an ordinary slide that gives the room nothing to repeat afterwards."
+        "tier": "recommended",
+        "pass": "The planning slide or the notes name one moment as the S.T.A.R. moment (Something They'll Always Remember), say its type (a dramatisation, a repeatable line, a striking visual, a story or a shocking statistic made physical) and the slide it lives on, and that slide builds it: a prop, a live demonstration, a line written to be repeated, or a slide that breaks the deck's visual system on purpose.",
+        "fail": "No moment is named on the planning slide or in the notes, or one is named but its slide is an ordinary slide that gives the room nothing to repeat afterwards. A recommended check: reported, never blocks the bar."
       },
       {
         "id": "peak_and_end",
         "name": "The peak and the ending are designed, and the close returns to the open",
-        "pass": "The notes name the emotional peak and plan the last 60 seconds, those slides carry the deck's strongest material, and the last line or image echoes the first, so the room feels the talk was about one thing.",
-        "fail": "No peak is named, the deck ends on a summary, a questions slide or a thank-you with no designed last line, or the close does not echo the open."
+        "tier": "required",
+        "pass": "The planning slide or the notes name the emotional peak, and it sits at the end of act 3, where the fear is named and answered. The last 60 seconds are planned, those slides carry the deck's strongest material, and the last line or image echoes the first, so the room feels the talk was about one thing.",
+        "fail": "No peak is named, the peak is not at the end of act 3, the deck ends on a summary, a questions slide or a thank-you, or the close does not echo the open."
+      },
+      {
+        "id": "quoted_close",
+        "name": "The closing line is written in quotes",
+        "tier": "recommended",
+        "pass": "The planning slide or the notes give the deck's closing line written out in quotes, so the speaker can say it word for word.",
+        "fail": "The close is described but not written as a line in quotes, or the deck ends on a summary, a questions slide or a thank-you with no closing line. A recommended check: reported, never blocks the bar."
       },
       {
         "id": "five_moves",
         "name": "One of the five moves on each slide, all five across the deck, confirm or justify before any promise",
-        "pass": "Every presented content slide makes one of the five moves (encourage their dreams, justify their failures, allay their fears, confirm their suspicions, always on your side), on the slide or in its notes; all five appear across the deck; and the first slide that confirms or justifies comes before the first promise (a slide that offers a better future, a fix or the talk's answer). Title and evidence slides may carry none. A [MOVE: ...] tag is a claim to check against what the slide says, not proof.",
+        "tier": "required",
+        "pass": "Every presented content slide makes one of the five moves (encourage their dreams, justify their failures, allay their fears, confirm their suspicions, always on your side), on the slide or in its notes; all five appear across the deck; and the first slide that confirms or justifies comes before the first promise (a slide that offers a better future, a fix or the talk's answer). Title and evidence slides may carry none. The planning slide lists the move per slide; a listed move is a claim to check against what the slide says, not proof.",
         "fail": "A content slide makes no move, one of the five never appears, or the deck promises a future or a fix before any slide confirms or justifies."
       },
       {
         "id": "people_and_stories",
         "name": "A story or named person in every section, and no bare statistic",
-        "pass": "Every section (an act in the run sheet, or the slides between two section dividers) has at least one story or one named person in it, on a slide or in the notes, and every statistic sits beside a person it happened to or a physical scale the room can picture, such as a barrow of sugar or a stack of paper.",
-        "fail": "A section is argument only, with no story and no named person, or a statistic stands alone as a bare number."
+        "tier": "required",
+        "pass": "Every act (an act on the planning slide or in the run sheet, or the slides between two section dividers) has at least one story, named person or metaphor in it, on a slide or in the notes, and every statistic sits beside a person it happened to or a physical scale the room can picture, such as a barrow of sugar or a stack of paper.",
+        "fail": "An act is argument only, with no story, no named person and no metaphor, or a statistic stands alone as a bare number."
       },
       {
         "id": "wrong_and_credible",
-        "name": "Credibility early through a story, and an optional \"I was wrong\" beat",
-        "pass": "In the first three minutes a specific story shows why the speaker has the right to say this. This passes on the credibility story alone; the \"I was wrong\" or vulnerability beat (a time they believed what the talk now argues against, or a failure of their own) is optional. When one is present, it must serve the argument: it moves the room toward the throughline and does not concede a counter-argument.",
-        "fail": "Credibility arrives as a CV, a list of titles or client logos, arrives late, or never arrives; or a present \"I was wrong\" beat concedes a counter-argument instead of serving the throughline."
+        "name": "A mission in act 1, credibility through stories, and an optional \"I was wrong\" beat",
+        "tier": "required",
+        "pass": "Act 1 says why the speaker is here, as a mission given with generosity, and credibility arrives through stories (or through whoever introduces the speaker) rather than a list. A short personal story to open is recommended, and an \"I was wrong\" or vulnerability beat (a time they believed what the talk now argues against, or a failure of their own) is optional: the absence of either never fails this check. When an \"I was wrong\" beat is present, it must serve the argument: it moves the room toward the throughline and does not concede a counter-argument.",
+        "fail": "Act 1 gives no mission, credibility arrives only as a CV, a list of titles or client logos, or never arrives; or a present \"I was wrong\" beat concedes a counter-argument instead of serving the throughline."
       },
       {
         "id": "light_moment",
         "name": "At least one planned light moment",
+        "tier": "recommended",
         "pass": "At least one moment of humour is planned on a slide or in the notes (a joke, a self-deprecating line, a playful image or a comic callback) at a point the grader can name. Straight after the heaviest slide, where the room most needs release, is the best place; more than one is better.",
-        "fail": "No planned humour anywhere. A pun in a title that the notes do not plan as a laugh does not count."
+        "fail": "No planned humour anywhere. A pun in a title that the notes do not plan as a laugh does not count. A recommended check: reported, never blocks the bar."
       },
       {
-        "id": "stage_directions",
-        "name": "Stage directions in the notes",
-        "pass": "The speaker notes carry stage directions in square brackets: a [MOVE: <move>] tag on each slide that makes a move, [STORY] where a story starts, [ASK] where the room is asked something, and [PAUSE] at least at the peak and after the S.T.A.R. moment.",
-        "fail": "The notes carry no stage directions, or only a stray one, so the presenter has no planned pauses, asks or moves."
+        "id": "notes_briefing",
+        "name": "Notes as a briefing, moves and clock times on the planning slide",
+        "tier": "required",
+        "pass": "Every presented content slide's notes carry five short lines: the point, in quotes, with the reason the slide looks this way in brackets; a story cue naming one or two stories in a few words; one number in its spoken form, any inference kept separate, and the source to name if asked; the bridge, the question that leads into the next slide; and the likely question from this audience with a short answer. Move tags, clock times and stage directions are not in the notes: a hidden planning slide carries the move for each slide and the clock time for each act.",
+        "fail": "A presented content slide's notes miss one of the five lines, the notes carry move tags, clock times or stage directions, or no hidden planning slide carries the moves and the clock times."
       },
       {
         "id": "pain_before_solution",
         "name": "The background and the pains come before the first solution",
-        "pass": "The notes or the run sheet show the background (the change in the world, what it costs this audience, and why it is hard) before the first slide that offers a fix, and that first fix arrives at or after 40% of the running time.",
+        "tier": "required",
+        "pass": "The notes, the planning slide or the run sheet show the background (the change in the world, what it costs this audience, and why it is hard) before the first slide that offers a fix, and that first fix arrives at or after 40% of the running time, read from the planning slide's clock times where it has them.",
         "fail": "A slide offering a fix, a method or the piece's answer appears before 40% of the running time, or the pains it answers carry no evidence."
+      },
+      {
+        "id": "four_acts",
+        "name": "Every required beat of the four acts is placed",
+        "tier": "required",
+        "pass": "The deck places every required beat, on a slide or on the planning slide, or the planning slide says why a beat is left out. The required beats: act 1: an opening move that commands the room, fitted to the context; a shared problem the room owns; a frame that maps the journey; forgiveness, that where the room is now is normal; a positive destination; the speaker's mission, with credentials sprinkled through. Act 2: the background before any tools, its trends and drivers dated. Act 3: the model, with the frame returning as the map; proof as short stories about people or organisations already succeeding that way; the fear named and answered last. Act 4: a few concrete moves, usually three; a callback to the frame and the title. Across the deck: a title that challenges a belief; a minute budget per act with keep tight and keep lean marks; a story or metaphor in every act; a confirm or a justify before the first promise. The planning slide maps each presented slide to its act.",
+        "fail": "A required beat is on no slide and not on the planning slide, and the planning slide gives no reason for leaving it out; or the deck has no planning slide that maps its slides to the four acts."
       }
     ]
   }
