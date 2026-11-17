@@ -160,15 +160,19 @@ the rest of `eval-runs/`.
    exactly the first pass's graders (both, or Claude alone if Codex was absent then) and validate into
    the same `$G/grades.json`. A re-grade replaces only the slides it covers, and each grader keeps
    the list of models it used. `failing` and `record` refuse grades where the graders differ by
-   slide, because a missing grader's stale fail would lock the gate. If Codex has become unavailable,
+   slide, because a missing grader's stale fail would lock the gate. `record` also refuses a slide whose
+   `content_hash` in the new `units.json` differs from the one it was graded under, so re-grade every
+   slide the repair changed, not only the failing ones. If Codex has become unavailable,
    re-grade the whole deck with Claude alone into a new grades file. There is no second repair pass.
 7. **Write the record:** `python3 <skill-dir>/gate.py record <index.html> --units $G/units.json
    --grades $G/grades.json --round first-cut|re-outline`. It writes `<folder>/eval-runs/gate.json`
    with the deck's `deck-build-hash` meta (never the file's sha256: delivery rewrites the file and
    keeps the build hash), the round type, the rubric version, the graders that ran with the models
-   each used, the build each slide was graded under (`graded_builds`), pass or fail per question per
+   each used, the build each slide was graded under (`graded_builds`), the content hash each slide
+   was graded under (`content_hashes`), pass or fail per question per
    slide with each grader's answer, the failing list, and the date. It refuses unless `units.json`
-   was extracted from the same build as `index.html`. The first cut
+   was extracted from the same build as `index.html` and every graded slide's content hash matches
+   the current `units.json`. The first cut
    passes when no presented slide fails any question. Report the failing slides either way.
 
 ## The loop

@@ -13,9 +13,9 @@ and prints {prompt_sha256, schema, batches}.
 
 validate checks one grader reply: every slide of the batch once, every question with a boolean
 pass and a quote taken from the slide's text or notes. It merges the answers into grades.json as
-graders.<grader>.slides.<id>, with the units' deck_build_hash as graders.<grader>.builds.<id> and
-each model the grader used in graders.<grader>.models, so a re-grade replaces only the slides it
-covers. A grades file written under another rubric version is refused. Exit 1 on a bad reply.
+graders.<grader>.slides.<id>, with the units' deck_build_hash as graders.<grader>.builds.<id>, the
+slide's content_hash (from extract.py) as graders.<grader>.content.<id> and each model the grader
+used in graders.<grader>.models, so a re-grade replaces only the slides it covers. A grades file written under another rubric version is refused. Exit 1 on a bad reply.
 
 failing prints the slides that fail, by the pass rule: a slide fails a question when any grader
 that ran fails it, or never answered it. The first cut passes when no presented slide fails.
@@ -27,7 +27,9 @@ record writes <deck folder>/eval-runs/gate.json: the deck's deck-build-hash meta
 file's sha256, which changes when the deck is delivered), the round type, the rubric version,
 the graders that ran with the models each used, the build each slide was graded under, pass or
 fail per question per slide (with each grader's answer) and the date. It refuses unless the
-units.json deck_build_hash equals the deck's. Prints {pass, failing}. Scripts never call a model: the session runs the graders.
+units.json deck_build_hash equals the deck's, and unless every graded presented slide's content_hash
+in units.json equals the one it was last graded under: a slide that changed after grading and was
+not re-graded, or grades taken from another deck's units, are refused. Prints {pass, failing}. Scripts never call a model: the session runs the graders.
 """
 import argparse
 import json
@@ -128,21 +130,27 @@ def check(raw, units_doc, batch, rubric):
     return (None, errs) if errs else (doc, [])
 
 
-def merge(grades, doc, grader, model, rubric, build):
-    """build: the units.json deck_build_hash the reply was graded against."""
+def merge(grades, doc, grader, model, rubric, units_doc):
+    """units_doc: the units.json the reply was graded against (its build and per-slide content hashes)."""
+    build = units_doc.get("deck_build_hash")
     if not build:
         raise SystemExit("gate.py: units.json has no deck_build_hash; extract the built deck again with extract.py")
     if grades and grades.get("rubric_version") != rubric["rubric_version"]:
         raise SystemExit(f"gate.py: these grades are under rubric {grades.get('rubric_version')} and the skill "
                          f"is now at {rubric['rubric_version']}; grade the deck again into a new file.")
+    units = presented(units_doc)
+    if any(not units.get(s["unit"], {}).get("content_hash") for s in doc["slides"]):
+        raise SystemExit("gate.py: units.json has no content_hash per slide; extract the built deck again with extract.py")
     grades = grades or {"rubric_version": rubric["rubric_version"], "graders": {}}
     g = grades["graders"].setdefault(grader, {"models": [], "slides": {}, "builds": {}})
+    g.setdefault("content", {})
     g["prompt_sha256"] = sha256("gate-prompt.md")
     if (model or doc["model"]) not in g["models"]:
         g["models"].append(model or doc["model"])  # a re-grade keeps the first pass's model too
     for s in doc["slides"]:
         g["slides"][s["unit"]] = s["answers"]
         g["builds"][s["unit"]] = build
+        g["content"][s["unit"]] = units[s["unit"]]["content_hash"]
     return grades
 
 
@@ -152,23 +160,36 @@ def check_graders(grades, units_doc):
     every = set(grades["graders"])
     errs = []
     for sid in presented(units_doc):
-        by = {g: v.get("builds", {}).get(sid) for g, v in grades["graders"].items() if sid in v["slides"]}
+        by = {g: (v.get("builds", {}).get(sid), v.get("content", {}).get(sid))
+              for g, v in grades["graders"].items() if sid in v["slides"]}
         if not by:
             continue  # never graded: the pass rule fails it
         if set(by) != every:
             errs.append(f"{sid}: graded by {', '.join(sorted(by))}, but the grades hold {', '.join(sorted(every))}")
-        elif len(set(by.values())) > 1 or None in by.values():
-            errs.append(f"{sid}: graders answered under different builds "
-                        f"({', '.join(f'{g} {h}' for g, h in sorted(by.items()))})")
+        elif len(set(by.values())) > 1 or any(None in h for h in by.values()):
+            errs.append(f"{sid}: graders answered under different builds or content "
+                        f"({', '.join(f'{g} {b}/{c}' for g, (b, c) in sorted(by.items()))})")
     if errs:
         raise SystemExit("gate.py: the graders differ by slide; re-grade these slides with exactly the first "
                          "pass's graders:\n" + "\n".join(errs))
 
 
-def graded_builds(grades, units_doc):
-    """The build each presented slide was graded under (None when no grader answered it)."""
-    return {sid: next((v["builds"].get(sid) for v in grades["graders"].values() if sid in v.get("builds", {})), None)
+def graded(grades, units_doc, field):
+    """The build (field "builds") or content hash (field "content") each presented slide was graded
+    under, None when no grader answered it. check_graders has made the graders agree."""
+    return {sid: next((v[field].get(sid) for v in grades["graders"].values() if sid in v.get(field, {})), None)
             for sid in presented(units_doc)}
+
+
+def check_content(grades, units_doc):
+    """Refuse a graded slide whose content moved since it was graded: the grade is of other content."""
+    was = graded(grades, units_doc, "content")
+    errs = [f"{sid}: graded as content {was[sid]}, now {u.get('content_hash')}"
+            for sid, u in presented(units_doc).items()
+            if any(sid in v["slides"] for v in grades["graders"].values()) and was[sid] != u.get("content_hash")]
+    if errs:
+        raise SystemExit("gate.py: these slides changed after they were graded (or the grades are of another "
+                         "deck); re-grade them with gate.py build --select:\n" + "\n".join(errs))
 
 
 def table(grades, units_doc, rubric):
@@ -209,12 +230,14 @@ def record(html, units_doc, grades, round_type, rubric=None, now=None):
         raise SystemExit(f"gate.py: units.json was extracted from build {units_doc.get('deck_build_hash')} and the "
                          f"deck is now build {current}; extract, render and grade the current build.")
     check_graders(grades, units_doc)
+    check_content(grades, units_doc)
     tab = table(grades, units_doc, rubric)
     fails = failing(tab)
     return {"kind": "draft-eval-gate", "deck_build_hash": current, "round": round_type,
             "rubric_version": rubric["rubric_version"],
             "graders": {g: v["models"] for g, v in grades["graders"].items()},
-            "graded_builds": graded_builds(grades, units_doc),
+            "graded_builds": graded(grades, units_doc, "builds"),
+            "content_hashes": graded(grades, units_doc, "content"),
             "date": (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "pass": not fails, "failing": fails, "slides": tab}
 
@@ -258,7 +281,7 @@ def main(argv=None):
         if errs:
             print("\n".join(errs), file=sys.stderr)
             return 1
-        merged = merge(grades, doc, a.grader, a.model, rubric, units_doc.get("deck_build_hash"))
+        merged = merge(grades, doc, a.grader, a.model, rubric, units_doc)
         out.write_text(json.dumps(merged, indent=1) + "\n")
         return 0
     if a.cmd == "failing":

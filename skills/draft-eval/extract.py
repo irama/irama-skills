@@ -33,6 +33,7 @@ split at paragraph boundaries into parts of at most 400 words. A top-level
 returned as `references` and never scored. Ids are s<section>-p<part>.
 """
 import argparse
+import hashlib
 import html
 import json
 import re
@@ -54,9 +55,15 @@ class _Sections(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag == "section":
             if self.depth == 0:
-                self.sections.append({"attrs": dict(attrs), "text": [], "dl": []})
+                self.sections.append({"attrs": dict(attrs), "text": [], "dl": [], "assets": []})
             self.depth += 1
-        elif tag in ("style", "script") and self.depth:
+            return
+        if self.depth:
+            # referenced asset names, so a swapped image changes the slide's content hash
+            a = dict(attrs)
+            self.sections[-1]["assets"] += [a[k] for k in ("src", "poster", "href", "xlink:href", "data-src")
+                                            if a.get(k) and tag != "a"]
+        if tag in ("style", "script") and self.depth:
             self.skip += 1
         elif tag in ("dt", "dd") and self.depth:
             # glossary entries, read only from the terms section
@@ -166,6 +173,15 @@ def build_hash(html):
     return p.found
 
 
+CONTENT_FIELDS = ("text", "notes", "sources", "assets", "layout")
+
+
+def content_hash(unit):
+    """What a grader saw of the slide: visible text, notes, sources, asset names and layout.
+    The gate refuses a slide whose content hash moved after it was graded."""
+    return hashlib.sha256(json.dumps([unit.get(k) for k in CONTENT_FIELDS]).encode()).hexdigest()[:16]
+
+
 def extract_deck(html):
     parser = _Sections()
     parser.feed(html.split("<deck-stage", 1)[-1])
@@ -202,7 +218,9 @@ def extract_deck(html):
             "planted": PLANTED in note,
             "introduces": [x.strip() for x in a.get("data-introduces", "").split(",") if x.strip()],
             "motion": " ".join(a.get("data-motion", "").split()),
+            "assets": secs[primary]["assets"],
         })
+        units[-1]["content_hash"] = content_hash(units[-1])
     return {
         "kind": "deck",
         "deck_build_hash": build_hash(html),  # the gate ties its grades to this build
@@ -361,6 +379,7 @@ def selftest():
     u = doc["units"]
     assert doc["deck_build_hash"] is None
     assert extract_deck('<head><meta name="deck-build-hash" content="ab12"></head>' + _FIXTURE)["deck_build_hash"] == "ab12"
+    assert all(len(x["content_hash"]) == 16 for x in u) and u[0]["content_hash"] != u[1]["content_hash"]
     assert doc["counts"]["sections"] == 10 and len(u) == 7, doc["counts"]
     assert [x["id"] for x in u] == ["title", "s-b", "spare", "x1", "t-a", "provenance", "close"]
     assert u[1]["section_indices"] == [1, 2, 3] and u[1]["primary_index"] == 2
