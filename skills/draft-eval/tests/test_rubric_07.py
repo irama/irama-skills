@@ -34,7 +34,7 @@ def bar(arc_by_grader):
 
 class Rubric07Test(unittest.TestCase):
     def test_version_and_changelog(self):
-        self.assertIn(RUBRIC["rubric_version"], ("0.7", "0.8", "0.9", "0.10", "0.11"))  # 0.8 and 0.9 keep moments
+        self.assertIn(RUBRIC["rubric_version"], ("0.7", "0.8", "0.9", "0.10", "0.11", "0.12"))  # 0.8 and 0.9 keep moments
         self.assertEqual(M["phase"], "experimental")
         note = {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.7"]
         self.assertIn("not comparable", note)

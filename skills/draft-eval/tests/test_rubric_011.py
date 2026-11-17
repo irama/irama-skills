@@ -31,7 +31,7 @@ def bar(m):
 
 class TestRubric011(unittest.TestCase):
     def test_version_ids_and_tiers(self):
-        self.assertEqual(RUBRIC["rubric_version"], "0.11")
+        self.assertIn(RUBRIC["rubric_version"], ("0.11", "0.12"))  # 0.12 keeps these checks
         self.assertNotIn("stage_directions", CHECKS)
         self.assertIn("notes_briefing", CHECKS)
         self.assertIn("four_acts", CHECKS)

@@ -157,3 +157,28 @@ experimental-phase change: no deck has yet been built to it, so its checks may m
   question. Its counter-metric is the false-flag rate on slides a reader let stand: a gate that
   catches more by failing everything gets worse on it. `gate.py` writes the record to
   `eval-runs/gate.json`, keyed on the deck's `deck-build-hash` meta.
+
+## Rubric 0.12: talk time in a training session
+
+From 18 November 2026, `pain_before_solution` counts its 40% floor on talk time in a training
+session. The floor protects a listening room from a promise heard before it feels understood. A
+room that is practising hears no promise, so counting practice minutes pushes a training
+session's first technique past the practice the session exists for. The narrative-arc skill made
+the same change in its version 0.9, and the floor must match in both skills.
+
+- **A training session** is a deck with at least 20% of its running time hands-on (practice and
+  writing). The grader reads the hands-on minutes from the planning slide's minute budget or the
+  run sheet's exercise timings, or else from the timers on the practice slides' facilitator cards.
+  A deck that shows no hands-on minutes in any of those places is not a training session.
+- **Talk time** is the minutes the room listens, leaving out practice and writing. The first fix's
+  share is the talk minutes before it over the session's total talk minutes. A 60-minute session
+  with 24 minutes of pair practice has 36 talk minutes, so its first fix starts at or after talk
+  minute 14.4.
+- **Talks and every other deck** keep the 0.11 rule unchanged: 40% of the running time, read from
+  the planning slide's clock times where it has them.
+- **The counter-metric** is the gap between the hands-on minutes the planning slide claims and the
+  timers on the practice slides' facilitator cards. A deck that lowers its floor by calling talk
+  minutes practice shows that gap.
+- **Comparability.** Rounds scored on 0.11 are not comparable with 0.12 on `pain_before_solution`
+  for a training session, and so on the moments group and the bar that hold it. They are
+  comparable on everything else, including this check for a talk.

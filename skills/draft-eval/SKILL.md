@@ -68,6 +68,13 @@ report). Until then, score only: run one round with no rewrite.
   reader praises in a review goes on it. The rewrite step reads it, and the review brief reports
   each element against the run's rewrites.
 
+### Rubric 0.12
+
+`pain_before_solution` counts its 40% floor on talk time in a training session (at least 20% of
+the running time hands-on, read from the planning slide, the run sheet or the practice slides'
+facilitator cards). Talk time leaves out practice and writing, matching the narrative-arc skill's
+clock test. Talks and other decks keep the 0.11 rule. Detail in `rubric-history.md`.
+
 ### Rubric 0.11
 
 Moves the moments group to the four-act method. Move tags, clock times and stage directions leave

@@ -1,5 +1,5 @@
 {
-  "rubric_version": "0.11",
+  "rubric_version": "0.12",
   "phase": "experimental",
   "changelog": [
     {
@@ -57,6 +57,10 @@
     {
       "version": "0.11",
       "note": "Fitted to a review of how a talk is built in four acts (you are here and it is normal, why the gap is hard, the way through and proof it has been walked, your first steps) and to notes written as a briefing, so no deck is yet a fair test of it. Move tags, clock times and stage directions leave the speaker notes for a hidden planning slide (data-role=\"backstage-plan\"), and the arc pass now sees every data-role=\"backstage-*\" slide under \"Backstage, not presented\". The moments check stage_directions is retired and replaced by notes_briefing (five lines per presented content slide: the point in quotes, a story cue, one number with its source, the bridge, the likely question). A new check, four_acts, asks that every required beat is placed on a slide or on the planning slide, or that the planning slide says why one is left out. star_moment, peak_and_end, five_moves and wrong_and_credible read the planning slide too; wrong_and_credible now requires a mission in act 1. Each check carries a tier: a required check holds the bar, and a recommended check (star_moment, quoted_close, light_moment) is reported and never blocks it. The closing line in quotes is the recommended check quoted_close, so peak_and_end (required) no longer asks for it. notes_actionable reads against the briefing format. Its counter-metric is the arc's flow criterion: a deck that ticks every beat with box-filling slides still fails flow at the joins where only \"and then\" fits. Rounds scored under 0.10 or earlier are not comparable on moments, on notes_actionable or on the bar. The first_cut group adds the first-cut gate: eight binary questions of a new kind, gate, each answered pass or fail with a quote from the slide, run on a first cut before the five-round loop. Its counter-metric is the false-flag rate on slides a reader let stand: a gate that catches more by failing everything gets worse on it."
+    },
+    {
+      "version": "0.12",
+      "note": "Fitted to the narrative-arc skill's version 0.9 clock rule for training sessions, so no deck is yet a fair test of it. pain_before_solution counts its 40% floor on talk time in a training session: a deck with at least 20% of its running time hands-on, read from the planning slide's minute budget, the run sheet's exercise timings or the practice slides' facilitator cards. Talk time is the minutes the room listens, leaving out practice and writing. The floor protects a listening room from a promise heard before it feels understood, and a practising room hears no promise. Talks and every other deck keep the 0.11 rule unchanged. Its counter-metric is the gap between the hands-on minutes the planning slide claims and the timers on the practice slides' facilitator cards: a deck that lowers its floor by calling talk minutes practice shows that gap. Rounds scored on 0.11 are not comparable with 0.12 on pain_before_solution for a training session, and so on the moments group and the bar that hold it; they are comparable on everything else."
     }
   ],
   "scale": {
@@ -673,8 +677,8 @@
         "id": "pain_before_solution",
         "name": "The background and the pains come before the first solution",
         "tier": "required",
-        "pass": "The notes, the planning slide or the run sheet show the background (the change in the world, what it costs this audience, and why it is hard) before the first slide that offers a fix, and that first fix arrives at or after 40% of the running time, read from the planning slide's clock times where it has them.",
-        "fail": "A slide offering a fix, a method or the piece's answer appears before 40% of the running time, or the pains it answers carry no evidence."
+        "pass": "The notes, the planning slide or the run sheet show the background (the change in the world, what it costs this audience, and why it is hard) before the first slide that offers a fix, and that first fix arrives at or after 40% of the running time, read from the planning slide's clock times where it has them. A training session counts the 40% on talk time instead. A deck is a training session when at least 20% of its running time is hands-on (practice and writing), read from the planning slide's minute budget or the run sheet's exercise timings, or else from the timers on the practice slides' facilitator cards. Talk time is the minutes the room listens, leaving out practice and writing. The first fix's share is the talk minutes before it over the session's total talk minutes: a 60-minute session with 24 minutes of pair practice has 36 talk minutes, so its first fix starts at or after talk minute 14.4. A deck whose hands-on minutes no planning slide, run sheet or facilitator card shows is not a training session and keeps the running time.",
+        "fail": "A slide offering a fix, a method or the piece's answer appears before 40% of the running time (of talk time, in a training session), or the pains it answers carry no evidence."
       },
       {
         "id": "four_acts",
