@@ -148,3 +148,12 @@ experimental-phase change: no deck has yet been built to it, so its checks may m
   box-filling slides still fails flow at the joins where only "and then" fits.
 - Rounds scored under 0.10 or earlier are not comparable on moments, on `notes_actionable` or on
   whether the bar was met.
+- **The first-cut gate** is a new group, `first_cut`, of eight binary questions of a new kind,
+  `gate`: per presented slide, each grader answers pass or fail with a quote from the slide. Each
+  question names the 1 to 5 criterion it overlaps, for reference only. The questions are not mapped
+  onto those criteria, because on an earlier set of first-cut slides a mapped criterion scored below
+  4 on nearly every slide, so a mapped gate would fail almost all of them. A slide fails a question
+  when any grader that ran fails it, and a first cut passes when no presented slide fails any
+  question. Its counter-metric is the false-flag rate on slides a reader let stand: a gate that
+  catches more by failing everything gets worse on it. `gate.py` writes the record to
+  `eval-runs/gate.json`, keyed on the deck's `deck-build-hash` meta.
