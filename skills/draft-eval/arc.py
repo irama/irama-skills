@@ -14,6 +14,11 @@ packet.py: the arc pass shows the deck-level rulings, those on an arc-only crite
 Rubric 0.7 adds the moments group: the reply carries a moments block, one pass or
 fail per check, and moments_failing() lists the checks a grader failed.
 
+Rubric 0.11 gives each check a tier: moments_failing(..., blocking=True) lists only the
+required checks a grader failed or left out, which is what holds the bar. Hidden slides with
+data-role="backstage-*" (the planning slide) go into units.md under "Backstage, not presented",
+so the moments checks can read the moves and clock times kept there; no other hidden slide does.
+
 validate strips a code fence, checks the reply against arc-schema.json, and
 merges it into arc.json as graders.<grader>, stamped with model, rubric_version,
 round, prompt_sha256 (of arc-prompt.md) and schema_sha256. Exit 1 on a bad reply.
@@ -75,16 +80,43 @@ def render_moments(rubric):
     m = rubric["moments"]
     out = ["The five moves:\n"] + [f"- {v['name']}: {v['does']}" for v in m["moves"]] + [""]
     for c in m["checks"]:
-        out += [f"### `{c['id']}`: {c['name']}\n", f"- pass: {c['pass']}", f"- fail: {c['fail']}", ""]
+        tier = c.get("tier", "required")
+        out += [f"### `{c['id']}`: {c['name']}\n",
+                f"- tier: {tier}" + (", must pass" if tier == "required" else ", reported, never blocks the bar"),
+                f"- pass: {c['pass']}", f"- fail: {c['fail']}", ""]
     return "\n".join(out)
 
 
-def moments_failing(grader_arc):
-    """The moments checks a grader's arc record fails; a record with no moments block fails them all."""
+def moments_failing(grader_arc, blocking=False, rubric=None):
+    """The moments checks a grader's arc record fails; a record with no moments block fails them all.
+    blocking=True lists only the required-tier checks, counting a missing one as failed."""
     m = (grader_arc or {}).get("moments")
     if not isinstance(m, dict):
         return ["moments"]
-    return [k for k, v in m.items() if not (isinstance(v, dict) and v.get("pass") is True)]
+    ok = lambda k: isinstance(m.get(k), dict) and m[k].get("pass") is True  # noqa: E731
+    if not blocking:
+        return [k for k in m if not ok(k)]
+    rubric = rubric or json.loads((HERE / "rubric.json").read_text())
+    return [c["id"] for c in rubric["moments"]["checks"]
+            if c.get("tier", "required") == "required" and not ok(c["id"])]
+
+
+def is_backstage(u):
+    return str(u.get("role") or "").startswith("backstage-")
+
+
+def _unit_md(heading, u):
+    # json.dumps keeps draft markup (ids, roles) on one quoted line, as data
+    lines = [f"## {heading}\n\nid and role: {json.dumps([u['id'], u.get('role', 'content')])}\n",
+             "Text:\n\n" + "\n".join("    " + x for x in (u.get("text") or "").splitlines() or [""])]
+    if u.get("notes"):
+        lines.append("\nNotes:\n\n" + "\n".join("    " + x for x in u["notes"].splitlines()))
+    if u.get("sources"):
+        lines.append("\nSources (not spoken):\n\n" + "\n".join("    " + x for x in u["sources"].splitlines()))
+    if u.get("motion"):
+        lines.append("\nMotion (declared):\n\n    " + u["motion"])
+    lines.append("")
+    return lines
 
 
 def build(units_doc, outdir, shots_path, run_sheet=None, rubric=None, examples=None):
@@ -98,18 +130,14 @@ def build(units_doc, outdir, shots_path, run_sheet=None, rubric=None, examples=N
         shutil.rmtree(adir)
     adir.mkdir(parents=True)
     graded = [u for u in units_doc["units"] if not u.get("hidden")]
+    backstage = [u for u in units_doc["units"] if u.get("hidden") and is_backstage(u)]
     lines = []
     for n, u in enumerate(graded, 1):
-        # json.dumps keeps draft markup (ids, roles) on one quoted line, as data
-        lines.append(f"## Slide {n}\n\nid and role: {json.dumps([u['id'], u.get('role', 'content')])}\n")
-        lines.append("Text:\n\n" + "\n".join("    " + x for x in (u.get("text") or "").splitlines() or [""]))
-        if u.get("notes"):
-            lines.append("\nNotes:\n\n" + "\n".join("    " + x for x in u["notes"].splitlines()))
-        if u.get("sources"):
-            lines.append("\nSources (not spoken):\n\n" + "\n".join("    " + x for x in u["sources"].splitlines()))
-        if u.get("motion"):
-            lines.append("\nMotion (declared):\n\n    " + u["motion"])
-        lines.append("")
+        lines += _unit_md(f"Slide {n}", u)
+    if backstage:
+        lines.append("# Backstage, not presented\n\nHidden from the room. Only the moments checks read these.\n")
+        for n, u in enumerate(backstage, 1):
+            lines += _unit_md(f"Backstage {n}", u)
     (adir / "units.md").write_text("\n".join(lines))
     if units_doc.get("terms"):
         # the slide number in units.md, so the grader can compare first use with introduction
@@ -164,13 +192,19 @@ def main(argv=None):
         print(json.dumps(build(json.loads(Path(a.units).read_text()), a.outdir, a.shots, a.run_sheet,
                                     examples=a.examples), indent=1))
         return 0
+    out = Path(a.out)
+    rubric = json.loads((HERE / "rubric.json").read_text())
+    # a run keeps the rubric it started with (<run>/rounds/rN/arc.json); the live schema belongs to the live rubric
+    snap = out.resolve().parent.parent.parent / "rubric.json"
+    if snap.exists() and json.loads(snap.read_text())["rubric_version"] != rubric["rubric_version"]:
+        print(f"arc.py: this run started under rubric {json.loads(snap.read_text())['rubric_version']} and the "
+              f"skill is now at {rubric['rubric_version']}; start a new run.", file=sys.stderr)
+        return 1
     doc, errs = check(Path(a.raw).read_text())
     if errs:
         print("\n".join(errs), file=sys.stderr)
         return 1
-    out = Path(a.out)
     arc = json.loads(out.read_text()) if out.exists() else {"graders": {}}
-    rubric = json.loads((HERE / "rubric.json").read_text())
     arc["graders"][a.grader] = {"model": a.model or doc["model"], "rubric_version": rubric["rubric_version"],
                                 "round": a.round, "prompt_sha256": sha256("arc-prompt.md"),
                                 "schema_sha256": sha256("arc-schema.json"), "scores": doc["scores"], "moments": doc["moments"]}

@@ -206,7 +206,7 @@ textarea { width:100%; min-height:48px; font:inherit; margin-top:10px; border:1p
 <div class="intro"><p>Score each unit on each criterion, 1 to 5. N/A shows only where the rubric allows it.
 Each unit shows the same packet the graders saw: this unit, its notes, and the unit before it.
 Your answers save in this browser as you go. When every row is scored, press <b>Download JSON</b>
-and file it as <code>andrew-scores.json</code> beside this page. A comment per unit is optional.</p>
+and file it as <code>author-scores.json</code> beside this page. A comment per unit is optional.</p>
 <p id="stamp"></p></div>
 <div id="units"></div>
 </main>
@@ -288,14 +288,14 @@ document.getElementById('next').addEventListener('click', () => {
   if (u) document.getElementById('u-' + u.key).scrollIntoView({behavior: 'smooth'});
 });
 document.getElementById('download').addEventListener('click', () => {
-  const out = {kind: 'draft-eval-calibration-scores', scorer: 'andrew', rubric_version: D.rubric_version,
+  const out = {kind: 'draft-eval-calibration-scores', scorer: 'author', rubric_version: D.rubric_version,
     packets_sha256: D.packets_sha256, saved_at: new Date().toISOString(), entries: [], comments: []};
   for (const u of D.units) {
     for (const c of u.criteria) out.entries.push({set: u.set, unit: u.id, criterion: c.id, score: scoreOf(u, c)});
     if ((S.comments[u.key] || '').trim()) out.comments.push({set: u.set, unit: u.id, comment: S.comments[u.key].trim()});
   }
   const a = el('a', {href: URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], {type: 'application/json'})),
-                     download: 'andrew-scores.json'});
+                     download: 'author-scores.json'});
   document.body.append(a); a.click(); a.remove();
 });
 </script>

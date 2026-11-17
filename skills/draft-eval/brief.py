@@ -47,7 +47,7 @@ def _fmt(x):
     return "none" if x is None else (f"{x:+.2f}" if isinstance(x, float) else str(x))
 
 
-def gate_rows(sc, arc, prefer):
+def gate_rows(sc, arc, prefer, rubric=None):
     rows = []
     mech = sc["bar"]["mechanical_pass"]
     rows.append(("Mechanical gates", "all pass", "pass" if mech else "fail", "passed" if mech else "failed"))
@@ -63,9 +63,11 @@ def gate_rows(sc, arc, prefer):
             fail = any(v["score"] < 4 for v in s.values())
             rows.append((f"Arc pass, {g}", "4 or more on each", vals, "failed" if fail else "passed"))
         if "moments" in ga:
+            block = arc_mod.moments_failing(ga, blocking=True, rubric=rubric)
             bad = arc_mod.moments_failing(ga)
-            rows.append((f"Moments, {g}", "every check passes", ", ".join(bad) or "all pass",
-                         "failed" if bad else "passed"))
+            bad += [k for k in block if k not in bad]  # a required check the reply left out still shows
+            rows.append((f"Moments, {g}", "every required check passes", ", ".join(bad) or "all pass",
+                         "failed" if block else "passed"))
     sp = sc["self_preference"]
     ex = sp["excess_vs_untouched"] if sp["compared_with"] == "untouched" else sp["excess_vs_baseline"]
     if ex is not None:
@@ -112,7 +114,7 @@ def fill(run, prefer=None, figures=None, after=None, keep=None):
 
     grader_rows = [(g, pg["units_scored"], pg["mean"], ", ".join(f"{c} {v}" for c, v in pg["criteria"].items()))
                    for g, pg in sc["per_grader"].items()]
-    gates = gate_rows(sc, arc, prefer)
+    gates = gate_rows(sc, arc, prefer, _json(run / "rubric.json"))
     tie = any("tie" in r[3] for r in gates)
     failed = any(r[3] in ("failed", "flagged") for r in gates)
     # a deck's rewrites are recommended only after the blind preference test has passed

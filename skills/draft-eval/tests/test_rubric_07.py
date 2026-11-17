@@ -14,8 +14,9 @@ import score_round as sr  # noqa: E402
 
 RUBRIC = json.loads((HERE / "rubric.json").read_text())
 M = RUBRIC["moments"]
-IDS = ["star_moment", "peak_and_end", "five_moves", "people_and_stories", "wrong_and_credible",
-       "light_moment", "stage_directions", "pain_before_solution"]
+IDS = ["star_moment", "peak_and_end", "quoted_close", "five_moves", "people_and_stories", "wrong_and_credible",
+       "light_moment", "notes_briefing", "pain_before_solution", "four_acts"]
+REQUIRED = [c["id"] for c in M["checks"] if c["tier"] == "required"]
 CRITS = [c["id"] for c in RUBRIC["criteria"]]
 UNITS = {"kind": "deck", "units": [{"id": u} for u in "abc"]}
 SCORES = {c: {"score": 5, "reason": 'Slide 2 says "x".'} for c in RUBRIC["bars"]["arc_criteria"]}
@@ -33,7 +34,7 @@ def bar(arc_by_grader):
 
 class Rubric07Test(unittest.TestCase):
     def test_version_and_changelog(self):
-        self.assertIn(RUBRIC["rubric_version"], ("0.7", "0.8", "0.9", "0.10"))  # 0.8 and 0.9 keep moments
+        self.assertIn(RUBRIC["rubric_version"], ("0.7", "0.8", "0.9", "0.10", "0.11"))  # 0.8 and 0.9 keep moments
         self.assertEqual(M["phase"], "experimental")
         note = {c["version"]: c["note"] for c in RUBRIC["changelog"]}["0.7"]
         self.assertIn("not comparable", note)
@@ -49,9 +50,8 @@ class Rubric07Test(unittest.TestCase):
         self.assertIn("echoes the first", text["peak_and_end"])
         self.assertIn("comes before the first promise", text["five_moves"])
         self.assertIn("physical scale", text["people_and_stories"])
-        self.assertIn("first three minutes", text["wrong_and_credible"])
-        for tag in ("[MOVE:", "[STORY]", "[ASK]", "[PAUSE]"):
-            self.assertIn(tag, text["stage_directions"])
+        self.assertIn("mission", text["wrong_and_credible"])  # 0.11: a mission in act 1, not the first three minutes
+        self.assertIn("planning slide", text["five_moves"])  # 0.11: moves sit on the planning slide, not [MOVE: tags
 
     def test_the_five_moves_and_no_ethics_guard(self):
         self.assertEqual([m["name"] for m in M["moves"]],
@@ -94,10 +94,10 @@ class Rubric07Test(unittest.TestCase):
         self.assertTrue(bar({"claude": {"scores": SCORES, "moments": moments(True)}})["met"])
         dry = bar({"claude": {"scores": SCORES, "moments": moments(False)}})
         self.assertFalse(dry["met"])
-        self.assertEqual(dry["arc_failing"], [f"claude:moments.{c}" for c in IDS])
-        one = dict(moments(True), light_moment={"pass": False, "reason": "r"})
+        self.assertEqual(dry["arc_failing"], [f"claude:moments.{c}" for c in REQUIRED])  # 0.11: by tier
+        one = dict(moments(True), peak_and_end={"pass": False, "reason": "r"})
         self.assertEqual(bar({"claude": {"scores": SCORES, "moments": one}})["arc_failing"],
-                         ["claude:moments.light_moment"])
+                         ["claude:moments.peak_and_end"])
         # an arc record from before 0.7 has no moments block and does not meet a 0.7 bar
         self.assertEqual(bar({"claude": {"scores": SCORES}})["arc_failing"], ["claude:moments.moments"])
 

@@ -106,9 +106,12 @@ whose idea plainly moves scores 3 at most. `none` with an idea that has no movem
 - A deck unit whose `motion.txt` says `none`, and whose idea has no movement in it, may be N/A for
   `motion`. Any other unit, evidence slides aside, is scored on it.
 - `economy` judges the visible text and elements only, never the notes.
-- Stage directions in the notes, such as [PAUSE], [ASK], [STORY] and [MOVE: confirm their
-  suspicions], are exact moves for `notes_actionable`, never vague. The deck-level moments group
-  in the arc pass judges whether they are there; a unit never loses a point for carrying them.
+- Notes are a briefing: the point in quotes with the reason in brackets, a story cue, one number
+  with its source, the bridge to the next slide, and the likely question with a short answer.
+  Score `notes_actionable` against those five lines. Move tags, clock times and stage directions
+  such as [PAUSE] or [MOVE: confirm their suspicions] belong on the deck's hidden planning slide;
+  the deck-level moments group in the arc pass checks where they sit, so a unit never gains or
+  loses a point on `notes_actionable` for carrying them.
 - A criterion that does not apply to a {{KIND}} (it is not listed above) is `null`.
 
 ## Reasons

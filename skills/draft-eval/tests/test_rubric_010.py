@@ -14,7 +14,7 @@ SCHEMA = json.loads((HERE / "arc-schema.json").read_text())
 
 class TestRubric010(unittest.TestCase):
     def test_check_is_in_rubric_schema_and_prompt(self):
-        self.assertEqual(RUBRIC["rubric_version"], "0.10")
+        self.assertIn(RUBRIC["rubric_version"], ("0.10", "0.11"))  # 0.11 keeps the check
         check = next(c for c in RUBRIC["moments"]["checks"] if c["id"] == "pain_before_solution")
         self.assertIn("40%", check["pass"])
         self.assertIn("40%", check["fail"])

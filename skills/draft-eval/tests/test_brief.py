@@ -40,6 +40,19 @@ class BriefTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             self.assertNotIn("(Recommended)", brief.fill(run_dir(t, status="met by Claude only")))
 
+    def test_moments_row_reads_the_run_snapshot_and_lists_a_missing_required_check(self):
+        with tempfile.TemporaryDirectory() as t:
+            run = run_dir(t)
+            live = json.loads((Path(brief.__file__).parent / "rubric.json").read_text())
+            live["moments"]["checks"].append({"id": "snapshot_only", "name": "n", "tier": "required", "pass": "p", "fail": "f"})
+            (run / "rubric.json").write_text(json.dumps(live))
+            moments = {c["id"]: {"pass": True, "reason": "r"} for c in live["moments"]["checks"] if c["id"] != "snapshot_only"}
+            (run / "rounds" / "r1" / "arc.json").write_text(json.dumps({"graders": {"claude": {"scores": {}, "moments": moments}}}))
+            row = next(r for r in brief.gate_rows(json.loads((run / "rounds" / "r1" / "score.json").read_text()),
+                                                  {"claude": {"moments": moments}}, None, live) if r[0] == "Moments, claude")
+            self.assertEqual((row[2], row[3]), ("snapshot_only", "failed"))
+            self.assertIn("snapshot_only", brief.fill(run))
+
     def test_check_reports_open_placeholders(self):
         with tempfile.TemporaryDirectory() as t:
             md = Path(t) / "b.md"
