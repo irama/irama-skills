@@ -38,6 +38,8 @@ For `/prune all`, collect the skips and report them at the end — never remove 
 
 6. **Resync the VSCode workspace file:** run `node "$HOME/.claude/hooks/sync-worktree-workspace.mjs"` once. Raw `git worktree remove` does not fire the `ExitWorktree` hook, so without this the multi-root `<project>.code-workspace` keeps a stale root pointing at the deleted worktree.
 
+7. **Stop orphaned Orca chats:** run `python3 "<skill-dir>/orca-reap.py"` once, where `<skill-dir>` is the folder this skill loaded from. A thread that prunes its own worktree leaves its Orca chat process running, idle. If Orca still counts a background task for that chat, its sidebar card stays under "Monitoring background tasks" with no close button. The script stops each idle Orca chat whose worktree is gone, through Orca's own supervisor, so the card moves to DONE. It skips the thread that runs it, and the next `/prune` from any thread stops that one. With no Orca installed, it does nothing.
+
 ## Report
 
-End with: worktrees/branches removed, any skipped (with the reason — uncommitted or unmerged), orphan directories swept and how much disk that reclaimed, and confirmation the workspace file was resynced.
+End with: worktrees/branches removed, any skipped (with the reason — uncommitted or unmerged), orphan directories swept and how much disk that reclaimed, confirmation the workspace file was resynced, and any Orca chats the reaper stopped.
