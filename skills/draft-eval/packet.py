@@ -125,9 +125,10 @@ def render_prompt(rubric, kind, rows, examples=None, terms=None):
     return text
 
 
-def build(units_doc, outdir, shots_path=None, rubric=None, select=None, examples=None):
+def build(units_doc, outdir, shots_path=None, rubric=None, select=None, examples=None, render=None):
     """Build the batches. `select` (a set of unit ids) packs only those units, each still with
-    its real previous unit from the draft; calibration uses it."""
+    its real previous unit from the draft; calibration uses it. `render` replaces render_prompt
+    (gate.py writes the first-cut gate prompt into the same packets)."""
     rubric = rubric or json.loads((HERE / "rubric.json").read_text())
     kind = units_doc["kind"]
     shots = {}
@@ -177,7 +178,7 @@ def build(units_doc, outdir, shots_path=None, rubric=None, select=None, examples
         if kind == "article" and units_doc.get("references"):
             (bdir / "references.md").write_text(units_doc["references"])
         prompt = outdir / f"{bdir.name}.prompt.md"
-        prompt.write_text(render_prompt(rubric, kind, rows, examples, units_doc.get("terms")))
+        prompt.write_text((render or render_prompt)(rubric, kind, rows, examples, units_doc.get("terms")))
         batches.append({"dir": str(bdir), "prompt": str(prompt),
                         "units": [r["id"] for r in rows], "pngs": pngs})
     return batches

@@ -29,6 +29,7 @@ report). Until then, score only: run one round with no rewrite.
 | `check.py` | Mechanical gates, floors and warnings for a deck. |
 | `packet.py`, `validate.py` | Grading packets per batch; validation and stamping of each grader reply. |
 | `arc.py` | The arc pass packet and the validation of its replies. |
+| `gate.py`, `gate-prompt.md` | The first-cut gate: packets, reply validation, the pass rule and `eval-runs/gate.json`. |
 | `run.py` | The lock, the run folder, the per-round record, the round commit, the record check. |
 | `score_round.py` | Unit scores, the median, the bar, the stop decision, Codex's audit set, the self-preference check, the split re-grade list (calibration rounds) and the rewrite list. |
 | `prefer.py` | The blind preference page, and `--score` for the 70% rule. |
@@ -129,6 +130,41 @@ Earlier versions (0.3 to 0.4.2), whose rules still hold, are in `rubric-history.
 score turns on a rule this section does not name.
 
 The rubric's `changelog` says what each version changed and what it was fitted to.
+
+## The first-cut gate
+
+**A first cut, and each re-outline round, gets the gate, not the loop.** The gate asks the eight
+`first_cut` questions of `rubric.json` (kind `gate`) once per presented slide. Each grader answers
+pass or fail with a quote from the slide. **The five-round loop runs only when the user asks for it.**
+The gate needs no run folder and no lock. `G=<folder>/eval-runs/gate-<UTC>`, kept out of git with
+the rest of `eval-runs/`.
+
+1. **Packets.** Build the deck, then `python3 <skill-dir>/extract.py <index.html> -o $G/units.json`,
+   `node <skill-dir>/render.mjs <index.html> $G/units.json $G/shots` and
+   `python3 <skill-dir>/gate.py build $G/units.json $G/packets --shots $G/shots/shots.json > $G/build.json`.
+2. **Graders.** For every batch in `build.json`, dispatch a fresh `draft-grader` with the batch
+   directory and its prompt, and write the reply to `<batch dir>.claude.json`. If `codex-available -q`
+   exits 0, run Codex on the same batch as in `grading.md`, with `--output-schema $G/packets/gate-schema.json`
+   and `-o <batch dir>.codex.json`. If it exits non-zero, Claude grades alone and the report says so.
+3. **Validate** each reply: `python3 <skill-dir>/gate.py validate <reply> --units $G/units.json
+   --batch <the batch's units, comma-separated> --grader claude|codex -o $G/grades.json`. It rejects
+   a reply that misses a slide or a question, answers with anything but true or false, or gives a
+   quote that is not from the slide. Retry a rejected reply once.
+4. **Failing slides.** `python3 <skill-dir>/gate.py failing $G/grades.json --units $G/units.json`
+   lists each slide and the questions it fails. A slide fails a question when any grader that ran
+   fails it. Graders are never pooled or averaged.
+5. **One repair pass** on the failing slides only. Edit the source, never `index.html`, and fix
+   what each failed question names. Add or delete no slide.
+6. **Re-grade the repaired slides.** Rebuild, extract to `$G/units.json` and render again, then
+   `gate.py build ... --select <the failing ids> > $G/regrade.json` into `$G/regrade`, grade with
+   the same graders and validate into the same `$G/grades.json`. A re-grade replaces only the slides
+   it covers. There is no second repair pass.
+7. **Write the record:** `python3 <skill-dir>/gate.py record <index.html> --units $G/units.json
+   --grades $G/grades.json --round first-cut|re-outline`. It writes `<folder>/eval-runs/gate.json`
+   with the deck's `deck-build-hash` meta (never the file's sha256: delivery rewrites the file and
+   keeps the build hash), the round type, the rubric version, the graders that ran, pass or fail
+   per question per slide with each grader's answer, the failing list, and the date. The first cut
+   passes when no presented slide fails any question. Report the failing slides either way.
 
 ## The loop
 

@@ -56,7 +56,7 @@
     },
     {
       "version": "0.11",
-      "note": "Fitted to a review of how a talk is built in four acts (you are here and it is normal, why the gap is hard, the way through and proof it has been walked, your first steps) and to notes written as a briefing, so no deck is yet a fair test of it. Move tags, clock times and stage directions leave the speaker notes for a hidden planning slide (data-role=\"backstage-plan\"), and the arc pass now sees every data-role=\"backstage-*\" slide under \"Backstage, not presented\". The moments check stage_directions is retired and replaced by notes_briefing (five lines per presented content slide: the point in quotes, a story cue, one number with its source, the bridge, the likely question). A new check, four_acts, asks that every required beat is placed on a slide or on the planning slide, or that the planning slide says why one is left out. star_moment, peak_and_end, five_moves and wrong_and_credible read the planning slide too; wrong_and_credible now requires a mission in act 1. Each check carries a tier: a required check holds the bar, and a recommended check (star_moment, quoted_close, light_moment) is reported and never blocks it. The closing line in quotes is the recommended check quoted_close, so peak_and_end (required) no longer asks for it. notes_actionable reads against the briefing format. Its counter-metric is the arc's flow criterion: a deck that ticks every beat with box-filling slides still fails flow at the joins where only \"and then\" fits. Rounds scored under 0.10 or earlier are not comparable on moments, on notes_actionable or on the bar."
+      "note": "Fitted to a review of how a talk is built in four acts (you are here and it is normal, why the gap is hard, the way through and proof it has been walked, your first steps) and to notes written as a briefing, so no deck is yet a fair test of it. Move tags, clock times and stage directions leave the speaker notes for a hidden planning slide (data-role=\"backstage-plan\"), and the arc pass now sees every data-role=\"backstage-*\" slide under \"Backstage, not presented\". The moments check stage_directions is retired and replaced by notes_briefing (five lines per presented content slide: the point in quotes, a story cue, one number with its source, the bridge, the likely question). A new check, four_acts, asks that every required beat is placed on a slide or on the planning slide, or that the planning slide says why one is left out. star_moment, peak_and_end, five_moves and wrong_and_credible read the planning slide too; wrong_and_credible now requires a mission in act 1. Each check carries a tier: a required check holds the bar, and a recommended check (star_moment, quoted_close, light_moment) is reported and never blocks it. The closing line in quotes is the recommended check quoted_close, so peak_and_end (required) no longer asks for it. notes_actionable reads against the briefing format. Its counter-metric is the arc's flow criterion: a deck that ticks every beat with box-filling slides still fails flow at the joins where only \"and then\" fits. Rounds scored under 0.10 or earlier are not comparable on moments, on notes_actionable or on the bar. The first_cut group adds the first-cut gate: eight binary questions of a new kind, gate, each answered pass or fail with a quote from the slide, run on a first cut before the five-round loop. Its counter-metric is the false-flag rate on slides a reader let stand: a gate that catches more by failing everything gets worse on it."
     }
   ],
   "scale": {
@@ -401,7 +401,7 @@
   },
   "banned_terms": [
     {
-      "term": "—",
+      "term": "\u2014",
       "case_sensitive": true,
       "why": "Em dash."
     },
@@ -476,7 +476,7 @@
       "why": "An instruction on how to consume the slide."
     },
     {
-      "pattern": "\\bdon[’']?t read\\b",
+      "pattern": "\\bdon[\u2019']?t read\\b",
       "why": "An instruction on how to consume the slide."
     },
     {
@@ -682,6 +682,88 @@
         "tier": "required",
         "pass": "The deck places every required beat, on a slide or on the planning slide, or the planning slide says why a beat is left out. The required beats: act 1: an opening move that commands the room, fitted to the context; a shared problem the room owns; a frame that maps the journey; forgiveness, that where the room is now is normal; a positive destination; the speaker's mission, with credentials sprinkled through. Act 2: the background before any tools, its trends and drivers dated. Act 3: the model, with the frame returning as the map; proof as short stories about people or organisations already succeeding that way; the fear named and answered last. Act 4: a few concrete moves, usually three; a callback to the frame and the title. Across the deck: a title that challenges a belief; a minute budget per act with keep tight and keep lean marks; a story or metaphor in every act; a confirm or a justify before the first promise. The planning slide maps each presented slide to its act.",
         "fail": "A required beat is on no slide and not on the planning slide, and the planning slide gives no reason for leaving it out; or the deck has no planning slide that maps its slides to the four acts."
+      }
+    ]
+  },
+  "first_cut": {
+    "kind": "gate",
+    "applies_to": [
+      "deck"
+    ],
+    "phase": "experimental",
+    "note": "The first-cut gate: eight binary questions, asked once per slide on a first cut and on each re-outline round. Each grader answers pass or fail with a quote from the slide. A slide fails a question when any grader that ran fails it, and a first cut passes when no presented slide fails any question. overlaps names the 1 to 5 criterion the question is closest to, for reference only: the gate is never scored on that criterion's scale.",
+    "questions": [
+      {
+        "id": "talkable",
+        "name": "The speaker can talk to it",
+        "kind": "gate",
+        "overlaps": "earns_place",
+        "question": "Can the speaker talk to this slide? Is it a prompt, a proof, a punchline or a backdrop?",
+        "pass": "The slide plainly does one of the four jobs: a prompt the speaker talks from, a proof the speaker points at, a punchline that lands a line, or a backdrop that holds the room while the speaker tells a story.",
+        "fail": "The slide does none of the four jobs: it is a document to read, a list the speaker would have to recite, or a slide the talk could skip with nothing lost."
+      },
+      {
+        "id": "title_takeaway",
+        "name": "The title is the takeaway",
+        "kind": "gate",
+        "overlaps": "clear",
+        "question": "Is the title the takeaway, in plain words a reader can repeat?",
+        "pass": "The title states the slide's point as a claim, in plain words a reader could say back to a colleague.",
+        "fail": "The title is a topic label (\"Overview\", \"Our approach\"), a question the slide never answers, or wording a reader could not repeat without the slide."
+      },
+      {
+        "id": "one_visual",
+        "name": "One visual holds the point",
+        "kind": "gate",
+        "overlaps": "visual",
+        "question": "Is there one visual that holds the point, in the deck's house style, with the content inside the metaphor?",
+        "pass": "One visual carries the point, it matches the rest of the deck's look, and the content sits inside the visual (the labels are parts of the map, the steps are the path) rather than beside it.",
+        "fail": "No visual, several competing visuals, a visual off the deck's house style, or a picture beside a block of text that carries the point on its own."
+      },
+      {
+        "id": "click_order",
+        "name": "Click order matches the spoken order",
+        "kind": "gate",
+        "overlaps": "motion",
+        "question": "Does the click order match the order the speaker would say it?",
+        "pass": "Elements appear in the order the notes or the speaker's line take them, or the slide has no builds and needs none.",
+        "fail": "An element appears before the speaker reaches it, the punchline shows before its set-up, or everything is on screen at once while the notes walk through it in steps."
+      },
+      {
+        "id": "current_evidence",
+        "name": "Evidence is current, primary and cited",
+        "kind": "gate",
+        "overlaps": "honest_numbers",
+        "question": "Is the evidence current, primary, explained and cited on the slide, and does it serve the author's position?",
+        "pass": "Every number or claim of fact is recent for its field, comes from the primary source, says what it measures, is cited on the slide, and supports the position the deck argues; or the slide carries no evidence and needs none.",
+        "fail": "A number or claim is dated, second-hand, unexplained or uncited on the slide, or it argues a point the author's position does not need."
+      },
+      {
+        "id": "own_vocabulary",
+        "name": "The author's frameworks and names",
+        "kind": "gate",
+        "overlaps": "clear",
+        "question": "Does the slide use the author's frameworks and names, with no new vocabulary?",
+        "pass": "Every framework, model and named idea on the slide is one the author already uses, by the author's own name for it, and any term the reader needs is in the deck's terms list.",
+        "fail": "The slide coins a new term, renames one of the author's frameworks, or brings in someone else's vocabulary where the author has a name of their own."
+      },
+      {
+        "id": "plain_stance",
+        "name": "No boast, hedge, review status or edge case",
+        "kind": "gate",
+        "overlaps": "economy",
+        "question": "Does any line boast, hedge, assume a review status or show an edge case?",
+        "pass": "No line boasts, hedges, assumes the reader has reviewed or approved something, or shows an edge case the main point does not need.",
+        "fail": "A line boasts (\"world-leading\"), hedges (\"may possibly\"), assumes a review status (\"as agreed\", \"draft for sign-off\"), or spends the slide on an edge case."
+      },
+      {
+        "id": "fit_and_finish",
+        "name": "Labels, fit and icons",
+        "kind": "gate",
+        "overlaps": "visual",
+        "question": "Do labels sit by their points, does text fit, and can every icon be seen?",
+        "pass": "Every label sits next to the thing it names, no text is cut off, overflows or overlaps, and every icon is large and clear enough to read in the screenshot.",
+        "fail": "A label sits away from its point or needs a legend, text is clipped or overlaps, or an icon is too small or faint to see."
       }
     ]
   }
