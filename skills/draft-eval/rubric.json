@@ -56,7 +56,7 @@
     },
     {
       "version": "0.11",
-      "note": "Fitted to a review of how a talk is built in four acts (you are here and it is normal, why the gap is hard, the way through and proof it has been walked, your first steps) and to notes written as a briefing, so no deck is yet a fair test of it. Move tags, clock times and stage directions leave the speaker notes for a hidden planning slide (data-role=\"backstage-plan\"), and the arc pass now sees every data-role=\"backstage-*\" slide under \"Backstage, not presented\". The moments check stage_directions is retired and replaced by notes_briefing (five lines per presented content slide: the point in quotes, a story cue, one number with its source, the bridge, the likely question). A new check, four_acts, asks that every required beat is placed on a slide or on the planning slide, or that the planning slide says why one is left out. star_moment, peak_and_end, five_moves and wrong_and_credible read the planning slide too; wrong_and_credible now requires a mission in act 1. Each check carries a tier: a required check holds the bar, and a recommended check (star_moment, light_moment) is reported and never blocks it. notes_actionable reads against the briefing format. Its counter-metric is the arc's flow criterion: a deck that ticks every beat with box-filling slides still fails flow at the joins where only \"and then\" fits. Rounds scored under 0.10 or earlier are not comparable on moments, on notes_actionable or on the bar."
+      "note": "Fitted to a review of how a talk is built in four acts (you are here and it is normal, why the gap is hard, the way through and proof it has been walked, your first steps) and to notes written as a briefing, so no deck is yet a fair test of it. Move tags, clock times and stage directions leave the speaker notes for a hidden planning slide (data-role=\"backstage-plan\"), and the arc pass now sees every data-role=\"backstage-*\" slide under \"Backstage, not presented\". The moments check stage_directions is retired and replaced by notes_briefing (five lines per presented content slide: the point in quotes, a story cue, one number with its source, the bridge, the likely question). A new check, four_acts, asks that every required beat is placed on a slide or on the planning slide, or that the planning slide says why one is left out. star_moment, peak_and_end, five_moves and wrong_and_credible read the planning slide too; wrong_and_credible now requires a mission in act 1. Each check carries a tier: a required check holds the bar, and a recommended check (star_moment, quoted_close, light_moment) is reported and never blocks it. The closing line in quotes is the recommended check quoted_close, so peak_and_end (required) no longer asks for it. notes_actionable reads against the briefing format. Its counter-metric is the arc's flow criterion: a deck that ticks every beat with box-filling slides still fails flow at the joins where only \"and then\" fits. Rounds scored under 0.10 or earlier are not comparable on moments, on notes_actionable or on the bar."
     }
   ],
   "scale": {
@@ -624,8 +624,15 @@
         "id": "peak_and_end",
         "name": "The peak and the ending are designed, and the close returns to the open",
         "tier": "required",
-        "pass": "The planning slide or the notes name the emotional peak, and it sits at the end of act 3, where the fear is named and answered. The last 60 seconds are planned, those slides carry the deck's strongest material, the close is a line written in quotes, and the last line or image echoes the first, so the room feels the talk was about one thing.",
-        "fail": "No peak is named, the peak is not at the end of act 3, the deck ends on a summary, a questions slide or a thank-you with no closing line in quotes, or the close does not echo the open."
+        "pass": "The planning slide or the notes name the emotional peak, and it sits at the end of act 3, where the fear is named and answered. The last 60 seconds are planned, those slides carry the deck's strongest material, and the last line or image echoes the first, so the room feels the talk was about one thing.",
+        "fail": "No peak is named, the peak is not at the end of act 3, the deck ends on a summary, a questions slide or a thank-you, or the close does not echo the open."
+      },
+      {
+        "id": "quoted_close",
+        "name": "The closing line is written in quotes",
+        "tier": "recommended",
+        "pass": "The planning slide or the notes give the deck's closing line written out in quotes, so the speaker can say it word for word.",
+        "fail": "The close is described but not written as a line in quotes, or the deck ends on a summary, a questions slide or a thank-you with no closing line. A recommended check: reported, never blocks the bar."
       },
       {
         "id": "five_moves",

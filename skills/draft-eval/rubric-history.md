@@ -131,14 +131,17 @@ experimental-phase change: no deck has yet been built to it, so its checks may m
   content slide's notes carry five lines (the point in quotes with the reason in brackets, a story
   cue, one number with its source, the bridge, the likely question), and the planning slide
   carries the moves and the clock times.
+- **`quoted_close`** is new and recommended: the closing line is written out in quotes. It was part of
+  `peak_and_end`, but the confirmed beat tiers make the quoted close a recommended beat, so a
+  missing quote is reported and never blocks the bar.
 - **`four_acts`** is new: the deck places every required beat on a slide or on the planning slide,
   or the planning slide says why a beat is left out.
 - **Revised to read the planning slide:** `star_moment`, `peak_and_end` (the peak at the end of
-  act 3, the close as a line in quotes), `five_moves` and `wrong_and_credible` (a mission in act 1
+  act 3), `five_moves` and `wrong_and_credible` (a mission in act 1
   is required, an opening story is recommended, "I was wrong" stays optional). `people_and_stories`
   counts per act, and `pain_before_solution` reads the planning slide's clock times.
 - **Must-pass follows the tier.** Each check carries `tier`. A required check holds the bar
-  (`bars.moments_must_pass`); a recommended check (`star_moment`, `light_moment`) is reported in
+  (`bars.moments_must_pass`); a recommended check (`star_moment`, `quoted_close`, `light_moment`) is reported in
   the brief and never blocks it. A required check missing from a grader's reply counts as failed.
 - **`notes_actionable`** now reads against the five briefing lines.
 - **The counter-metric** is the arc's `flow` criterion: a deck that ticks every beat with

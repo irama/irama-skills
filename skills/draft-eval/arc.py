@@ -192,13 +192,19 @@ def main(argv=None):
         print(json.dumps(build(json.loads(Path(a.units).read_text()), a.outdir, a.shots, a.run_sheet,
                                     examples=a.examples), indent=1))
         return 0
+    out = Path(a.out)
+    rubric = json.loads((HERE / "rubric.json").read_text())
+    # a run keeps the rubric it started with (<run>/rounds/rN/arc.json); the live schema belongs to the live rubric
+    snap = out.resolve().parent.parent.parent / "rubric.json"
+    if snap.exists() and json.loads(snap.read_text())["rubric_version"] != rubric["rubric_version"]:
+        print(f"arc.py: this run started under rubric {json.loads(snap.read_text())['rubric_version']} and the "
+              f"skill is now at {rubric['rubric_version']}; start a new run.", file=sys.stderr)
+        return 1
     doc, errs = check(Path(a.raw).read_text())
     if errs:
         print("\n".join(errs), file=sys.stderr)
         return 1
-    out = Path(a.out)
     arc = json.loads(out.read_text()) if out.exists() else {"graders": {}}
-    rubric = json.loads((HERE / "rubric.json").read_text())
     arc["graders"][a.grader] = {"model": a.model or doc["model"], "rubric_version": rubric["rubric_version"],
                                 "round": a.round, "prompt_sha256": sha256("arc-prompt.md"),
                                 "schema_sha256": sha256("arc-schema.json"), "scores": doc["scores"], "moments": doc["moments"]}

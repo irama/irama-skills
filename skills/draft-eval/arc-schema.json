@@ -226,6 +226,7 @@
    "required": [
     "star_moment",
     "peak_and_end",
+    "quoted_close",
     "five_moves",
     "people_and_stories",
     "wrong_and_credible",
@@ -304,6 +305,23 @@
      }
     },
     "wrong_and_credible": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "pass",
+      "reason"
+     ],
+     "properties": {
+      "pass": {
+       "type": "boolean"
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "quoted_close": {
      "type": "object",
      "additionalProperties": false,
      "required": [

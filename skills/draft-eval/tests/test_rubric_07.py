@@ -14,7 +14,7 @@ import score_round as sr  # noqa: E402
 
 RUBRIC = json.loads((HERE / "rubric.json").read_text())
 M = RUBRIC["moments"]
-IDS = ["star_moment", "peak_and_end", "five_moves", "people_and_stories", "wrong_and_credible",
+IDS = ["star_moment", "peak_and_end", "quoted_close", "five_moves", "people_and_stories", "wrong_and_credible",
        "light_moment", "notes_briefing", "pain_before_solution", "four_acts"]
 REQUIRED = [c["id"] for c in M["checks"] if c["tier"] == "required"]
 CRITS = [c["id"] for c in RUBRIC["criteria"]]

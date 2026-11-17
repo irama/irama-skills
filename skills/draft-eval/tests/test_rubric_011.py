@@ -35,7 +35,7 @@ class TestRubric011(unittest.TestCase):
         self.assertNotIn("stage_directions", CHECKS)
         self.assertIn("notes_briefing", CHECKS)
         self.assertIn("four_acts", CHECKS)
-        self.assertEqual({c for c, v in CHECKS.items() if v["tier"] == "recommended"}, {"star_moment", "light_moment"})
+        self.assertEqual({c for c, v in CHECKS.items() if v["tier"] == "recommended"}, {"star_moment", "quoted_close", "light_moment"})
         self.assertTrue(all(v["tier"] in ("required", "recommended") for v in CHECKS.values()))
         self.assertEqual(SCHEMA["properties"]["moments"]["required"], list(CHECKS))
         prompt = (HERE / "arc-prompt.md").read_text()
@@ -48,7 +48,8 @@ class TestRubric011(unittest.TestCase):
         for c in ("star_moment", "peak_and_end", "five_moves", "notes_briefing", "four_acts"):
             self.assertIn("planning slide", CHECKS[c]["pass"], c)
         self.assertIn("end of act 3", CHECKS["peak_and_end"]["pass"])
-        self.assertIn("in quotes", CHECKS["peak_and_end"]["pass"])
+        self.assertNotIn("in quotes", CHECKS["peak_and_end"]["pass"])
+        self.assertIn("in quotes", CHECKS["quoted_close"]["pass"])
         self.assertIn("mission", CHECKS["wrong_and_credible"]["pass"])
         self.assertIn("optional", CHECKS["wrong_and_credible"]["pass"])
         for line in ("in quotes", "story cue", "one number", "the bridge", "likely question"):

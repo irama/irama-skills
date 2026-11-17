@@ -86,6 +86,7 @@ Return one JSON object and nothing else:
         "five_moves": {"pass": false, "reason": "..."},
         "people_and_stories": {"pass": false, "reason": "..."},
         "wrong_and_credible": {"pass": false, "reason": "..."},
+        "quoted_close": {"pass": false, "reason": "..."},
         "light_moment": {"pass": false, "reason": "..."},
         "notes_briefing": {"pass": false, "reason": "..."},
         "pain_before_solution": {"pass": false, "reason": "..."},

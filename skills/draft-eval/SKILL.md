@@ -75,7 +75,7 @@ every `data-role="backstage-*"` slide to `units.md` under "Backstage, not presen
 the moments checks. `stage_directions` is retired for `notes_briefing` (five briefing lines per
 presented content slide); `four_acts` asks that every required beat is placed or its absence
 explained. Each check carries a `tier`: required checks hold the bar, recommended ones
-(`star_moment`, `light_moment`) are reported and never block it. Detail in `rubric-history.md`.
+(`star_moment`, `quoted_close`, `light_moment`) are reported and never block it. Detail in `rubric-history.md`.
 
 ### Rubric 0.10
 
