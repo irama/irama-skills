@@ -12,7 +12,7 @@ import gate  # noqa: E402
 
 RUBRIC = json.loads((HERE / "rubric.json").read_text())
 QS = gate.question_ids(RUBRIC)
-UNITS = {"kind": "deck", "units": [
+UNITS = {"kind": "deck", "deck_build_hash": "9a0dddb70cca", "units": [
     {"id": "s1", "text": "Most teams already use the tool", "notes": "The point: start where they are."},
     {"id": "terms", "role": "terms", "hidden": True, "text": "Glossary"},
     {"id": "s2", "text": "Three moves for Monday morning"},
@@ -34,7 +34,7 @@ def grades(*replies):
     for grader, raw in replies:
         doc, errs = gate.check(raw, UNITS, ["s1", "s2"], RUBRIC)
         assert not errs, errs
-        g = gate.merge(g, doc, grader, None, RUBRIC)
+        g = gate.merge(g, doc, grader, None, RUBRIC, UNITS["deck_build_hash"])
     return g
 
 
@@ -96,7 +96,7 @@ class TestPassRule(unittest.TestCase):
         fixed["slides"] = fixed["slides"][1:]
         doc, errs = gate.check(json.dumps(fixed), UNITS, ["s2"], RUBRIC)
         self.assertEqual(errs, [])
-        g = gate.merge(g, doc, "claude", None, RUBRIC)
+        g = gate.merge(g, doc, "claude", None, RUBRIC, "9a0dddb70cca")
         self.assertEqual(gate.failing(gate.table(g, UNITS, RUBRIC)), {})
 
     def test_unanswered_slide_fails(self):
@@ -109,7 +109,7 @@ class TestPassRule(unittest.TestCase):
         g["rubric_version"] = "0.10"
         doc, _ = gate.check(reply(), UNITS, ["s1", "s2"], RUBRIC)
         with self.assertRaises(SystemExit):
-            gate.merge(g, doc, "codex", None, RUBRIC)
+            gate.merge(g, doc, "codex", None, RUBRIC, "9a0dddb70cca")
 
 
 class TestGateRecord(unittest.TestCase):
@@ -119,7 +119,8 @@ class TestGateRecord(unittest.TestCase):
         self.assertEqual(rec["deck_build_hash"], "9a0dddb70cca")  # from the meta, never a file hash
         self.assertEqual(rec["round"], "first-cut")
         self.assertEqual(rec["rubric_version"], RUBRIC["rubric_version"])
-        self.assertEqual(rec["graders"], {"claude": "claude-model", "codex": "codex-model"})
+        self.assertEqual(rec["graders"], {"claude": ["claude-model"], "codex": ["codex-model"]})
+        self.assertEqual(rec["graded_builds"], {"s1": "9a0dddb70cca", "s2": "9a0dddb70cca"})
         self.assertEqual(rec["date"], "2026-11-17T00:00:00Z")
         self.assertFalse(rec["pass"])
         self.assertEqual(rec["failing"], {"s1": ["plain_stance"]})
@@ -139,6 +140,49 @@ class TestGateRecord(unittest.TestCase):
             gate.record(DECK, UNITS, g, "comment", RUBRIC)
         with self.assertRaises(SystemExit):
             gate.record(DECK, UNITS, dict(g, rubric_version="0.10"), "first-cut", RUBRIC)
+
+    def test_record_refuses_another_build(self):
+        # graded against build A, the deck is now build C: the grades are not of this deck
+        g = grades(("claude", reply()))
+        with self.assertRaises(SystemExit) as e:
+            gate.record(DECK.replace("9a0dddb70cca", "c0ffee000000"), UNITS, g, "first-cut", RUBRIC)
+        self.assertIn("c0ffee000000", str(e.exception))
+
+    def test_merge_refuses_units_with_no_build_hash(self):
+        doc, _ = gate.check(reply(), UNITS, ["s1", "s2"], RUBRIC)
+        with self.assertRaises(SystemExit):
+            gate.merge(None, doc, "claude", None, RUBRIC, None)
+
+    def test_regrade_keeps_every_model(self):
+        g = grades(("claude", reply(model="m1")))
+        doc, _ = gate.check(reply(model="m2"), UNITS, ["s1", "s2"], RUBRIC)
+        g = gate.merge(g, doc, "claude", None, RUBRIC, "9a0dddb70cca")
+        self.assertEqual(g["graders"]["claude"]["models"], ["m1", "m2"])
+        self.assertEqual(gate.record(DECK, UNITS, g, "first-cut", RUBRIC)["graders"], {"claude": ["m1", "m2"]})
+
+    def test_grader_set_must_match_by_slide(self):
+        # first pass by two graders, re-grade of s2 by one: codex's stale answer would lock the gate
+        g = grades(("claude", reply()), ("codex", reply(fail={("s2", "one_visual")})))
+        doc, _ = gate.check(json.dumps(dict(json.loads(reply()), slides=json.loads(reply())["slides"][1:])),
+                            UNITS, ["s2"], RUBRIC)
+        g = gate.merge(g, doc, "claude", None, RUBRIC, "b2")
+        with self.assertRaises(SystemExit) as e:
+            gate.record(DECK, UNITS, g, "first-cut", RUBRIC)
+        self.assertIn("s2", str(e.exception))
+        with self.assertRaises(SystemExit):
+            gate.check_graders(g, UNITS)
+        # first pass by one grader, a second grader joins only for s2: s1 has fewer graders
+        g = grades(("claude", reply()))
+        g = gate.merge(g, doc, "codex", None, RUBRIC, "9a0dddb70cca")
+        with self.assertRaises(SystemExit) as e:
+            gate.check_graders(g, UNITS)
+        self.assertIn("s1: graded by claude", str(e.exception))
+
+    def test_slide_of_short_words_can_validate(self):
+        units = {"kind": "deck", "deck_build_hash": "h", "units": [{"id": "q", "text": "Q&A"}]}
+        raw = json.dumps({"model": "m", "slides": [{"unit": "q", "answers": {q: {"pass": True, "quote": "Q&A"} for q in QS}}]})
+        doc, errs = gate.check(raw, units, ["q"], RUBRIC)
+        self.assertEqual(errs, [])
 
     def test_cli_end_to_end(self):
         with tempfile.TemporaryDirectory() as t:

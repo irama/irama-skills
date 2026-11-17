@@ -148,6 +148,24 @@ def _terms(secs, units):
     return terms
 
 
+class _BuildHash(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.found = None
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "meta" and a.get("name") == "deck-build-hash" and self.found is None:
+            self.found = (a.get("content") or "").strip() or None
+
+
+def build_hash(html):
+    """The deck's deck-build-hash meta, or None. Never the file's sha256: delivery rewrites the file."""
+    p = _BuildHash()
+    p.feed(html)
+    return p.found
+
+
 def extract_deck(html):
     parser = _Sections()
     parser.feed(html.split("<deck-stage", 1)[-1])
@@ -187,6 +205,7 @@ def extract_deck(html):
         })
     return {
         "kind": "deck",
+        "deck_build_hash": build_hash(html),  # the gate ties its grades to this build
         "terms": _terms(secs, units),
         "counts": {"sections": len(secs), "notes": len(notes), "units": len(units),
                    "hidden": sum(u["hidden"] for u in units)},
@@ -340,6 +359,8 @@ _FIXTURE = """<html><body>
 def selftest():
     doc = extract_deck(_FIXTURE)
     u = doc["units"]
+    assert doc["deck_build_hash"] is None
+    assert extract_deck('<head><meta name="deck-build-hash" content="ab12"></head>' + _FIXTURE)["deck_build_hash"] == "ab12"
     assert doc["counts"]["sections"] == 10 and len(u) == 7, doc["counts"]
     assert [x["id"] for x in u] == ["title", "s-b", "spare", "x1", "t-a", "provenance", "close"]
     assert u[1]["section_indices"] == [1, 2, 3] and u[1]["primary_index"] == 2

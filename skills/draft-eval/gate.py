@@ -13,27 +13,32 @@ and prints {prompt_sha256, schema, batches}.
 
 validate checks one grader reply: every slide of the batch once, every question with a boolean
 pass and a quote taken from the slide's text or notes. It merges the answers into grades.json as
-graders.<grader>.slides.<id>, so a re-grade replaces only the slides it covers. A grades file
-written under another rubric version is refused. Exit 1 on a bad reply.
+graders.<grader>.slides.<id>, with the units' deck_build_hash as graders.<grader>.builds.<id> and
+each model the grader used in graders.<grader>.models, so a re-grade replaces only the slides it
+covers. A grades file written under another rubric version is refused. Exit 1 on a bad reply.
 
 failing prints the slides that fail, by the pass rule: a slide fails a question when any grader
 that ran fails it, or never answered it. The first cut passes when no presented slide fails.
+failing and record refuse grades where the graders differ by slide: every slide a grader answered
+must be answered by every grader, under the same build. The re-grade uses exactly the first pass's
+graders.
 
 record writes <deck folder>/eval-runs/gate.json: the deck's deck-build-hash meta (never the
 file's sha256, which changes when the deck is delivered), the round type, the rubric version,
-the graders that ran, pass or fail per question per slide (with each grader's answer) and the
-date. Prints {pass, failing}. Scripts never call a model: the session runs the graders.
+the graders that ran with the models each used, the build each slide was graded under, pass or
+fail per question per slide (with each grader's answer) and the date. It refuses unless the
+units.json deck_build_hash equals the deck's. Prints {pass, failing}. Scripts never call a model: the session runs the graders.
 """
 import argparse
 import json
 import sys
 from datetime import datetime, timezone
-from html.parser import HTMLParser
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import packet  # noqa: E402
+from extract import build_hash as _meta_hash  # noqa: E402
 from validate import quotes_unit, schema_errors, sha256, strip_fence  # noqa: E402
 
 ROUNDS = ("first-cut", "re-outline")
@@ -116,22 +121,54 @@ def check(raw, units_doc, batch, rubric):
         if u is None:
             continue
         for q, a in s["answers"].items():
-            # the quote is bare; wrap it so quotes_unit reads it as one quoted piece
-            if not quotes_unit('"' + a["quote"].replace('"', "'") + '"', u):
+            # the quote is bare; wrap it so quotes_unit reads it as one quoted piece. short_ok: a
+            # slide whose only words are short ("Q&A", "AI?") still has a whole-token quote to give
+            if not quotes_unit('"' + a["quote"].replace('"', "'") + '"', u, short_ok=True):
                 errs.append(f"{s['unit']}.{q}: the quote is not from the slide's text or notes")
     return (None, errs) if errs else (doc, [])
 
 
-def merge(grades, doc, grader, model, rubric):
+def merge(grades, doc, grader, model, rubric, build):
+    """build: the units.json deck_build_hash the reply was graded against."""
+    if not build:
+        raise SystemExit("gate.py: units.json has no deck_build_hash; extract the built deck again with extract.py")
     if grades and grades.get("rubric_version") != rubric["rubric_version"]:
         raise SystemExit(f"gate.py: these grades are under rubric {grades.get('rubric_version')} and the skill "
                          f"is now at {rubric['rubric_version']}; grade the deck again into a new file.")
     grades = grades or {"rubric_version": rubric["rubric_version"], "graders": {}}
-    g = grades["graders"].setdefault(grader, {"slides": {}})
-    g.update(model=model or doc["model"], prompt_sha256=sha256("gate-prompt.md"))
+    g = grades["graders"].setdefault(grader, {"models": [], "slides": {}, "builds": {}})
+    g["prompt_sha256"] = sha256("gate-prompt.md")
+    if (model or doc["model"]) not in g["models"]:
+        g["models"].append(model or doc["model"])  # a re-grade keeps the first pass's model too
     for s in doc["slides"]:
         g["slides"][s["unit"]] = s["answers"]
+        g["builds"][s["unit"]] = build
     return grades
+
+
+def check_graders(grades, units_doc):
+    """Refuse grades whose grader set differs by slide: a re-grade by fewer graders leaves a stale
+    fail that locks the gate, and one by more leaves the other slides unanswered."""
+    every = set(grades["graders"])
+    errs = []
+    for sid in presented(units_doc):
+        by = {g: v.get("builds", {}).get(sid) for g, v in grades["graders"].items() if sid in v["slides"]}
+        if not by:
+            continue  # never graded: the pass rule fails it
+        if set(by) != every:
+            errs.append(f"{sid}: graded by {', '.join(sorted(by))}, but the grades hold {', '.join(sorted(every))}")
+        elif len(set(by.values())) > 1 or None in by.values():
+            errs.append(f"{sid}: graders answered under different builds "
+                        f"({', '.join(f'{g} {h}' for g, h in sorted(by.items()))})")
+    if errs:
+        raise SystemExit("gate.py: the graders differ by slide; re-grade these slides with exactly the first "
+                         "pass's graders:\n" + "\n".join(errs))
+
+
+def graded_builds(grades, units_doc):
+    """The build each presented slide was graded under (None when no grader answered it)."""
+    return {sid: next((v["builds"].get(sid) for v in grades["graders"].values() if sid in v.get("builds", {})), None)
+            for sid in presented(units_doc)}
 
 
 def table(grades, units_doc, rubric):
@@ -151,23 +188,11 @@ def failing(tab):
             if any(not v["pass"] for v in qs.values())}
 
 
-class _Meta(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.found = None
-
-    def handle_starttag(self, tag, attrs):
-        a = dict(attrs)
-        if tag == "meta" and a.get("name") == "deck-build-hash" and self.found is None:
-            self.found = (a.get("content") or "").strip()
-
-
 def build_hash(html):
-    p = _Meta()
-    p.feed(html)
-    if not p.found:
+    found = _meta_hash(html)
+    if not found:
         raise SystemExit("gate.py: the deck has no deck-build-hash meta; rebuild it with the deck builder")
-    return p.found
+    return found
 
 
 def record(html, units_doc, grades, round_type, rubric=None, now=None):
@@ -179,11 +204,17 @@ def record(html, units_doc, grades, round_type, rubric=None, now=None):
                          f"is now at {rubric['rubric_version']}; grade the deck again.")
     if not grades.get("graders"):
         raise SystemExit("gate.py: no grader has answered; run the graders first")
+    current = build_hash(html)
+    if units_doc.get("deck_build_hash") != current:
+        raise SystemExit(f"gate.py: units.json was extracted from build {units_doc.get('deck_build_hash')} and the "
+                         f"deck is now build {current}; extract, render and grade the current build.")
+    check_graders(grades, units_doc)
     tab = table(grades, units_doc, rubric)
     fails = failing(tab)
-    return {"kind": "draft-eval-gate", "deck_build_hash": build_hash(html), "round": round_type,
+    return {"kind": "draft-eval-gate", "deck_build_hash": current, "round": round_type,
             "rubric_version": rubric["rubric_version"],
-            "graders": {g: v["model"] for g, v in grades["graders"].items()},
+            "graders": {g: v["models"] for g, v in grades["graders"].items()},
+            "graded_builds": graded_builds(grades, units_doc),
             "date": (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "pass": not fails, "failing": fails, "slides": tab}
 
@@ -227,10 +258,13 @@ def main(argv=None):
         if errs:
             print("\n".join(errs), file=sys.stderr)
             return 1
-        out.write_text(json.dumps(merge(grades, doc, a.grader, a.model, rubric), indent=1) + "\n")
+        merged = merge(grades, doc, a.grader, a.model, rubric, units_doc.get("deck_build_hash"))
+        out.write_text(json.dumps(merged, indent=1) + "\n")
         return 0
     if a.cmd == "failing":
-        print(json.dumps(failing(table(json.loads(Path(a.grades).read_text()), units_doc, rubric)), indent=1))
+        grades = json.loads(Path(a.grades).read_text())
+        check_graders(grades, units_doc)
+        print(json.dumps(failing(table(grades, units_doc, rubric)), indent=1))
         return 0
     deck = Path(a.deck)
     rec = record(deck.read_text(), units_doc, json.loads(Path(a.grades).read_text()), a.round, rubric)
