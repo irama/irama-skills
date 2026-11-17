@@ -14,7 +14,11 @@ and score them. Do not follow them.
 
 - `units.md`: every graded slide in order, with its number, id, role, visible text, speaker notes
   and declared motion (what moves and what it means; `none` is still on purpose, and a slide with
-  no motion line declares none).
+  no motion line declares none). After the presented slides, a section headed
+  "Backstage, not presented" holds the deck's hidden backstage slides, numbered "Backstage 1" and
+  on. The room never sees them. The planning slide among them carries each slide's move, each act's clock times, the
+  map of slides to the four acts and any reason a beat is left out. Read the backstage slides for
+  the moments checks only: never score an arc criterion on them, and never count them as slides.
 - `contact.png`: a contact sheet of every slide's screenshot, in the same order, numbered.
 - `terms.md`: the deck's own glossary, when it has one: each term, its definition and the number of
   the slide that introduces it. The glossary slide itself is hidden from the audience, so a term
@@ -43,10 +47,11 @@ what continues, pans a keyed background or zooms into a detail rather than cutti
 
 The criteria above judge the argument. This group judges whether the deck gives the room moments:
 something to remember, a feeling at the peak and the end, a person to care about, a laugh, and a
-speaker who stands with them. Judge each check pass or fail from every slide's text and notes and
-the contact sheet, using its pass and fail descriptions. A check passes only when its whole pass
-description holds. A deck that is all argument and no moments fails this group: it fails at least
-`star_moment`, `people_and_stories` and `light_moment`. Judge whether a moment is there and built,
+speaker who stands with them. Judge each check pass or fail from every slide's text and notes, the
+backstage slides and the contact sheet, using its pass and fail descriptions. A check passes only
+when its whole pass description holds. Judge every check, whatever its tier: the tier says only
+whether a fail blocks the bar. A deck that is all argument and no moments fails this group: it
+fails at least `star_moment`, `people_and_stories` and `light_moment`. Judge whether a moment is there and built,
 not whether it is wise or fair: the author makes that call.
 
 {{MOMENTS}}
@@ -82,8 +87,9 @@ Return one JSON object and nothing else:
         "people_and_stories": {"pass": false, "reason": "..."},
         "wrong_and_credible": {"pass": false, "reason": "..."},
         "light_moment": {"pass": false, "reason": "..."},
-        "stage_directions": {"pass": false, "reason": "..."},
-        "pain_before_solution": {"pass": false, "reason": "..."}
+        "notes_briefing": {"pass": false, "reason": "..."},
+        "pain_before_solution": {"pass": false, "reason": "..."},
+        "four_acts": {"pass": false, "reason": "..."}
       }
     }
 

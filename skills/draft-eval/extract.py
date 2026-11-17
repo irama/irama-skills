@@ -174,7 +174,7 @@ def extract_deck(html):
             "section_indices": idx,
             "primary_index": primary,
             "hash_index": primary + 1,  # every section counts, see the docstring
-            "hidden": "data-hidden-src" in a or "hidden" in a or role == "terms",
+            "hidden": "data-hidden-src" in a or "hidden" in a or role == "terms" or role.startswith("backstage-"),
             "role": role,
             "role_inferred": inferred,
             "layout": a.get("data-layout") or cls,

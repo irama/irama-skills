@@ -64,8 +64,9 @@ def gate_rows(sc, arc, prefer):
             rows.append((f"Arc pass, {g}", "4 or more on each", vals, "failed" if fail else "passed"))
         if "moments" in ga:
             bad = arc_mod.moments_failing(ga)
-            rows.append((f"Moments, {g}", "every check passes", ", ".join(bad) or "all pass",
-                         "failed" if bad else "passed"))
+            block = arc_mod.moments_failing(ga, blocking=True)
+            rows.append((f"Moments, {g}", "every required check passes", ", ".join(bad) or "all pass",
+                         "failed" if block else "passed"))
     sp = sc["self_preference"]
     ex = sp["excess_vs_untouched"] if sp["compared_with"] == "untouched" else sp["excess_vs_baseline"]
     if ex is not None:

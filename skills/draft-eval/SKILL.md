@@ -67,6 +67,16 @@ report). Until then, score only: run one round with no rewrite.
   reader praises in a review goes on it. The rewrite step reads it, and the review brief reports
   each element against the run's rewrites.
 
+### Rubric 0.11
+
+Moves the moments group to the four-act method. Move tags, clock times and stage directions leave
+the speaker notes for a hidden planning slide (`data-role="backstage-plan"`), and `arc.py` adds
+every `data-role="backstage-*"` slide to `units.md` under "Backstage, not presented", read only by
+the moments checks. `stage_directions` is retired for `notes_briefing` (five briefing lines per
+presented content slide); `four_acts` asks that every required beat is placed or its absence
+explained. Each check carries a `tier`: required checks hold the bar, recommended ones
+(`star_moment`, `light_moment`) are reported and never block it. Detail in `rubric-history.md`.
+
 ### Rubric 0.10
 
 Adds an eighth `moments` check, `pain_before_solution`: the notes or the run sheet show the
@@ -207,8 +217,9 @@ The rubric's `changelog` says what each version changed and what it was fitted t
 - **Claude sets the bar; Codex audits.** Codex's role is to catch Claude marking its own rewrites
   up, so its scores never set the bar or the median in a loop round.
 - **The bar**: every mechanical gate passes; Claude's arc pass scores at least 4 on every arc
-  criterion in the rubric's `bars.arc_criteria` and passes every `moments` check; every applicable
-  criterion on every unit scores at least 4 from Claude.
+  criterion in the rubric's `bars.arc_criteria` and passes every required-tier `moments` check (a
+  recommended check is reported, never blocking); every applicable criterion on every unit scores
+  at least 4 from Claude.
 - **A unit's score** is Claude's mean. The round's **median** is the median unit score. Sums change
   when units change, so the loop compares medians only.
 - **Stop** on the first of: the bar is met (or met but blocked); 5 rounds done; or two rounds in a

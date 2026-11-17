@@ -230,8 +230,9 @@
     "people_and_stories",
     "wrong_and_credible",
     "light_moment",
-    "stage_directions",
-    "pain_before_solution"
+    "notes_briefing",
+    "pain_before_solution",
+    "four_acts"
    ],
    "properties": {
     "star_moment": {
@@ -336,7 +337,7 @@
       }
      }
     },
-    "stage_directions": {
+    "notes_briefing": {
      "type": "object",
      "additionalProperties": false,
      "required": [
@@ -354,6 +355,23 @@
      }
     },
     "pain_before_solution": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "pass",
+      "reason"
+     ],
+     "properties": {
+      "pass": {
+       "type": "boolean"
+      },
+      "reason": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    },
+    "four_acts": {
      "type": "object",
      "additionalProperties": false,
      "required": [

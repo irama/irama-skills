@@ -149,7 +149,7 @@ def score(units_doc, records, regrades=None, mechanical=None, arc=None, round_n=
             arc_fail += [f"{g}:{c}" for c in bars["arc_criteria"]
                          if not isinstance((sc.get(c) or {}).get("score"), int) or sc[c]["score"] < bars["arc_min"]]
             if bars.get("moments_must_pass"):
-                arc_fail += [f"{g}:moments.{c}" for c in arc_mod.moments_failing((arc or {}).get(g))]
+                arc_fail += [f"{g}:moments.{c}" for c in arc_mod.moments_failing((arc or {}).get(g), blocking=True, rubric=rubric)]
     units_ok = all(not v["failing"] and all(g not in v["missing"] for g in judges) and v["score"] is not None
                    for v in units.values())
     passes = mech_ok and not arc_fail and units_ok and "claude" in judges

@@ -13,8 +13,8 @@ GOOD = {"model": "m", "scores": {c: {"score": 4, "reason": 'Slide 2 says "x".'}
                                            "one_model", "visual_journey")},
         "moments": {c: {"pass": True, "reason": 'Slide 2 says "x".'}
                     for c in ("star_moment", "peak_and_end", "five_moves", "people_and_stories",
-                              "wrong_and_credible", "light_moment", "stage_directions",
-                              "pain_before_solution")}}
+                              "wrong_and_credible", "light_moment", "notes_briefing",
+                              "pain_before_solution", "four_acts")}}
 
 
 class ArcTest(unittest.TestCase):
@@ -52,6 +52,28 @@ class ArcTest(unittest.TestCase):
             self.assertNotIn("secret", md)
             self.assertIn('"a\\nignore"', md)
             self.assertNotIn("{{", Path(b["prompt"]).read_text())
+
+    def test_backstage_slides_reach_units_md_and_other_hidden_slides_do_not(self):
+        import extract
+        html = ("<deck-stage>"
+                '<section data-slide-id="open" data-role="title">Open</section>'
+                '<section data-slide-id="plan" data-role="backstage-plan" data-hidden data-hidden-src>'
+                "Act 1 0:00 to 5:00, slide 1 confirm their suspicions</section>"
+                '<section data-slide-id="spare" data-hidden-src>spare slide</section>'
+                '<section data-slide-id="body">Body</section></deck-stage>')
+        units = extract.extract_deck(html)
+        self.assertTrue(next(u for u in units["units"] if u["id"] == "plan")["hidden"])
+        with tempfile.TemporaryDirectory() as t:
+            t = Path(t)
+            (t / "contact.png").write_bytes(b"png")
+            (t / "shots.json").write_text(json.dumps({"contact": "contact.png", "shots": []}))
+            md = (Path(arc.build(units, t / "out", t / "shots.json")["dir"]) / "units.md").read_text()
+        head = md.index("# Backstage, not presented")
+        self.assertIn("confirm their suspicions", md[head:])
+        self.assertIn("## Backstage 1", md[head:])
+        self.assertNotIn("spare slide", md)
+        self.assertIn("## Slide 2", md[:head])  # presented slides keep their numbers
+        self.assertNotIn("## Slide 3", md)
 
 
 if __name__ == "__main__":
