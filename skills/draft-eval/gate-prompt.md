@@ -35,10 +35,13 @@ Read every file in each folder, and look at `slide.png`, before you answer.
 ## How to answer
 
 - Every slide gets all eight questions. `pass` is `true` or `false`, never a score.
-- When in doubt, fail the slide. A false pass reaches the reader; a false fail costs one repair.
+- Fail a question only when you can name the fault on this slide that the presenter would fix
+  before showing it. Doubt alone is not a fault: a question whose fault is absent passes.
 - `quote` is the reason: the exact words from the slide's `text.txt` or `notes.txt` that the answer
-  turns on, copied without changes and without quote marks around them. When the slide has no words,
-  say in a few words what the screenshot shows.
+  turns on, copied without changes and without quote marks around them. This holds for questions about
+  the picture or the layout too: copy the words nearest the thing you judged, such as a label, a
+  caption or the title. Never describe the screenshot in `quote` when either file holds words. Only
+  when both files are empty, say in a few words what the screenshot shows.
 - A slide with no declared motion and no builds passes `click_order` only when it needs none.
 
 ## Output
