@@ -114,6 +114,38 @@ own (a single report) gets its own path. Attach briefs, reports and PDFs with `-
 comment also attaches each HTML brief or report and each PDF the job produced with `--file`**, in
 addition to giving its absolute path in backticks, so the operator can read it on a phone.
 
+**A blocked run posts a short comment with a fix-it prompt.** Blocked means the run cannot go on
+because of a gap in the machine or the setup: a missing skill, tool, credential, permission, env
+var or path, a refused command, or a repo the machine cannot reach. Every such gap also stops the
+next job, so the comment must fix the cause for good. A retry alone does not. Use this shape and
+nothing else. Keep it under 120 words, with no Why section and no log excerpts:
+
+````
+**Blocked: <the missing thing>, on <machine>.** <One sentence: what is kept, what did not run.>
+
+**Fix it for good.** Paste this into Claude Code on the Mac, in <repo name>:
+
+```
+<a self-contained prompt that names the machine, the exact gap you measured, the file or repo
+where the fix belongs (the config build, the installer, the env template), what to change so
+every later job on that machine has it, and the command that proves it, then: "When it passes,
+tell me to reply retry on JOB-<id>.">
+```
+
+**Then reply** `retry` on this card.
+````
+
+- Measure the gap before you write the prompt: the missing path, the unset variable, the
+  command's own error line. The prompt carries those facts, so the Mac session needs no log.
+- Name the root fix, not a one-off. For the box, a missing skill or file is fixed in the box's
+  config build or install script, never by a hand copy onto the box.
+- A step that needs the operator's hands (a credential, a payment, a login) goes in the prompt
+  as "build me a wizard for <step>", so the Mac session prepares it.
+- Any reply resumes the job. Never ask for an exact word, and treat retry, try again, continue
+  and resume as the same reply.
+- Questions and decisions that only the operator can make are not blocks. Ask them as a short
+  numbered list, and keep the "For you" list.
+
 ## Execution, for each picked job, in order
 
 1. **Claim**, conductor first, then the hub. Stop on either refusal: another session has

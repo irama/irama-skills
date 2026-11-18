@@ -23,7 +23,8 @@
 #
 # Lanes. A run holds the repos its job targets (`targets`, else `targets_picked`). A Backlog job
 # starts only when none of its repos is busy: a live run holds it, or a job targeting it sits In
-# progress or In review with a run not yet shipped (or no run yet), interactive claims included.
+# progress or In review with a run not yet shipped (or In progress with no run yet), interactive
+# claims included.
 # A multi-target job needs all its repos free and holds all of them. A reply or ship run is held
 # back only by a live run of another job in its repos, never by the board: two jobs In review on
 # one repo would otherwise block each other's ships for ever. Untargeted jobs share one lane
@@ -423,16 +424,19 @@ for p in sorted(glob.glob(os.path.join(sys.argv[1], "*.json"))):
 }
 
 # The repos the board holds busy: each job In progress or In review with a run not yet shipped,
-# or with no run yet, whoever claimed it. One line of lanes per such job. A scheduled job
-# In review holds nothing while no run is on it (no fresh active_at heartbeat): the weekly card
-# waits there until the operator archives it, and would block the next run of its template.
+# or with no run yet (In progress only), whoever claimed it. One line of lanes per such job. A
+# job In review that is a scheduled job, or has no run at all, holds nothing while no run is on it
+# (no fresh active_at heartbeat): it only waits on the operator, and holding its lane queued every
+# job behind it with no word on their cards (JOB-4612 held three /apply-for-job jobs a day).
 board_lanes() {
   "${J[@]}" list --all-pages 2>/dev/null | "$PYTHON3_BIN" -c "$LEFT"'
 import json, sys
 for j in json.load(sys.stdin).get("jobs", []):
     runs = j.get("runs") or []
     if j.get("column") in ("in_progress", "in_review") and not (runs and all(r.get("state") == "shipped" for r in runs)):
-        if j.get("column") == "in_review" and j.get("source") == "schedule" and not fresh(j.get("active_at")):
+        # In review with nothing live: a scheduled card, or any card with no run (no branch, so
+        # nothing unmerged), only waits on the operator and must not queue the jobs behind it.
+        if j.get("column") == "in_review" and (j.get("source") == "schedule" or not runs) and not fresh(j.get("active_at")):
             continue
         print(" ".join(lanes(j.get("targets") or j.get("targets_picked"), j)))
 '
