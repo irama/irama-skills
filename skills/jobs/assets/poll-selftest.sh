@@ -489,9 +489,13 @@ side_effects() { cat "$tmp/calls" | grep -v '^list ' | grep -c . || true; }
 # An untargeted board job In review (the 28 Oct case) does not hold an untargeted scheduled job.
 FAKE_SRC=board sched
 [ "$(started 96)" = 1 ] || fail "an untargeted board job In review held a scheduled job"
-# Control: the same board job still holds an untargeted board job.
+# An untargeted board job In review with no run (JOB-4612) only waits on the operator: it does
+# not hold an untargeted board job either.
 FAKE_SRC=board FAKE_NEXT_SRC=board sched
-[ "$(started 96)" = 0 ] || fail "a board job In review no longer holds the shared lane"
+[ "$(started 96)" = 1 ] || fail "a board job In review with no run held the shared lane"
+# Control: the same job In progress still holds the shared lane.
+FAKE_SRC=board FAKE_NEXT_SRC=board FAKE_COL=in_progress sched
+[ "$(started 96)" = 0 ] || fail "a board job In progress no longer holds the shared lane"
 # A targeted board job In progress does not hold a scheduled job on the same repo, and the
 # scheduled job still runs from its target's checkout.
 FAKE_SRC=board FAKE_COL=in_progress FAKE_T='["o/r"]' FAKE_NEXT_T='["o/r"]' FAKE_NEXT_TPL=7 sched
