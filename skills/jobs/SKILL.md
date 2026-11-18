@@ -143,8 +143,36 @@ tell me to reply retry on JOB-<id>.">
   as "build me a wizard for <step>", so the Mac session prepares it.
 - Any reply resumes the job. Never ask for an exact word, and treat retry, try again, continue
   and resume as the same reply.
-- Questions and decisions that only the operator can make are not blocks. Ask them as a short
-  numbered list, and keep the "For you" list.
+- Questions and decisions that only the operator can make are not blocks. Use the decision
+  shape below.
+
+**A decision comment is for a reader with no context, on a phone.** Use it whenever the run
+stops for the operator's choice, including a ship stopped by a review finding. This shape and
+nothing else, under 150 words:
+
+```
+**<What is on hold, in plain words>. I need one choice from you.**
+
+<One or two sentences: what goes wrong for the reader or user if nothing changes. No file
+names, version numbers, scores, thresholds or hashes.>
+
+1. **<Plain outcome>** (Recommended). <What the operator gets, what it costs, what happens next.>
+2. **<Plain outcome>**. <Same.>
+3. **<Leave it / ship it as is>**. <Same: what it costs.>
+
+<Optional last line: "N minor findings are in the next comment. No action needed.">
+```
+
+- Lead with the thing the operator knows by name (the briefing, the page, the email), never
+  with the mechanism (a pointer file, a pack, a gate score).
+- Each option is an outcome the operator would recognise, never an instruction to you
+  ("move CURRENT back to 4"). Exactly one carries (Recommended).
+- Leave out process detail: which reviewer ran, that a tool is missing, retries, voided
+  approvals. The operator cannot act on it.
+- Findings that do not bear on the choice go in a second comment, posted after this one,
+  headed "Minor findings, no action needed". Never list them in the decision comment.
+- The operator replies with a digit or in their own words. Never ask for an exact word.
+- End with no separate "For you" list: the numbered options are it.
 
 ## Execution, for each picked job, in order
 
@@ -440,8 +468,8 @@ the target repo.
       `$J repin <id> --target <t> --head-sha <final-sha> --comment <event id> --note "<the fixes>"`.
       Then continue `/merge` with the fixed branch.
    e) Otherwise (the gate stays red, the loop hits three rounds, a fix crosses the limits, or
-      `repin` refuses) stop as step 1 does: `$J preflight ... --void`, comment the finding,
-      what was tried and the one question for the operator, sign off both verbs
+      `repin` refuses) stop as step 1 does: `$J preflight ... --void`, post a decision comment
+      (the decision shape above: the choice the finding forces, never the review log), sign off both verbs
       `--status incomplete`. **Stop.**
 
    A consent covers every review round while the approval is live: the consent may already
