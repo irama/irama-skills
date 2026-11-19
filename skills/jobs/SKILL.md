@@ -140,8 +140,9 @@ blocked comment, a decision comment or a failure comment, run `$J patch <id> --c
 In review is where the operator looks for cards that need them. A card left In progress with no
 live run reads as busy and holds its repos, so every job queued behind it on that repo waits
 (one blocked card once held a day of job-application cards). The poller moves a card it finds
-still In progress when a run ends, as a backstop. The one exception is an approved job, which
-waits In progress for its ship run.
+still In progress when a run ends, as a backstop. The exceptions are an approved job, which
+waits In progress for its ship run, and a "Ship when ready" job with a run: the hub approves its
+ship on the move to In review, so leave it In progress unless the work is ready to ship.
 
 - Measure the gap before you write the prompt: the missing path, the unset variable, the
   command's own error line. The prompt carries those facts, so the Mac session needs no log.

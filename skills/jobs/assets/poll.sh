@@ -234,11 +234,22 @@ print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", [])], d
   # A run that ends with its card still In progress waits on the operator (blocked, a question, a
   # failure), so the card goes to In review: there the operator sees it, and with no live run it
   # holds no lane (board_lanes), so the jobs queued behind it keep flowing. Ship runs keep their
-  # column: an approved job waits In progress for its ship.
+  # column: an approved job waits In progress for its ship. A "Ship when ready" job with a run
+  # stays too: the hub approves its ship on the move to In review, and a run that stopped part-way
+  # must not ship on its own.
+  moved=""
   to_review() {
     [ -z "$ship" ] && [ "$(job_column)" = in_progress ] || return 0
+    if "${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, sys
+d = json.load(sys.stdin)["data"]
+sys.exit(0 if d.get("ship_preapproved") and d.get("runs") else 1)
+' 2>/dev/null; then
+      log "JOB-$id left In progress with Ship when ready set; left there so it does not ship"
+      return 0
+    fi
     "${J[@]}" patch "$id" --column in_review >>"$LOG" 2>&1 \
-      && log "JOB-$id left In progress; moved to In review" \
+      && { moved=1; log "JOB-$id left In progress; moved to In review"; } \
       || log "JOB-$id could not move to In review"
   }
   if [ "$killed" = 1 ]; then
@@ -287,6 +298,8 @@ print(json.load(sys.stdin)["data"].get("ack_comment_id") or 0)
     else
       notify "JOB-$id reply run failed (exit $rc, reply not acked): $title"
     fi
+  elif [ -n "$moved" ]; then
+    notify "JOB-$id stopped and needs you (exit $rc, moved to In review): $title"
   elif [ "$column" = "in_review" ]; then
     notify "JOB-$id is In review: $title"
   elif [ "$column" = "shipping" ]; then
