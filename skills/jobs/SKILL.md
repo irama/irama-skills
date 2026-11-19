@@ -135,6 +135,14 @@ tell me to reply retry on JOB-<id>.">
 **Then reply** `retry` on this card.
 ````
 
+**A card that waits on the operator goes to In review, never stays In progress.** After a
+blocked comment, a decision comment or a failure comment, run `$J patch <id> --column in_review`.
+In review is where the operator looks for cards that need them. A card left In progress with no
+live run reads as busy and holds its repos, so every job queued behind it on that repo waits
+(one blocked card once held a day of job-application cards). The poller moves a card it finds
+still In progress when a run ends, as a backstop. The one exception is an approved job, which
+waits In progress for its ship run.
+
 - Measure the gap before you write the prompt: the missing path, the unset variable, the
   command's own error line. The prompt carries those facts, so the Mac session needs no log.
 - Name the root fix, not a one-off. For the box, a missing skill or file is fixed in the box's
@@ -294,8 +302,8 @@ through `JOBS_REPOS_ROOT`, which the poller exports.
       instructions; the email comment stays labelled context. Create no worktree and record no
       `$J run`. The command owns its own stages and never moves the card. Then do d): one
       result comment, the ack, and In review. A reply such as "go" is never only acknowledged:
-      the command runs first. On failure, comment what failed, still ack the reply, and leave
-      the card where it is.
+      the command runs first. On failure, comment what failed, still ack the reply, and move
+      the card to In review.
       **A targeted slash job** (step 1's test) does not go to b) to e) either. The poller has
       reused the job's worktree, so the current folder is it. Re-run the prompt's slash command
       there, with the operator comments as labelled input as above, make no second worktree,
@@ -607,9 +615,8 @@ that was never trusted ignores the folder's permission allow rules and stalls.
 tagged target and a slash-command prompt (Background mode step 1), on a Backlog or reply run,
 the tick reads the prompt with `$J get`, then works in the target's main checkout: after
 mirror-sync on the box, it runs `git fetch origin` (the box clone fetches from its mirror). A
-main checkout with uncommitted changes to tracked files is refused with one event comment
-("Not started by the poller: the main checkout ... has uncommitted changes"), and the job is
-tried again every tick. A worktree whose branch is `job/<id>-*` is reused (a reply run); else
+dirty main checkout does not hold the job back: the worktree comes from `origin/<default>`, so
+the operator's uncommitted edits never reach it. A worktree whose branch is `job/<id>-*` is reused (a reply run); else
 the tick adds `<checkout>-wt/job-<id>-<slug>` on a new `job/<id>-<slug>` branch from
 `origin/<default>` (never local `main`), with no upstream. Claude then starts with that
 worktree as its folder, so project skills and repo-relative paths are the worktree's, on the
@@ -618,8 +625,7 @@ creation is allowed under `JOBS_REPOS_READONLY=1`: that switch stops registry wr
 targeted job whose prompt is not a slash command, and every untargeted job, keeps the run
 folder above. A scheduled targeted slash job holds only its template lane (see Lanes), not
 its repo, so another job may run in the same main checkout at the same time; the worktree
-keeps their files apart, and a run that leaves the main checkout dirty holds the slash job
-back until it is clean.
+keeps their files apart.
 
 **Lanes: several runs at once, one per repo.** A tick picks, starts each run as a detached
 worker (`poll.sh --run ...`, its own process group, with its own watchdog, heartbeat and

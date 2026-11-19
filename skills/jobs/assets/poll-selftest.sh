@@ -7,7 +7,8 @@
 # sudo, and the lanes: runs in different repos start in one tick, a busy repo waits, the cap,
 # one ship and one untargeted run at a time, and a dead run record pruned; the job time limit
 # (time_limit_s, clamped), the scheduled-job lane per template, the JOBS_POLLER_SOURCES filter and the
-# targeted slash job worktree (fetch, dirty main refused, reuse on reply). Touches no hub, no
+# targeted slash job worktree (fetch, dirty main ignored, reuse on reply), and a card left
+# In progress moved to In review. Touches no hub, no
 # launchd or systemd, no real config. Runs on macOS and Linux.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
@@ -111,6 +112,7 @@ grep -q 'JOB-5 run failed' "$tmp/sent" || fail "no failure message for JOB-5"
 FAKE_COLUMN=in_progress FAKE_SHIP_APPROVED=w tick
 grep -q 'JOB-6 --background' "$tmp/calls" || fail "board job 6 not started"
 grep -q 'JOB-6 finished, shipping (pre-approved)' "$tmp/sent" || fail "pre-approved end read as a failure"
+grep -q '^patch 6 --column in_review$' "$tmp/calls" && fail "an approved job was moved out of In progress"
 grep -Eq 'JOB-(2|4) ' "$tmp/calls" && fail "untargeted job started"
 # With no JOBS_DEFAULT_HOME, an untargeted job is skipped, logged once, and its prompt is not read.
 [ "$(grep -c 'JOB-4 skipped: no target and JOBS_DEFAULT_HOME is unset' "$tmp/log")" = 1 ] \
@@ -127,8 +129,10 @@ rm -rf "$lock"
 
 # iv) The watchdog kills a run past the limit and comments on the card.
 : >"$HOME/.config/jobs/poller-tried"
-JOBS_POLLER_LIMIT=2 FAKE_RUN_SECS=60 tick
+# The card was left In progress, so it moves to In review: it waits on the operator, not a lane.
+FAKE_COLUMN=in_progress JOBS_POLLER_LIMIT=2 FAKE_RUN_SECS=60 tick
 grep -q 'comment 3 --kind event --body Stopped after 0 minutes' "$tmp/calls" || fail "no watchdog comment"
+grep -q '^patch 3 --column in_review$' "$tmp/calls" || fail "a run left In progress was not moved to In review"
 grep -q 'JOB-3 stopped after' "$tmp/sent" || fail "no watchdog message"
 
 # vi) A default home that is missing on disk still skips; JOB-5 (tagged) starts instead.
@@ -711,7 +715,7 @@ for t in '../r' 'o/..' './r'; do
   grep -q "target $t is not owner/repo" "$tmp/log" || fail "target $t not refused"
 done
 # xvi) Targeted slash job: one tagged target and a slash prompt. Before claude starts, the poller
-# fetches the target's checkout, refuses a dirty main checkout with a card comment, and adds a
+# fetches the target's checkout (a dirty main checkout does not hold it back), and adds a
 # worktree on job/<id>-<slug> from the fetched origin/<default>; the run starts in that worktree. A
 # reply run reuses it. A targeted job whose prompt is not a slash command still starts in the main
 # checkout. First on a Mac (no mirror), then in box mode, where mirror-sync runs first.
@@ -769,15 +773,13 @@ n_wt=$(git -C "$sl_real" worktree list | wc -l)
 FAKE_PATH=reply tick
 grep -q "claude -p /jobs JOB-70 --background .* @ $wt\$" "$tmp/calls" || fail "reply run did not reuse the worktree"
 [ "$(git -C "$sl_real" worktree list | wc -l)" = "$n_wt" ] || fail "reply run added a second worktree"
-# A dirty main checkout is refused with one card comment, and claude never starts.
+# A dirty main checkout does not hold a new job back: its worktree comes from origin, clean.
 echo two >"$sl_real/f"
 : >"$tmp/calls"; : >"$tmp/log"
 FAKE_ID=71 FAKE_PATH=backlog tick
-grep -q '^claude ' "$tmp/calls" && fail "claude ran with a dirty main checkout"
-grep -q 'JOB-71 skipped: the main checkout .* has uncommitted changes' "$tmp/log" || fail "dirty main not logged"
-grep -q '^comment 71 --kind event --body Not started by the poller: the main checkout' "$tmp/calls" \
-  || fail "dirty main not commented on the card"
-[ -d "$sl_real-wt/job-71-weekly-exec-news" ] && fail "worktree added for a dirty main checkout"
+grep -q "claude -p /jobs JOB-71 --background .* @ $sl_real-wt/job-71-weekly-exec-news\$" "$tmp/calls" \
+  || fail "a dirty main checkout held a new slash job back"
+[ "$(cat "$sl_real-wt/job-71-weekly-exec-news/f")" = one ] || fail "main checkout edits leaked into the worktree"
 # A reply run finds the job's worktree first, so a dirty main checkout does not block it.
 : >"$tried"; : >"$tmp/calls"
 FAKE_PATH=reply tick

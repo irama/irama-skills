@@ -32,7 +32,8 @@
 # template) holds only its own lane, "schedule:<template_id>" ("schedule" with no template), in
 # place of its repos: no other job blocks it and it blocks none, but two runs of one template
 # never overlap. It holds that lane In progress, never In review. At most one ship run is live
-# on the machine.
+# on the machine. A non-ship run that ends with its card still In progress moves it to In review
+# (it waits on the operator), so a blocked card never holds its repos.
 # The tick writes nothing to claims.json: jobs.py owns that file.
 #
 # Optional, for a machine that shares the board with another poller (all unset by default):
@@ -230,7 +231,18 @@ print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", [])], d
   }
   backlog_run=""
   [ -n "$ship$reply_cid" ] || backlog_run=1
+  # A run that ends with its card still In progress waits on the operator (blocked, a question, a
+  # failure), so the card goes to In review: there the operator sees it, and with no live run it
+  # holds no lane (board_lanes), so the jobs queued behind it keep flowing. Ship runs keep their
+  # column: an approved job waits In progress for its ship.
+  to_review() {
+    [ -z "$ship" ] && [ "$(job_column)" = in_progress ] || return 0
+    "${J[@]}" patch "$id" --column in_review >>"$LOG" 2>&1 \
+      && log "JOB-$id left In progress; moved to In review" \
+      || log "JOB-$id could not move to In review"
+  }
   if [ "$killed" = 1 ]; then
+    to_review
     mins=$((LIMIT / 60))
     if [ -n "$backlog_run" ] && [ "$(job_column)" = backlog ]; then
       backlog_failed "stopped after $mins minutes"
@@ -245,6 +257,7 @@ print(max([c["id"] for c in json.load(sys.stdin)["data"].get("comments", [])], d
     notify "JOB-$id stopped after $mins minutes: $title"
     exit 0
   fi
+  to_review
   column=$(job_column)
   log "JOB-$id ended: exit $rc, card in $column"
   if [ -n "$backlog_run" ] && [ "$column" = backlog ]; then
@@ -729,12 +742,8 @@ print("y " + t[0] if len(t) == 1 and re.match(r"/[a-z][\w-]*(\s|$)", (d.get("pro
   # A reply run finds its worktree first, so a dirty main checkout never blocks it.
   wt=$(git -C "$run_dir" worktree list --porcelain 2>/dev/null | awk -v p="branch refs/heads/job/$id-" '
     /^worktree /{w=substr($0, 10)} index($0, p) == 1 {print w; exit}')
-  # ponytail: tracked files only; untracked scratch in the main checkout never blocks a job.
-  if [ ! -d "$wt" ] && [ -n "$(git -C "$run_dir" status --porcelain --untracked-files=no 2>&1)" ]; then
-    skip_once "$id" dirty-main "the main checkout $run_dir has uncommitted changes" \
-      "Commit or stash them; the poller tries again every minute."
-    return 1
-  fi
+  # The worktree is cut from origin/<default>, so edits in the main checkout never reach it: a
+  # dirty main checkout (the operator's own work in progress) does not hold the job back.
   if [ -z "$wt" ] || [ ! -d "$wt" ]; then
     git -C "$run_dir" worktree prune 2>/dev/null
     # origin/HEAD, else origin/main, then origin/master, whichever the fetch brought (as jobs.py
