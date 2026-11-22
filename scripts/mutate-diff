@@ -107,7 +107,8 @@ def log_row(base, fields):
     row = {"ran_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
            "repo": os.path.basename(git("rev-parse", "--path-format=absolute",
                                         "--git-common-dir").strip().removesuffix("/.git")),
-           "branch": git("rev-parse", "--abbrev-ref", "HEAD").strip(), "base": base, **fields}
+           "branch": git("rev-parse", "--abbrev-ref", "HEAD").strip(),
+           "head": git("rev-parse", "HEAD").strip(), "base": base, **fields}
     with open(log, "a") as fh:
         fh.write(json.dumps(row) + "\n")
 
