@@ -390,6 +390,8 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
      tests, disable comments, real gaps). A real gap is a survivor that shows the tests never
      checked behaviour the code relies on. Log `0,0,0,0` when nothing survived or nothing was
      fixed. A Stryker error (non-zero exit) goes in the ticket's handoff and the ticket lands.
+     Run the check on every ticket, even after an earlier ticket's run failed: each ticket is
+     its own pilot data point.
 6. **Land the reviewed ticket with `driver_state.py land`. Never merge onto the integration
    branch by hand.** The primitive merges on a detached HEAD, runs the gate there, and moves the
    integration branch only when the gate is green and the branch has not moved underneath it:
