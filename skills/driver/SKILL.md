@@ -363,6 +363,21 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
 5. **Review the ticket's diff before it goes anywhere** — `--base` is the integration branch's
    current tip, so the review sees exactly what this ticket adds. This is the **only**
    per-ticket review pass, not layered on top of anything else.
+   - **Before the review, the mutation check, if the repo has `stryker.config.mjs`** (a pilot,
+     report-only: its score never blocks a ticket). It runs first so the review sees its fixes.
+     On the ticket branch, run `~/.claude/scripts/mutate-diff --base "driver/$RUN_ID"`. It
+     mutates only the lines this ticket changed and prints at most 10 survivors. Give every
+     printed survivor one fix, the first that fits: (i) sharpen an assertion in a test that
+     already runs the line; (ii) if the line is `[NoCoverage]`, add the one test it needs;
+     (iii) only if no test could tell the mutant apart, add
+     `// Stryker disable next-line <Mutator>: <reason>` above the line. Commit the fixes on the
+     ticket branch, run `mutate-diff` once more to confirm them, then log the outcome:
+     `~/.claude/scripts/mutate-diff --base "driver/$RUN_ID" --outcome S,N,D,G` (sharpened
+     assertions, new tests, disable comments, G = S + N). G is a count, not a judgement: any
+     survivor a test change kills is a real gap. Log `0,0,0,0` only when nothing survived. A
+     Stryker error (non-zero exit) goes in the ticket's handoff and the ticket goes on to review.
+     Run the check on every ticket, even after an earlier ticket's run failed: each ticket is
+     its own pilot data point.
    - **The per-ticket reviewer is `adversarial-reviewer`**, not Codex. Fix P1/security/data-loss
      findings on the ticket branch (capped at 2 re-runs, same discipline as `/merge`), and record
      `--reviewer adversarial-reviewer`. **A completed review satisfies the gate: land the ticket,
@@ -376,22 +391,10 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
      document state what the body proves, is any `Recommended` option consistent with the
      document's own disclosures, and does every decision question state cost, benefit and
      likelihood in its own text. A failure on any of the three is returned at **P2**.
+   - The review also reads every `Stryker disable` comment the mutation check (above) added. A
+     disabled mutant that some test could tell apart is a P2 finding.
    - Only a *failed* review blocks — the fallback couldn't run at all, or it left a P0/P1/P2
      finding unresolved. That's an ordinary `blocked`, handled like any other ticket failure.
-   - **Then the mutation check, if the repo has `stryker.config.mjs`** (a pilot, report-only: it
-     never blocks a ticket). On the ticket branch, run
-     `~/.claude/scripts/mutate-diff --base "driver/$RUN_ID"`. It mutates only the lines this
-     ticket changed and prints at most 10 survivors. Fix each survivor in this order, and stop at
-     the first that fits: (i) sharpen an assertion in a test that already runs the line; (ii) if
-     the line is `[NoCoverage]`, add the one test it needs; (iii) if the mutant is equivalent,
-     add `// Stryker disable next-line <Mutator>: <reason>` above the line. Commit the fixes on
-     the ticket branch, then log the outcome:
-     `~/.claude/scripts/mutate-diff --base "driver/$RUN_ID" --outcome S,N,D,G` (sharpened, new
-     tests, disable comments, real gaps). A real gap is a survivor that shows the tests never
-     checked behaviour the code relies on. Log `0,0,0,0` when nothing survived or nothing was
-     fixed. A Stryker error (non-zero exit) goes in the ticket's handoff and the ticket lands.
-     Run the check on every ticket, even after an earlier ticket's run failed: each ticket is
-     its own pilot data point.
 6. **Land the reviewed ticket with `driver_state.py land`. Never merge onto the integration
    branch by hand.** The primitive merges on a detached HEAD, runs the gate there, and moves the
    integration branch only when the gate is green and the branch has not moved underneath it:
