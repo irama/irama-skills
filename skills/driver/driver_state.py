@@ -413,6 +413,30 @@ def _overwritten_files(stderr):
 
 
 LAND_OK, LAND_CONFLICT, LAND_GATE_RED, LAND_MOVED, LAND_BLOCKED = 0, 3, 4, 5, 6
+LAND_NO_MUTATION = 7
+
+
+def _mutation_on_record(work, target, source):
+    """False only when <source> is in the Stryker pilot (it has stryker.config.mjs) and the
+    mutate-diff pilot log has no row for it since its first commit. A failed or empty run
+    writes a row too, so only a skipped check is caught."""
+    if _git(work, "cat-file", "-e", f"{source}:stryker.config.mjs").returncode != 0:
+        return True
+    times = _git(work, "log", "--format=%at", f"{target}..{source}").stdout.split()
+    if not times:
+        return True
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(min(int(t) for t in times)))
+    common = _git(work, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout
+    repo = os.path.basename(common.strip().removesuffix("/.git"))
+    log = os.environ.get("MUTATE_DIFF_LOG") or os.path.expanduser(
+        "~/.local/state/mutate-diff/pilot-log.ndjson")
+    try:
+        with open(log) as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+    except (OSError, ValueError):
+        return False
+    return any(r.get("repo") == repo and r.get("branch") == source
+               and r.get("ran_at", "") >= since for r in rows)
 
 
 def cmd_land(args):
@@ -430,6 +454,11 @@ def cmd_land(args):
         print("--gate is required: nothing lands untested. Pass --gate true to say "
               "so deliberately.", file=sys.stderr)
         return 2
+    if getattr(args, "require_mutation_check", False) and not _mutation_on_record(
+            work, target, source):
+        print(f"{source} has no mutation check on record: run mutate-diff on it (step 5), "
+              "then land again", file=sys.stderr)
+        return LAND_NO_MUTATION
     handle = None
     if not getattr(args, "no_lock", False):
         handle = _flock(work, "land", getattr(args, "wait", 0.0) or 0.0)
@@ -1010,6 +1039,8 @@ def build_parser():
                    help="seconds to wait for the landing lock")
     s.add_argument("--no-lock", action="store_true",
                    help="skip the landing lock (tests only)")
+    s.add_argument("--require-mutation-check", action="store_true",
+                   help="refuse (exit 7) a Stryker-pilot branch with no mutate-diff log row")
     s.set_defaults(func=cmd_land)
 
     s = sub.add_parser("reconcile")

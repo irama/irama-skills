@@ -402,7 +402,7 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
    ```
    python3 <skill-dir>/driver_state.py land \
      --work "$WORK" --target "driver/$RUN_ID" --source "<ticket-branch>" \
-     --run-dir "$RUN_DIR" --ticket-id "<ticket-id>" --wait 1800 \
+     --run-dir "$RUN_DIR" --ticket-id "<ticket-id>" --wait 1800 --require-mutation-check \
      --gate "scripts/ci-gate.sh --gate-only"
    ```
 
@@ -431,7 +431,9 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
    **5** the target moved during the gate (re-run it, the gate has to see the new base),
    **6** an uncommitted file where the branch is checked out would be overwritten by the
    landing (unrelated dirty files are fine: the merge and gate run in a temporary worktree), or
-   the branch is checked out in more than one worktree. Anything non-zero: **do
+   the branch is checked out in more than one worktree, **7** a ticket in a Stryker repo has no
+   mutation check on record (run step 5's check, then land again; this one is not a block).
+   Anything else non-zero: **do
    not force it** — mark `blocked`, send the **blocked-ticket ping** (below), cascade every
    dependent ticket to `skipped (blocked by <ticket>)`, continue with unaffected tickets.
 

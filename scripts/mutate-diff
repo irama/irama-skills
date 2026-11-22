@@ -12,7 +12,7 @@
   --dry-run  print the --mutate list and exit; runs nothing, logs nothing
 
 Keeps changed line ranges in .ts/.tsx source files. Skips tests (*.test.*, *.spec.*), Next.js
-page.tsx/layout.tsx, *.d.ts and *.config.*. Nothing left: prints "nothing to mutate", exits 0.
+page.tsx/layout.tsx, *.d.ts and *.config.*. Nothing left: prints "nothing to mutate", logs a zero row, exits 0.
 A path with glob characters (a Next.js [id] or (group) folder) is mutated whole: Stryker refuses a
 line range on a glob and its matcher drops backslash escapes, so each such character becomes `?`.
 Otherwise runs `npx stryker run --mutate <path:start-end,...>` under heavy-job (one machine
@@ -131,6 +131,9 @@ def main():
     ranges = mutate_ranges(git("diff", "-U0", "--no-color", f"{a.base}...HEAD"))
     if not ranges:
         print("mutate-diff: nothing to mutate")
+        if not a.dry_run:  # a row still shows /driver's landing guard that the check ran
+            log_row(a.base, {"mutants": 0, "killed": 0, "survived": 0, "no_coverage": 0,
+                             "wall_s": 0.0, "exit": 0})
         return 0
     if a.dry_run:
         print("\n".join(ranges))
