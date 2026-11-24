@@ -614,7 +614,11 @@ Statuses: shipped ✅ / skipped-cascaded ⏭ / blocked-needs-you 🛑. Any ticke
 fallback reviewer is marked ⚠️ degraded-gate in Notes — shipped, but single-model.
 A blocked ticket renders as an inline "your call" item using the **crossroad message** from
 step 5, word for word and under the same letters as the Telegram ping, never a popup. The roads
-use letters so they never collide with the summary's numbered options. List worktrees needing manual `/prune`. State the stop reason if a budget ended the run
+use letters so they never collide with the summary's numbered options. Re-check every human
+step a ticket left behind (a wizard, a manual command, a credential to set) against the state at
+the end of the run: anything the run or a later verb can now do is done, or listed as an option
+for us, never as a step for the user. When the user's part shrinks to one action that yields a
+key or credential, ask for that action alone. List worktrees needing manual `/prune`. State the stop reason if a budget ended the run
 early. Follow the user's standard task-summary format for everything else (opening paragraph,
 solution, status, next steps).
 
