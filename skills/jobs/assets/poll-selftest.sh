@@ -65,6 +65,10 @@ mkdir "$tmp/repo"
 export CALLS="$tmp/calls" SENT="$tmp/sent" FAKE_REPO="$tmp/repo"
 lock="$HOME/.config/jobs/poller.lock"
 fail() { echo "poll selftest FAIL: $*" >&2; cat "$tmp/log" "$tmp/calls" >&2 2>/dev/null; exit 1; }
+# launchd runs poll.sh with macOS /bin/bash 3.2, not the bash 5 this test runs under.
+for f in poll.sh install-poller.sh; do
+  [ ! -x /bin/bash ] || /bin/bash -n "$here/$f" || fail "$f does not parse under /bin/bash $(/bin/bash -c 'echo $BASH_VERSION')"
+done
 runs="$HOME/.config/jobs/runs"
 # Every run lives 2 s unless a check says otherwise, so a run started early in a tick is still
 # live when the same tick picks again (a real run lasts minutes).

@@ -85,7 +85,8 @@ env_body=$(
   [ -z "$sources" ] || printf 'JOBS_POLLER_SOURCES=%q\n' "$sources"
   # The calendar prep runs on the box, never here (it needs the box's Convo client). A reinstall
   # keeps the operator's own skip list and adds /convo-prep to it.
-  case ",$prev_skip," in *,/convo-prep,*) skip=$prev_skip ;; *) skip="${prev_skip:+$prev_skip,}/convo-prep" ;; esac
+  # [[ ]] rather than case: macOS /bin/bash 3.2 cannot parse case inside $( ).
+  if [[ ",$prev_skip," == *,/convo-prep,* ]]; then skip=$prev_skip; else skip="${prev_skip:+$prev_skip,}/convo-prep"; fi
   printf 'POLLER_SKIP_PROMPTS=%q\n' "$skip"
   [ -z "$prev_convo" ] || printf 'POLLER_CONVO_URL=%q\n' "$prev_convo"
 )
