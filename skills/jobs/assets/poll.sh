@@ -372,7 +372,9 @@ print(json.load(sys.stdin)["data"].get("ack_comment_id") or 0)
   elif [ "$column" = "done" ]; then
     # Done is success. Only a calendar prep says so aloud ("Prep ready: <name>" and its Convo
     # link, from the prompt's uuid); the run never sends it (TELEGRAM_SEND is not exported).
-    cu=$(case "$lp" in "/convo-prep "*) printf '%s' "$lp" | sed -n 's|^/convo-prep[[:space:]]*\([0-9A-Fa-f-]\{36\}\)\([[:space:]].*\)\{0,1\}$|\1|p' ;; esac)
+    # A plain case block, not case inside $( ): macOS /bin/bash 3.2 (what launchd runs) cannot parse that.
+    cu=""
+    case "$lp" in "/convo-prep "*) cu=$(printf '%s' "$lp" | sed -n 's|^/convo-prep[[:space:]]*\([0-9A-Fa-f-]\{36\}\)\([[:space:]].*\)\{0,1\}$|\1|p') ;; esac
     if [ -n "$cu" ]; then
       link=""
       [ -z "${POLLER_CONVO_URL:-}" ] || link=$'\n'"${POLLER_CONVO_URL%/}/conversations/$cu"
