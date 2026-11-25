@@ -27,6 +27,10 @@ prev_home=$( [ -f "$CONF" ] && . "$CONF" 2>/dev/null; printf '%s' "${JOBS_DEFAUL
 # shellcheck disable=SC1090
 prev_sources=$( [ -f "$CONF" ] && . "$CONF" 2>/dev/null; printf '%s' "${JOBS_POLLER_SOURCES:-}")
 sources="${prev_sources:-${JOBS_POLLER_SOURCES:-}}"
+# shellcheck disable=SC1090
+prev_skip=$( [ -f "$CONF" ] && . "$CONF" 2>/dev/null; printf '%s' "${POLLER_SKIP_PROMPTS:-}")
+# shellcheck disable=SC1090
+prev_convo=$( [ -f "$CONF" ] && . "$CONF" 2>/dev/null; printf '%s' "${POLLER_CONVO_URL:-}")
 mode=install dry=0 repos_root="" default_home="${prev_home:-${JOBS_DEFAULT_HOME:-}}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -79,6 +83,11 @@ env_body=$(
   printf 'JOBS_DEFAULT_HOME=%q\n' "$default_home"
   printf 'POLLER_PATH=%q\n' "$PATH"
   [ -z "$sources" ] || printf 'JOBS_POLLER_SOURCES=%q\n' "$sources"
+  # The calendar prep runs on the box, never here (it needs the box's Convo client). A reinstall
+  # keeps the operator's own skip list and adds /convo-prep to it.
+  case ",$prev_skip," in *,/convo-prep,*) skip=$prev_skip ;; *) skip="${prev_skip:+$prev_skip,}/convo-prep" ;; esac
+  printf 'POLLER_SKIP_PROMPTS=%q\n' "$skip"
+  [ -z "$prev_convo" ] || printf 'POLLER_CONVO_URL=%q\n' "$prev_convo"
 )
 # ponytail: paths go into the plist unescaped; a path holding & or < breaks the XML.
 plist_body=$(cat <<EOF

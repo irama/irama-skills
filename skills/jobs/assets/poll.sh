@@ -46,6 +46,10 @@
 #                             jobs, "!schedule" takes all but them. Reply and ship runs of jobs this
 #                             machine already claimed still run. An unknown source stops the tick
 #                             (exit 2)
+#   POLLER_PROMPT_ENV / _UNSET / _ALLOW=<prefix>=<value>  per-prompt env file, unset names and tool
+#                             allowlist for a run (see the worker); a "/convo-prep" job also holds its
+#                             own lane, like a scheduled job, and sends "Prep ready" when it ends in Done
+#   POLLER_CONVO_URL=<url>    the Convo address for that line and for this machine's Agent X bubble step
 #   POLLER_MIRROR_SYNC=<cmd>  before a targeted run: `sudo -n -u broker <cmd> <target>`, which
 #                             prints {"mirror": <path>}; then clone that mirror into the
 #                             target's manifest path (JOBS_TARGET_MANIFEST) when it is missing
@@ -97,8 +101,8 @@ for s in ${srcs[@]+"${srcs[@]}"}; do # bash 3.2 calls an empty array unbound
   s="${s//[[:space:]]/}"
   [ -n "$s" ] || continue
   case "${s#!}" in
-    board|zero|schedule) ;;
-    *) log "JOBS_POLLER_SOURCES has an unknown source '$s' (known: board, zero, schedule, each with an optional !)"; exit 2 ;;
+    board|zero|schedule|convo) ;;
+    *) log "JOBS_POLLER_SOURCES has an unknown source '$s' (known: board, zero, schedule, convo, each with an optional !)"; exit 2 ;;
   esac
 done
 J=("$PYTHON3_BIN" "$SKILL_DIR/assets/jobs.py")
@@ -158,9 +162,67 @@ run_worker() {
   # it spawns) by group instead of chasing children one `pkill -P` level deep.
   # A known session id, so the transcript can be found after the run (see Retag).
   sid=$("$PYTHON3_BIN" -c 'import uuid; print(uuid.uuid4())')
+  # Per-prompt settings from poller.env, each one "<prompt prefix>=<value>" and applied only to a
+  # run whose prompt starts with that prefix (this worker is its own process, so nothing leaks to
+  # the tick or to another run):
+  #   POLLER_PROMPT_ENV=<p>=<file>     load that env file (a regular file, not a symlink)
+  #   POLLER_PROMPT_UNSET=<p>=<N,N>    unset those variables
+  #   POLLER_PROMPT_ALLOW=<p>=<t>|<t>  run under dontAsk with only those tools allowed, so a run
+  #                                    cannot reach a file or a command the list leaves out
+  # poller.env is a shell file: quote a value that holds spaces or brackets. The ALLOW list must also
+  # cover what the /jobs skill itself runs (its jobs.py calls), or the run cannot claim or report.
+  # The Convo prep slot is never in a run that did not ask for it.
+  unset CONVO_PREP_FAS_CLIENT_ID CONVO_PREP_FAS_CLIENT_SECRET
+  # The prompt picks the per-prompt rules, so a run never starts without knowing it: three tries,
+  # then the worker stops and no claude starts (an unknown prompt would run with no allowlist).
+  lp="" got=""
+  for _ in 1 2 3; do
+    if lp=$("${J[@]}" get "$id" 2>/dev/null | "$PYTHON3_BIN" -c '
+import json, sys
+print((json.load(sys.stdin)["data"].get("prompt") or "").lstrip()[:200].replace("\n", " "))
+' 2>/dev/null); then got=1; break; fi
+    sleep "${POLLER_GET_RETRY_SLEEP:-2}"
+  done
+  if [ -z "$got" ]; then
+    log "JOB-$id could not read its prompt; the run is not started"
+    notify "JOB-$id run not started (could not read the job): $title"
+    return 0
+  fi
+  # A prefix matches whole: the prompt is the prefix, or the prefix and a space ("/convo-prepX" is not "/convo-prep").
+  prompt_for() { [ -n "$1" ] && [ -n "$lp" ] && { [ "$lp" = "${1%%=*}" ] || [ "${lp#"${1%%=*} "}" != "$lp" ]; }; }
+  if prompt_for "${POLLER_PROMPT_ENV:-}"; then
+    pf=${POLLER_PROMPT_ENV#*=}
+    if [ -f "$pf" ] && [ ! -L "$pf" ]; then
+      set -a
+      # shellcheck disable=SC1090
+      . "$pf"
+      set +a
+    else
+      log "JOB-$id env file $pf is not a regular file; the run starts without it"
+    fi
+  fi
+  if prompt_for "${POLLER_PROMPT_UNSET:-}"; then
+    IFS=, read -r -a un <<<"${POLLER_PROMPT_UNSET#*=}"
+    for v in ${un[@]+"${un[@]}"}; do
+      [[ $v =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && unset "$v"
+    done
+  fi
+  mode=(--permission-mode auto --permission-prompts none)
+  if prompt_for "${POLLER_PROMPT_ALLOW:-}"; then
+    IFS='|' read -r -a tools <<<"${POLLER_PROMPT_ALLOW#*=}"
+    mode=(--permission-mode dontAsk --permission-prompts none --allowedTools "${tools[@]}") # last: the flag takes every word after it
+    log "JOB-$id runs under dontAsk with ${#tools[@]} allowed tools"
+    # Allow rules in the box settings (a broad Bash allow) add to this list, so a deny list is the hard
+    # limit: a deny rule beats every allow rule.
+    if prompt_for "${POLLER_PROMPT_DENY:-}"; then
+      IFS='|' read -r -a denied <<<"${POLLER_PROMPT_DENY#*=}"
+      mode=(--permission-mode dontAsk --permission-prompts none --disallowedTools "${denied[@]}" --allowedTools "${tools[@]}")
+      log "JOB-$id denies ${#denied[@]} tools"
+    fi
+  fi
   set -m
   "$CLAUDE_BIN" -p "/jobs JOB-$id --background${ship:+ --ship}" --session-id "$sid" \
-    --permission-mode auto --permission-prompts none >>"$LOG" 2>&1 &
+    "${mode[@]}" >>"$LOG" 2>&1 &
   run=$!
   set +m
   "${J[@]}" patch "$id" --active on >/dev/null 2>&1 || true # a reply run is already claimed
@@ -307,6 +369,17 @@ print(json.load(sys.stdin)["data"].get("ack_comment_id") or 0)
     notify "JOB-$id is In review: $title"
   elif [ "$column" = "shipping" ]; then
     notify "JOB-$id finished, shipping (pre-approved): $title"
+  elif [ "$column" = "done" ]; then
+    # Done is success. Only a calendar prep says so aloud ("Prep ready: <name>" and its Convo
+    # link, from the prompt's uuid); the run never sends it (TELEGRAM_SEND is not exported).
+    cu=$(case "$lp" in "/convo-prep "*) printf '%s' "$lp" | sed -n 's|^/convo-prep[[:space:]]*\([0-9A-Fa-f-]\{36\}\)\([[:space:]].*\)\{0,1\}$|\1|p' ;; esac)
+    if [ -n "$cu" ]; then
+      link=""
+      [ -z "${POLLER_CONVO_URL:-}" ] || link=$'\n'"${POLLER_CONVO_URL%/}/conversations/$cu"
+      notify "Prep ready: ${title#Call prep: }$link"
+    else
+      log "JOB-$id ended in Done: no message"
+    fi
   else
     notify "JOB-$id run failed (exit $rc, card in $column): $title"
   fi
@@ -370,6 +443,10 @@ def lanes(targets, j=None):
         tid = "".join(c for c in str(j.get("template_id") or "") if c.isalnum() or c in "._-")
         # Untargeted, it runs with no worktree in a shared folder, so it also holds "-".
         return ["schedule:" + tid if tid else "schedule"] + ([] if repos else ["-"])
+    # A calendar prep commits nothing, so it holds only its own lane: another job In progress
+    # never holds it back past the call, and it never holds one.
+    if j and (j.get("prompt") or "").lstrip().split(None, 1)[:1] == ["/convo-prep"]:
+        return ["convo-prep"]
     return repos or ["-"]
 def held(j, targets, own):
     # A scheduled job meets the board only in its template lane; its folder lane ("-") waits
@@ -878,8 +955,62 @@ os.replace(path + ".tmp", path)
 ' "$worker" "$kind" "$lanes" "$RUNS/$id.json" || log "JOB-$id could not write its run record"
 }
 
+# ── Agent X: one bubble per Done calendar prep (this Mac only) ────────────────
+# Only a machine with xagent-ask and POLLER_CONVO_URL runs this; the box has neither. It reads the
+# Done convo jobs whose prompt starts /convo-prep and which changed in the last 24 hours (the
+# listing has no done time, so updated_at stands in), skips ids in poller-convo-seen, and posts a
+# keyed link bubble "Prep ready: <name>" for the rest (--done cannot take --key, and a keyed bubble
+# is one per job even if this step ran twice). The first run only fills the seen file, so old preps
+# do not all bubble at once. A Mac that slept posts on wake; a post that fails is retried next tick.
+CONVO_SEEN="$CFG_DIR/poller-convo-seen"
+prep_bubbles() {
+  local xa="${POLLER_XAGENT_ASK:-$HOME/.claude/bin/xagent-ask}" seed="" listing_done rows pid puuid pname
+  [ -x "$xa" ] && [ -n "${POLLER_CONVO_URL:-}" ] || return 0
+  # The seed goes to a temp file and moves into place only after the listing and the parse both worked, so
+  # a failed first listing leaves no empty seed (the next tick would bubble every Done job of 24 hours).
+  [ -f "$CONVO_SEEN" ] || { seed=1; rm -f "$CONVO_SEEN.new"; }
+  listing_done=$("${J[@]}" list --column "done" --source convo --all-pages 2>/dev/null) \
+    || { log "Agent X prep step: could not list the Done convo jobs"; return 0; }
+  rows=$(printf '%s' "$listing_done" | "$PYTHON3_BIN" -c '
+import json, re, sys
+from datetime import datetime, timezone
+seed = sys.argv[1] == "1"
+for j in json.load(sys.stdin).get("jobs", []):
+    m = re.match(r"\s*/convo-prep\s+([0-9A-Fa-f-]{36})(\s|$)", j.get("prompt") or "")
+    if j.get("column") != "done" or j.get("source") != "convo" or not m or not str(j.get("id")).isdigit():
+        continue
+    try:
+        t = datetime.fromisoformat(j["updated_at"].replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        if not seed and (datetime.now(timezone.utc) - t).total_seconds() > 86400:
+            continue
+    except (KeyError, AttributeError, ValueError):
+        if not seed:
+            continue
+    name = j.get("title") or ""
+    name = name[len("Call prep: "):] if name.startswith("Call prep: ") else name
+    print(j["id"], m.group(1), " ".join(name.split()), sep="\t")
+' "${seed:-0}" 2>/dev/null) \
+    || { log "Agent X prep step: could not read the Done convo jobs"; return 0; }
+  while IFS=$'\t' read -r pid puuid pname; do
+    [ -n "$pid" ] || continue
+    grep -qxF "$pid" "$CONVO_SEEN" 2>/dev/null && continue
+    if [ -n "$seed" ]; then
+      echo "$pid" >>"$CONVO_SEEN.new"
+    elif "$xa" --key "job-$pid" --note "Prep ready: ${pname:0:150}" --link "${POLLER_CONVO_URL%/}/conversations/$puuid" >>"$LOG" 2>&1; then
+      echo "$pid" >>"$CONVO_SEEN"
+      log "JOB-$pid Agent X bubble posted: Prep ready"
+    else
+      log "JOB-$pid Agent X bubble not posted; trying again next tick"
+    fi
+  done <<<"$rows"
+  [ -z "$seed" ] || { touch "$CONVO_SEEN.new"; mv "$CONVO_SEEN.new" "$CONVO_SEEN"; }
+}
+
 # ── Tick ─────────────────────────────────────────────────────────────────────
 # Each board list is read once a tick; each pick re-filters it against the live runs.
+prep_bubbles
 approved=$("${J[@]}" list --ship-approved --all-pages 2>/dev/null) || approved=""
 awaiting=$("${J[@]}" list --awaiting --all-pages 2>/dev/null) || awaiting=""
 listing="" board_busy="" board_read="" tick_picked=""
