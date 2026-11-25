@@ -140,3 +140,20 @@ interval. Measure the element (a ResizeObserver), then take the first "nice" ste
 30, 60 … seconds, or the unit's equivalent) that leaves at least about 56 px between labels.
 Format time as m:ss. A fixed two-second ruler on a three-minute film printed labels on top of each
 other, and a "0:" prefix turned 100 s into "0:100".
+
+## Every page has a unique document title
+
+**Every route sets its own `<title>`: the specific thing first, then the section, then the app
+name, joined with ` | `.** For example `Hashtax | Contact | Peak State Books`, `Inbox | Peak State
+Books`. Browser history, the back-button menu and tab strips show only the title, so eight entries
+that all read "Peak State Books" make history useless.
+
+- **Specific first.** A record page leads with the record's own name (a contact, an invoice
+  number, an item). Add a date or number when two records can share a name.
+- **The section is the nav label** the user clicked to get there, word for word.
+- **Set the app name once.** In Next.js, the root layout sets
+  `title: { default: '<App>', template: '%s | <App>' }`, and each page exports `metadata` or
+  `generateMetadata`. A dynamic page reads the record through a `cache()`-wrapped loader shared
+  with the page, so the title adds no second query.
+- **Check before calling a route done:** open it and read the tab title. A title equal to another
+  page's title, or to the bare app name, is a defect.
