@@ -208,9 +208,14 @@ print((json.load(sys.stdin)["data"].get("prompt") or "").lstrip()[:200].replace(
     done
   fi
   mode=(--permission-mode auto --permission-prompts none)
+  note=()
   if prompt_for "${POLLER_PROMPT_ALLOW:-}"; then
     IFS='|' read -r -a tools <<<"${POLLER_PROMPT_ALLOW#*=}"
     mode=(--permission-mode dontAsk --permission-prompts none --allowedTools "${tools[@]}") # last: the flag takes every word after it
+    # The Skill tool shows the /jobs skill under ~/.claude, which a deny list may block, so name the
+    # one client path the allow list is written for. Without it, a run can fail to claim its own job.
+    # A bare python3, as allow rules are written: PYTHON3_BIN is absolute and no rule matches it.
+    note=(--append-system-prompt "This run has a fixed tool allowlist. Call the /jobs client only as: python3 $SKILL_DIR/assets/jobs.py <args> (never through ~/.claude or \$HOME).")
     log "JOB-$id runs under dontAsk with ${#tools[@]} allowed tools"
     # Allow rules in the box settings (a broad Bash allow) add to this list, so a deny list is the hard
     # limit: a deny rule beats every allow rule.
@@ -222,7 +227,7 @@ print((json.load(sys.stdin)["data"].get("prompt") or "").lstrip()[:200].replace(
   fi
   set -m
   "$CLAUDE_BIN" -p "/jobs JOB-$id --background${ship:+ --ship}" --session-id "$sid" \
-    "${mode[@]}" >>"$LOG" 2>&1 &
+    ${note[@]+"${note[@]}"} "${mode[@]}" >>"$LOG" 2>&1 &
   run=$!
   set +m
   "${J[@]}" patch "$id" --active on >/dev/null 2>&1 || true # a reply run is already claimed

@@ -968,6 +968,10 @@ case "$prepcall" in
   *"--permission-mode dontAsk --permission-prompts none --disallowedTools Bash(cat *) Read(//home/**) --allowedTools Read Write Bash(python3 tools/convo/convo.py get:*) Bash(python3 tools/convo/prep.py:*) @ "*) ;;
   *) fail "a prep run did not get the exact deny and allow flags: $prepcall" ;;
 esac
+case "$prepcall" in
+  *"--append-system-prompt "*"only as: python3 $tmp/skill/assets/jobs.py <args>"*) ;;
+  *) fail "a prep run was not told the allowed jobs.py path: $prepcall" ;;
+esac
 cp_reset
 PRIMA_SKILL_ENV=/x CONVO_PREP_FAS_CLIENT_ID=leak CONVO_PREP_FAS_CLIENT_SECRET=leak FAKE_BL=1 FAKE_PROMPT='/echo-test' tick
 [ "$(seen)" = 'PRIMA_SKILL_ENV ' ] || fail "another run saw: $(seen)"
