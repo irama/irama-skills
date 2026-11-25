@@ -39,6 +39,8 @@
 # Optional, for a machine that shares the board with another poller (all unset by default):
 #   POLLER_SKIP_UNTARGETED=1  never pick a job with no target, on any of the three pick paths
 #   POLLER_SKIP_LOCAL=1       never pick a job with a local/* target, likewise
+#   POLLER_SKIP_PROMPTS=<p>   never pick a job whose prompt starts with one of these comma-separated
+#                             prefixes, likewise ("/apply-for-job": the run needs Google Drive)
 #   JOBS_POLLER_SOURCES=<s>   start only Backlog jobs whose source is listed (comma-separated); a
 #                             "!" entry leaves that source instead: "schedule" takes only scheduled
 #                             jobs, "!schedule" takes all but them. Reply and ship runs of jobs this
@@ -87,6 +89,7 @@ export PATH="${POLLER_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 [ -n "${JOBS_TARGET_MANIFEST:-}" ] && export JOBS_TARGET_MANIFEST
 [ -n "${JOBS_REPOS_READONLY:-}" ] && export JOBS_REPOS_READONLY
 export POLLER_SKIP_UNTARGETED="${POLLER_SKIP_UNTARGETED:-}" POLLER_SKIP_LOCAL="${POLLER_SKIP_LOCAL:-}"
+export POLLER_SKIP_PROMPTS="${POLLER_SKIP_PROMPTS:-}"
 export JOBS_POLLER_SOURCES="${JOBS_POLLER_SOURCES:-}"
 # A misspelt source would leave every job, or take every job, without a word: stop instead.
 IFS=, read -r -a srcs <<<"$JOBS_POLLER_SOURCES"
@@ -347,11 +350,14 @@ touch "$TRIED" "$SKIPPED" "$OWNED"
 LEFT='
 import os
 SOURCES = [s.strip() for s in os.environ.get("JOBS_POLLER_SOURCES", "").split(",") if s.strip()]
+PROMPTS = tuple(s.strip() for s in os.environ.get("POLLER_SKIP_PROMPTS", "").split(",") if s.strip())
 def left(targets, j, backlog=False):
     src = j.get("source") or ""
     if backlog and ("!" + src in SOURCES or any(not s.startswith("!") for s in SOURCES) and src not in SOURCES):
         return True
     targets = [t for t in targets or [] if t]
+    if PROMPTS and (j.get("prompt") or "").lstrip().startswith(PROMPTS):
+        return True
     if os.environ.get("POLLER_SKIP_UNTARGETED") == "1" and not targets:
         return True
     return os.environ.get("POLLER_SKIP_LOCAL") == "1" and any(t.startswith("local/") for t in targets)
