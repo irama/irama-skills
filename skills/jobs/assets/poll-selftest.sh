@@ -302,6 +302,8 @@ elif a[0] == "list" and "--awaiting" in a and path == "awaiting":
 elif a[0] == "list" and "--column" in a and path == "backlog":
     jobs = [{"id": 40, "column": "backlog", "targets": t, "claimed": False, "title": "backlog"}]
 if a[0] == "list":
+    for j in jobs:
+        j["prompt"] = os.environ.get("FAKE_PROMPT", "do it")
     print(json.dumps({"jobs": jobs}))
 elif a[0] == "get":
     print(json.dumps({"data": {"id": int(a[1]), "column": "in_review", "prompt": "do it",
@@ -326,6 +328,21 @@ for path in ship awaiting backlog; do
       fail "$path job with targets $targets had a side effect: $(grep -v '^list ' "$tmp/calls" | head -1)"
     fi
     [ -s "$HOME/.config/jobs/poller-tried" ] && fail "$path job with targets $targets recorded as tried"
+  done
+done
+# POLLER_SKIP_PROMPTS leaves a job whose prompt starts with a listed prefix, on all three paths,
+# and still takes a job whose prompt matches none of them.
+for path in ship awaiting backlog; do
+  for prompt in '/apply-for-job --queue' 'do it'; do
+    : >"$HOME/.config/jobs/poller-tried"
+    : >"$HOME/.config/jobs/poller-skipped"
+    : >"$tmp/calls"
+    FAKE_PATH=$path FAKE_TARGETS='["local/x"]' FAKE_PROMPT=$prompt POLLER_SKIP_PROMPTS='/other, /apply-for-job' tick
+    if [ "$prompt" = 'do it' ]; then
+      grep -q 'JOB-40 ' "$tmp/calls" || fail "POLLER_SKIP_PROMPTS left a $path job whose prompt matches no prefix"
+    elif grep -v '^list ' "$tmp/calls" | grep -q .; then
+      fail "POLLER_SKIP_PROMPTS: $path job had a side effect: $(grep -v '^list ' "$tmp/calls" | head -1)"
+    fi
   done
 done
 # Set in poller.env (not only the caller's env), the switches still apply.
