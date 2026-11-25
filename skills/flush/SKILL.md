@@ -73,3 +73,5 @@ Finish with a one-line-per-verb read-out — what ran, what it did, what was ski
     /prune   → skipped (no worktrees)
 
 Then the deploy's actual state — confirmed live, or still building, or failed. Never report a deploy as done on the strength of the push alone.
+
+**Under Orca, write this report before `/prune` removes this thread's own worktree.** That removal (prune step 8) closes the chat, and nothing after it is shown.
