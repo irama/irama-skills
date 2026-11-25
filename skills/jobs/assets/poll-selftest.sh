@@ -888,16 +888,22 @@ if a[0] == "list" and ("--awaiting" in a or "--ship-approved" in a):
     print(json.dumps({"jobs": []}))
 elif a[0] == "list" and "--column" in a:
     c = a[a.index("--column") + 1]
+    if c == "done" and e("FAKE_LIST_FAIL"):
+        sys.exit(1)
     print(json.dumps({"jobs": backlog if c == "backlog" else done if c == "done" else []}))
 elif a[0] == "list":
     print(json.dumps({"jobs": board + backlog}))
 elif a[0] == "get":
+    # FAKE_GET_FAIL=N: every get after the first N for this job fails (the tick reads first, the worker after).
+    if e("FAKE_GET_FAIL") and open(os.environ["CALLS"]).read().count("get " + a[1] + "\n") > int(e("FAKE_GET_FAIL")):
+        sys.exit(1)
     print(json.dumps({"data": {"id": int(a[1]), "column": e("FAKE_COLUMN", "in_review"), "prompt": e("FAKE_PROMPT", "/convo-prep " + U)}}))
 elif a[0] == "repos":
     print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
 EOF
 cp_reset() { : >"$HOME/.config/jobs/poller-tried"; : >"$HOME/.config/jobs/poller-skipped"; : >"$tmp/calls"; : >"$tmp/log"; : >"$tmp/sent"; : >"$tmp/envseen"; }
 export ENVSEEN="$tmp/envseen"
+export POLLER_GET_RETRY_SLEEP=0
 # Source names: convo and !convo are accepted (a stray name still exits 2, above).
 for v in convo '!convo' 'board,!convo'; do
   cp_reset; rc=0
@@ -946,18 +952,36 @@ ln -s "$tmp/cp.env" "$tmp/cp-link.env"
   printf 'POLLER_PROMPT_UNSET=%q\n' "/convo-prep=PRIMA_SKILL_ENV,PRIMA_ENV_FILE"
   # poller.env is a shell file: the allowlist has spaces and brackets, so it is quoted.
   printf 'POLLER_PROMPT_ALLOW=%q\n' '/convo-prep=Read|Write|Bash(python3 tools/convo/convo.py get:*)|Bash(python3 tools/convo/prep.py:*)'
+  # The hard limit: deny rules beat the allow rules in the machine's settings.
+  printf 'POLLER_PROMPT_DENY=%q\n' '/convo-prep=Bash(cat *)|Read(//home/**)'
 } >>"$HOME/.config/jobs/poller.env"
 seen() { cat "$tmp/envseen" | tr ' ' '\n' | grep -E '^(CONVO_PREP_FAS_CLIENT_ID|CONVO_PREP_FAS_CLIENT_SECRET|PRIMA_SKILL_ENV)$' | sort | tr '\n' ' '; }
 cp_reset
 PRIMA_SKILL_ENV=/x FAKE_BL=1 tick
 [ "$(seen)" = 'CONVO_PREP_FAS_CLIENT_ID CONVO_PREP_FAS_CLIENT_SECRET ' ] || fail "a prep run saw: $(seen)"
-cat "$tmp/calls" | grep -q 'claude -p /jobs JOB-96 --background --session-id [^ ]* --permission-mode dontAsk --permission-prompts none --allowedTools Read Write Bash(python3 tools/convo/convo.py get:\*) Bash(python3 tools/convo/prep.py:\*) @ ' \
-  || fail "a prep run did not get the allowlist: $(cat "$tmp/calls" | grep '^claude ')"
+prepcall=$(cat "$tmp/calls" | grep '^claude ')
+case "$prepcall" in
+  *"--permission-mode dontAsk --permission-prompts none --disallowedTools Bash(cat *) Read(//home/**) --allowedTools Read Write Bash(python3 tools/convo/convo.py get:*) Bash(python3 tools/convo/prep.py:*) @ "*) ;;
+  *) fail "a prep run did not get the exact deny and allow flags: $prepcall" ;;
+esac
 cp_reset
 PRIMA_SKILL_ENV=/x CONVO_PREP_FAS_CLIENT_ID=leak CONVO_PREP_FAS_CLIENT_SECRET=leak FAKE_BL=1 FAKE_PROMPT='/echo-test' tick
 [ "$(seen)" = 'PRIMA_SKILL_ENV ' ] || fail "another run saw: $(seen)"
 cat "$tmp/calls" | grep -q 'claude -p /jobs JOB-96 --background --session-id [^ ]* --permission-mode auto --permission-prompts none @ ' \
   || fail "another run did not keep auto mode: $(cat "$tmp/calls" | grep '^claude ')"
+# A prefix matches whole: /convo-prepX is not a prep (no slot, no allowlist, not the prep lane).
+cp_reset
+PRIMA_SKILL_ENV=/x FAKE_BL=1 FAKE_PROMPT="/convo-prepX $cp_uuid" FAKE_COLUMN="done" tick
+[ "$(seen)" = 'PRIMA_SKILL_ENV ' ] || fail "/convo-prepX got the prep rules: $(seen)"
+cat "$tmp/calls" | grep '^claude ' | grep -q -- '--permission-mode auto' || fail "/convo-prepX did not keep auto mode"
+cat "$tmp/log" | grep -q 'lanes convo-prep' && fail "/convo-prepX took the prep lane"
+[ ! -s "$tmp/sent" ] || fail "/convo-prepX sent a Prep ready line: $(cat "$tmp/sent")"
+# A failing get must not start claude unrestricted (the prompt picks the rules): three tries, no run.
+cp_reset
+FAKE_GET_FAIL=1 FAKE_BL=1 tick
+cat "$tmp/calls" | grep -q '^claude ' && fail "claude started although the job could not be read"
+cat "$tmp/log" | grep -q 'JOB-96 could not read its prompt; the run is not started' || fail "unreadable job not logged"
+[ "$(cat "$tmp/calls" | grep -c '^get 96')" -ge 3 ] || fail "get was not retried: $(cat "$tmp/calls" | grep '^get')"
 cp_reset
 sed -i.bak "s|POLLER_PROMPT_ENV=/convo-prep=.*|POLLER_PROMPT_ENV=/convo-prep=$tmp/cp-link.env|" "$HOME/.config/jobs/poller.env" && rm -f "$HOME/.config/jobs/poller.env.bak"
 PRIMA_SKILL_ENV=/x FAKE_BL=1 tick
@@ -986,6 +1010,14 @@ chmod +x "$tmp/xa-ok"
 cp "$tmp/xa-ok" "$tmp/xa"
 export XALOG="$tmp/xalog"
 printf 'POLLER_XAGENT_ASK=%q\n' "$tmp/xa" >>"$HOME/.config/jobs/poller.env"
+# Seeding is atomic: a first listing that fails leaves no seed, so the next tick seeds instead of bubbling.
+rm -f "$HOME/.config/jobs/poller-convo-seen"
+cp_reset; : >"$XALOG"
+FAKE_LIST_FAIL=1 tick
+[ ! -e "$HOME/.config/jobs/poller-convo-seen" ] || fail "a failed first listing left a seed file"
+FAKE_DONE=0 tick
+[ ! -s "$XALOG" ] || fail "the tick after a failed first listing bubbled old preps: $(cat "$XALOG")"
+[ "$(wc -l <"$HOME/.config/jobs/poller-convo-seen" | tr -d ' ')" = 2 ] || fail "seed after a failed listing is wrong"
 rm -f "$HOME/.config/jobs/poller-convo-seen"
 cp_reset; : >"$XALOG"
 FAKE_DONE=0 tick
