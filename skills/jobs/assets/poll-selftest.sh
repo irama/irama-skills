@@ -44,6 +44,7 @@ EOF
 cat >"$tmp/claude" <<'EOF'
 #!/usr/bin/env bash
 echo "claude $* @ $(pwd -P)" >>"$CALLS"
+[ -z "${ENVSEEN:-}" ] || env | cut -d= -f1 | sort | tr '\n' ' ' >>"$ENVSEEN"; echo >>"${ENVSEEN:-/dev/null}"
 sid=$(printf '%s\n' "$@" | grep -A1 -x -- --session-id | tail -1)
 mkdir -p "$HOME/.claude/projects/p" && echo '{"entrypoint":"sdk-cli"}' >"$HOME/.claude/projects/p/$sid.jsonl"
 sleep "${FAKE_RUN_SECS:-0}"
@@ -855,4 +856,154 @@ grep -qx 'sudo -n -u broker .*/mirror-sync o/sl' "$tmp/calls" || fail "box: mirr
   || fail "box: worktree not based on the clone fetched from the mirror"
 grep -q "claude -p /jobs JOB-81 --background .* @ $box_real-wt/job-81-weekly-exec-news\$" "$tmp/calls" \
   || fail "box: slash job did not start in its worktree"
+# xvi) Calendar prep (/convo-prep, source "convo"): the source names, its own lane beside a data-repo
+# job In progress, the Done branch (no "run failed"; one "Prep ready" line only for a prep), the
+# per-prompt env, unset and tool allowlist, and the Agent X bubble step. Job 95 is a data-repo job
+# In progress on o/r (FAKE_XC_BUSY); job 96 is in Backlog (FAKE_BL, with FAKE_BL_SRC, FAKE_TITLE,
+# FAKE_PROMPT); FAKE_DONE adds Done convo jobs for the bubble step.
+cp_uuid=11111111-2222-3333-4444-555555555555
+cat >"$tmp/skill/assets/jobs.py" <<'EOF'
+import json, os, sys
+from datetime import datetime, timedelta, timezone
+open(os.environ["CALLS"], "a").write(" ".join(sys.argv[1:]) + "\n")
+a = sys.argv[1:]
+e = os.environ.get
+U = "11111111-2222-3333-4444-555555555555"
+def ago(h):
+    return (datetime.now(timezone.utc) - timedelta(hours=h)).isoformat()
+board = []
+if e("FAKE_XC_BUSY"):
+    board.append({"id": 95, "source": "board", "column": "in_progress", "targets": ["o/r"], "claimed": True,
+                  "title": "xcoach work", "prompt": "do it", "runs": []})
+backlog = []
+if e("FAKE_BL"):
+    backlog.append({"id": 96, "source": e("FAKE_BL_SRC", "convo"), "column": "backlog", "targets": ["o/r"], "claimed": False,
+                    "title": e("FAKE_TITLE", "Call prep: Acme"), "prompt": e("FAKE_PROMPT", "/convo-prep " + U)})
+done = []
+if e("FAKE_DONE"):
+    for i, (h, p) in enumerate([(1, "/convo-prep " + U), (72, "/convo-prep " + U), (1, "/other " + U)]):
+        done.append({"id": 201 + i + int(e("FAKE_DONE")) * 10, "source": "convo", "column": "done", "prompt": p,
+                     "title": "Call prep: Name " + str(i), "updated_at": ago(h)})
+if a[0] == "list" and ("--awaiting" in a or "--ship-approved" in a):
+    print(json.dumps({"jobs": []}))
+elif a[0] == "list" and "--column" in a:
+    c = a[a.index("--column") + 1]
+    print(json.dumps({"jobs": backlog if c == "backlog" else done if c == "done" else []}))
+elif a[0] == "list":
+    print(json.dumps({"jobs": board + backlog}))
+elif a[0] == "get":
+    print(json.dumps({"data": {"id": int(a[1]), "column": e("FAKE_COLUMN", "in_review"), "prompt": e("FAKE_PROMPT", "/convo-prep " + U)}}))
+elif a[0] == "repos":
+    print(json.dumps({"repos": [{"target": "o/r", "display": "r", "path": os.environ["FAKE_REPO"]}]}))
+EOF
+cp_reset() { : >"$HOME/.config/jobs/poller-tried"; : >"$HOME/.config/jobs/poller-skipped"; : >"$tmp/calls"; : >"$tmp/log"; : >"$tmp/sent"; : >"$tmp/envseen"; }
+export ENVSEEN="$tmp/envseen"
+# Source names: convo and !convo are accepted (a stray name still exits 2, above).
+for v in convo '!convo' 'board,!convo'; do
+  cp_reset; rc=0
+  JOBS_POLLER_SOURCES=$v bash "$here/poll.sh" || rc=$?
+  [ "$rc" = 0 ] || fail "JOBS_POLLER_SOURCES=$v: exit $rc, not 0"
+done
+# Own lane: a prep starts while a data-repo job is In progress on the same repo; a control job of
+# the same source with another prompt waits behind it.
+cp_reset
+FAKE_XC_BUSY=1 FAKE_BL=1 tick
+[ "$(started 96)" = 1 ] || fail "a data-repo job In progress held a /convo-prep job"
+cat "$tmp/log" | grep -q 'JOB-96 start in .* (backlog, lanes convo-prep)' || fail "prep did not take the convo-prep lane"
+cp_reset
+FAKE_XC_BUSY=1 FAKE_BL=1 FAKE_PROMPT='/echo-test' tick
+[ "$(started 96)" = 0 ] || fail "control: another prompt on o/r ran beside the busy board job"
+# Two preps never overlap: a live run in the convo-prep lane holds the next one.
+cp_reset
+echo "{\"pid\": $$, \"kind\": \"backlog\", \"lanes\": [\"convo-prep\"]}" >"$runs/99.json"
+FAKE_BL=1 bash "$here/poll.sh"
+rm -f "$runs/99.json"
+settle
+[ "$(started 96)" = 0 ] || fail "two preps ran at once"
+# Done branch: a prep card in Done sends one "Prep ready" line with the Convo link and no
+# failure; any other Done card sends nothing and says so in the log.
+printf 'POLLER_CONVO_URL=%q\n' "https://convo.test/" >>"$HOME/.config/jobs/poller.env"
+cp_reset
+FAKE_BL=1 FAKE_COLUMN="done" tick
+[ "$(started 96)" = 1 ] || fail "prep did not run"
+[ "$(cat "$tmp/sent" | grep -c '^Prep ready: Acme$')" = 1 ] || fail "no single 'Prep ready: Acme' line: $(cat "$tmp/sent")"
+cat "$tmp/sent" | grep -qx "https://convo.test/conversations/$cp_uuid" || fail "no Convo link after the Prep ready line"
+cat "$tmp/sent" | grep -q 'run failed' && fail "a Done prep was reported as failed"
+cp_reset
+FAKE_BL=1 FAKE_COLUMN="done" FAKE_PROMPT='/echo-test' FAKE_BL_SRC=board tick
+[ "$(started 96)" = 1 ] || fail "control job did not run"
+[ ! -s "$tmp/sent" ] || fail "a Done card that is not a prep sent: $(cat "$tmp/sent")"
+cat "$tmp/log" | grep -q 'JOB-96 ended in Done: no message' || fail "a Done card with no message left no log line"
+# An In review prep still gets the ordinary In review line.
+cp_reset
+FAKE_BL=1 tick
+cat "$tmp/sent" | grep -q 'JOB-96 is In review' || fail "an In review prep lost its In review message"
+# Per-prompt env, unset and tool allowlist. The slot file is a regular file; a symlink is not read.
+printf 'CONVO_PREP_FAS_CLIENT_ID=a\nCONVO_PREP_FAS_CLIENT_SECRET=b\n' >"$tmp/cp.env"
+ln -s "$tmp/cp.env" "$tmp/cp-link.env"
+{
+  printf 'POLLER_PROMPT_ENV=%q\n' "/convo-prep=$tmp/cp.env"
+  printf 'POLLER_PROMPT_UNSET=%q\n' "/convo-prep=PRIMA_SKILL_ENV,PRIMA_ENV_FILE"
+  # poller.env is a shell file: the allowlist has spaces and brackets, so it is quoted.
+  printf 'POLLER_PROMPT_ALLOW=%q\n' '/convo-prep=Read|Write|Bash(python3 tools/convo/convo.py get:*)|Bash(python3 tools/convo/prep.py:*)'
+} >>"$HOME/.config/jobs/poller.env"
+seen() { cat "$tmp/envseen" | tr ' ' '\n' | grep -E '^(CONVO_PREP_FAS_CLIENT_ID|CONVO_PREP_FAS_CLIENT_SECRET|PRIMA_SKILL_ENV)$' | sort | tr '\n' ' '; }
+cp_reset
+PRIMA_SKILL_ENV=/x FAKE_BL=1 tick
+[ "$(seen)" = 'CONVO_PREP_FAS_CLIENT_ID CONVO_PREP_FAS_CLIENT_SECRET ' ] || fail "a prep run saw: $(seen)"
+cat "$tmp/calls" | grep -q 'claude -p /jobs JOB-96 --background --session-id [^ ]* --permission-mode dontAsk --permission-prompts none --allowedTools Read Write Bash(python3 tools/convo/convo.py get:\*) Bash(python3 tools/convo/prep.py:\*) @ ' \
+  || fail "a prep run did not get the allowlist: $(cat "$tmp/calls" | grep '^claude ')"
+cp_reset
+PRIMA_SKILL_ENV=/x CONVO_PREP_FAS_CLIENT_ID=leak CONVO_PREP_FAS_CLIENT_SECRET=leak FAKE_BL=1 FAKE_PROMPT='/echo-test' tick
+[ "$(seen)" = 'PRIMA_SKILL_ENV ' ] || fail "another run saw: $(seen)"
+cat "$tmp/calls" | grep -q 'claude -p /jobs JOB-96 --background --session-id [^ ]* --permission-mode auto --permission-prompts none @ ' \
+  || fail "another run did not keep auto mode: $(cat "$tmp/calls" | grep '^claude ')"
+cp_reset
+sed -i.bak "s|POLLER_PROMPT_ENV=/convo-prep=.*|POLLER_PROMPT_ENV=/convo-prep=$tmp/cp-link.env|" "$HOME/.config/jobs/poller.env" && rm -f "$HOME/.config/jobs/poller.env.bak"
+PRIMA_SKILL_ENV=/x FAKE_BL=1 tick
+[ "$(seen)" = '' ] || fail "a symlinked slot file was loaded or the unset failed: $(seen)"
+cat "$tmp/log" | grep -q 'is not a regular file; the run starts without it' || fail "symlinked slot file not logged"
+# The macOS installer skips /convo-prep on this machine, keeps an existing skip list and the Convo
+# address, and never lists /convo-prep twice.
+out=$(inst); grep -qx 'POLLER_SKIP_PROMPTS=/convo-prep' <<<"$out" || fail "installer did not skip /convo-prep: $out"
+grep -qx 'POLLER_CONVO_URL=https://convo.test/' <<<"$out" || fail "installer dropped POLLER_CONVO_URL"
+echo "POLLER_SKIP_PROMPTS=/apply-for-job" >>"$HOME/.config/jobs/poller.env"
+out=$(inst); grep -qxF 'POLLER_SKIP_PROMPTS=/apply-for-job\,/convo-prep' <<<"$out" || fail "installer lost the skip list: $out"
+echo "POLLER_SKIP_PROMPTS=/convo-prep,/apply-for-job" >>"$HOME/.config/jobs/poller.env"
+out=$(inst); grep -qxF 'POLLER_SKIP_PROMPTS=/convo-prep\,/apply-for-job' <<<"$out" || fail "installer listed /convo-prep twice: $out"
+# Skipped on this machine: a /convo-prep job is never started, and the poller log says so once.
+echo "POLLER_SKIP_PROMPTS=/convo-prep" >>"$HOME/.config/jobs/poller.env"
+cp_reset
+FAKE_BL=1 tick
+[ "$(started 96)" = 0 ] || fail "the skip list did not stop a /convo-prep job"
+cat "$tmp/log" | grep -q 'JOB-96 start' && fail "a skipped prep was started"
+# Agent X: the first run only seeds; later runs bubble once per fresh Done prep.
+cat >"$tmp/xa-ok" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"$XALOG"
+EOF
+chmod +x "$tmp/xa-ok"
+cp "$tmp/xa-ok" "$tmp/xa"
+export XALOG="$tmp/xalog"
+printf 'POLLER_XAGENT_ASK=%q\n' "$tmp/xa" >>"$HOME/.config/jobs/poller.env"
+rm -f "$HOME/.config/jobs/poller-convo-seen"
+cp_reset; : >"$XALOG"
+FAKE_DONE=0 tick
+[ ! -s "$XALOG" ] || fail "the first run posted bubbles: $(cat "$XALOG")"
+[ "$(wc -l <"$HOME/.config/jobs/poller-convo-seen" | tr -d ' ')" = 2 ] || fail "first run did not seed the two old preps"
+FAKE_DONE=0 tick
+[ ! -s "$XALOG" ] || fail "a second poll of the same jobs posted: $(cat "$XALOG")"
+FAKE_DONE=1 tick # new ids: 211 fresh prep, 212 three days old, 213 not a prep
+[ "$(wc -l <"$XALOG" | tr -d ' ')" = 1 ] || fail "want one bubble for the fresh prep: $(cat "$XALOG")"
+cat "$XALOG" | grep -qx -e "--key job-211 --note Prep ready: Name 0 --link https://convo.test/conversations/$cp_uuid" || fail "wrong bubble: $(cat "$XALOG")"
+FAKE_DONE=1 tick
+[ "$(wc -l <"$XALOG" | tr -d ' ')" = 1 ] || fail "the same prep bubbled twice: $(cat "$XALOG")"
+# A failed post (Agent X not running) is retried on the next tick, not recorded as seen.
+printf '#!/usr/bin/env bash\nexit 3\n' >"$tmp/xa"
+FAKE_DONE=2 tick
+cat "$HOME/.config/jobs/poller-convo-seen" | grep -qx 221 && fail "a failed bubble was recorded as seen"
+cp "$tmp/xa-ok" "$tmp/xa"
+: >"$XALOG"
+FAKE_DONE=2 tick
+[ "$(wc -l <"$XALOG" | tr -d ' ')" = 1 ] || fail "the retry did not post once: $(cat "$XALOG")"
 echo "poll.sh selftest: ok"

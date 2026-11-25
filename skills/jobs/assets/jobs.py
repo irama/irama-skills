@@ -2,7 +2,7 @@
 """Client for the job board's agent API. The /jobs skill calls this; it never builds curl.
 
     jobs.py here                                  this repo's target and whether it orchestrates
-    jobs.py list [--column C] [--target T|none] [--source board|zero] [--awaiting] [--ship-approved] [--all-pages]
+    jobs.py list [--column C] [--target T|none] [--source board|zero|schedule|convo] [--awaiting] [--ship-approved] [--all-pages]
     jobs.py get ID                                one job, runs, last 200 comments
     jobs.py attachments ID                        1-hour signed image URLs
     jobs.py fetch ID [--comment N]                download the attachments on operator comments above
@@ -1312,7 +1312,7 @@ def main():
     s = sub.add_parser("list")
     s.add_argument("--column", choices=["backlog", "in_progress", "in_review", "done"])
     s.add_argument("--target")
-    s.add_argument("--source", choices=["board", "zero"])
+    s.add_argument("--source", choices=["board", "zero", "schedule", "convo"])
     s.add_argument("--awaiting", action="store_true")
     s.add_argument("--ship-approved", action="store_true")
     s.add_argument("--all-pages", action="store_true")
