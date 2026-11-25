@@ -5,19 +5,14 @@ eyebrow: Thread closing · <d Month yyyy>
 sub: <One sentence a stranger understands: what is now true that was not true before.>
 ---
 
+## Answers
+
+Is it finished?
+: <Yes, or what is left, in one sentence.>
+
 # Closing
 
-<!--
-Rules for this file (delete this comment when you fill it in):
-- The reader has no memory of the thread. Every section stands alone.
-- Plain English, Australian spelling, short sentences, no em dashes.
-- Every path is absolute. Every shell command runs as pasted from any folder.
-- A Claude command for a new thread names the repo it runs in, and carries this
-  file's absolute path so the new thread starts with the context.
-- Each command sits in its own :::draft box, so it gets a copy button.
-- Omit "Next steps for you" and "Next steps for us" when there is nothing real.
-  Write "Nothing. This work is finished." instead of an empty list.
--->
+<One sentence: the finished state, for a reader with no context.>
 
 ## What you asked for
 
@@ -50,3 +45,15 @@ then the command to paste into a new Claude thread in the named repo.>
 :::draft
 <command>
 :::
+
+<!--
+Rules for this file (delete this comment when you fill it in):
+- The reader has no memory of the thread. Every section stands alone.
+- Plain English, Australian spelling, short sentences, no em dashes.
+- Every path is absolute. Every shell command runs as pasted from any folder.
+- A Claude command for a new thread names the repo it runs in, and carries this
+  file's absolute path so the new thread starts with the context.
+- Each command sits in its own :::draft box, so it gets a copy button.
+- Omit "Next steps for you" and "Next steps for us" when there is nothing real.
+  Write "Nothing. This work is finished." instead of an empty list.
+-->
