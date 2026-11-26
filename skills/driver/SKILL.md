@@ -416,6 +416,21 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
    typecheck, lint and tests (plus e2e only if the diff touches UI); `land` runs any such gate
    under `heavy-job run --`.
 
+   **Scope the slow suite to the ticket's diff.** A repo's slow suite (integration tests against
+   a shared database, or anything else that takes tens of minutes) runs in full at landing only
+   when the ticket's diff against the integration branch tip touches **shared state**: migrations
+   and schema, SQL functions, the slow suite's own config and set-up files, or the gate itself.
+   Any other ticket runs the fast gate (typecheck, lint, unit tests) plus only the slow-suite
+   files related to its changed files (`vitest related <files> --run` with the slow suite's
+   config, or the runner's equivalent). No related files → the fast gate alone. The gate prints
+   the scope it chose and the path that decided it, so the land log shows why. Decide the
+   shared-state paths per repo from its layout once, at run set-up, and write them in the run
+   dir. When in doubt, a path is shared state. Two things make the reduced scope safe: a
+   cross-ticket break almost always travels through shared state, which always gets the full
+   suite, and step 6 runs the full suite once on the finished branch. Never scope a gate down
+   when `/merge` or `/push` would be the only later check: in many repos neither runs the slow
+   suite, so the end-of-run pass is the last one before production.
+
    `land` links `--work`'s `node_modules` and untracked `.env*` files into the temp worktree and
    tells ci-gate so (`CI_GATE_IGNORE_UNTRACKED`), so the links do not count as a dirty tree. pnpm
    11 records the absolute path of its last install, so it refuses a linked `node_modules` in any
@@ -537,6 +552,16 @@ stops the run.
 authorises building and landing tickets on the run's own integration branch, and nothing more. The
 user's standing rule is that a merge to the default branch needs an explicit ask, and a run that
 followed the old "land on main" step here merged without one.
+
+**First, one full slow-suite pass on the integration branch tip** (the full gate from step 5
+item 6, unscoped, in `$WORK`, under `heavy-job run --`). Skip it only when the last ticket to land
+already ran the full suite on that exact tip. If it is red, find the ticket that caused it: run
+the failing files at each landing commit (`git log --first-parent` on the integration branch),
+oldest first, and the first red landing names the ticket. Mark that ticket `blocked` with the
+failing files, send the blocked-ticket ping, and do not report `ready-to-merge` until it is fixed
+or reverted. Journal the outcome as the scope rule's counter-metric: a red end-of-run pass caused
+by a ticket that landed on a reduced scope means the shared-state list misses a path. Add the
+path to the run's list and record it in the report.
 
 Report the run as `ready-to-merge` with the integration branch name, and offer `/merge` as an
 option. `/merge` (from the run worktree) or `/merge all` picks the branch up, and its own `land`
