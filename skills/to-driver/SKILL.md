@@ -250,9 +250,10 @@ the user's answer, so do not ask whether they started the run. When the Agent X 
     ~/.claude/bin/xagent-ask --done --note "<label>: tickets ready" --copy "<the /driver command>"
 
 Its Copy button copies the command alone, and its thread button brings the user back here. The bubble
-is then the command's one place: the reply says the bubble carries it and gives no second copy. If
-the command exits 3 (Agent X not running) or the tracker is not installed, end the reply with the
-command in its one fenced block instead.
+mirrors the thread, never replaces it: **the reply always carries the same command in its one fenced
+block**, with the folder it runs from in prose beside it, whether or not the bubble posted. A dismissed
+bubble is gone, and the thread is how the user finds the command again (2026-11-27: a reply that said
+"the bubble carries it" left the command nowhere in the thread).
 
 Sign off the planning claim: `python3 "$reg" sign-off "$KEY" --status handed-off --note "<label>"`.
 
@@ -262,4 +263,4 @@ Then stop. **Never run `/driver` yourself.**
 
 Close with: which gates ran and which were skipped (and why), **which reviewer actually ran**, the
 findings that changed the plan, **what was merged down so the next thread can start**, the ticket
-set, and the command (in the done bubble, or in the reply when no bubble could post).
+set, and the command (in its one fenced block in the reply, mirrored by the done bubble).
