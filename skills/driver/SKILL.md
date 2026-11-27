@@ -343,7 +343,9 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
      on that call: the call's `model` takes only an alias, and it overrides the definition.
    - **Trial (from 27 November 2026): the next two driver runs.** Count each landed ticket's first
      review only. If findings per landed ticket rise by more than a quarter against the baseline,
-     4.6 (so above 5.7), move every worker back to Opus 5.5. Baseline source and method:
+     4.6 (so above 5.7), move every worker back to Opus 5.5. The baseline came from
+     `adversarial-reviewer`, so during the two trial runs every per-ticket review stays on
+     `adversarial-reviewer` and only the worker model changes. Baseline source and method:
      `docs/driver-spec.md` § Why these rules exist.
 
    **The worker brief — every launched `Agent` prompt says all of this:**
@@ -393,7 +395,8 @@ For each ticket whose blockers are all `merged` (never `in-progress`):
      Stryker error (non-zero exit) goes in the ticket's handoff and the ticket goes on to review.
      Run the check on every ticket, even after an earlier ticket's run failed: each ticket is
      its own pilot data point.
-   - **The per-ticket reviewer is Codex when `codex-available` exits 0**, else
+   - **From the third run after the worker-model trial began, the per-ticket reviewer is Codex
+     when `codex-available` exits 0** (during the two trial runs it is `adversarial-reviewer`, step 5), else
      `adversarial-reviewer` (Opus 5.5). Check just before each ticket's review. Codex runs in the
      ticket's worktree as `codex-review-env codex-auto exec review --base "driver/$RUN_ID"`, the
      call `/merge` makes (no `codex-review-env` on PATH: call `codex-auto` directly). A Codex call
@@ -664,8 +667,8 @@ Produce one unified summary, per-ticket:
 Statuses: shipped ✅ / skipped-cascaded ⏭ / blocked-needs-you 🛑. Any ticket landed on the
 fallback reviewer is marked ⚠️ degraded-gate in Notes: shipped, but single-model. During the
 worker-model trial (step 5), add one line under the table: first-review findings per landed
-ticket for this run, against the baseline 4.6 and the trip line 5.7, with the Codex-reviewed
-tickets counted separately.
+ticket for this run, against the baseline 4.6 and the trip line 5.7. Every ticket in a trial run
+is reviewed by `adversarial-reviewer`, so the count compares like with like.
 A blocked ticket renders as an inline "your call" item using the **crossroad message** from
 step 5, word for word and under the same letters as the Telegram ping, never a popup. The roads
 use letters so they never collide with the summary's numbered options. Re-check every human
