@@ -27,7 +27,8 @@ Is it finished?
 
 ## Next steps for you
 
-<Numbered steps. One action per step. Each says what it checks or unblocks.>
+<Numbered steps. One action per step. Each says what it checks or unblocks.
+A step already approved into the task tracker is one line: what, the due date, and its link.>
 
 1. <Step>.
 
