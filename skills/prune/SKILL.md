@@ -19,6 +19,21 @@ For each candidate worktree/branch:
 1. `git -C <path> status --porcelain` — if it has **uncommitted** changes, SKIP it and report "not pruned: uncommitted work at `<path>`".
 2. `git branch --merged <default-branch>` — the branch must appear (fully merged). If not merged, SKIP and report "not pruned: `<branch>` not merged into `<default>`".
 3. Never prune the default branch or the main checkout.
+4. **An unmerged branch whose commits are all superseded is deleted, not skipped.** This is
+   the thread's own leftovers test, and it is mechanical. Run it on every unmerged branch this
+   thread committed to (including WIP auto-commits the `Stop` hook made on a branch it did not
+   create). For each file in `git diff --name-only <default>...<branch>`, one must hold:
+   a) it is identical on `<default>` (`git diff --quiet <default> <branch> -- <file>`);
+   b) this thread landed a newer version of it on `<default>` (name the commit);
+   c) it is a known build artefact (`AGENTS.md` rewritten by `next build`).
+   Every file passes: delete the branch with `git branch -D` and say so in the closing note.
+   Any file fails: keep the branch, and the closing note lists each failing file under
+   **Left behind** with its reason.
+5. **An Orca worktree is removed when it is clean, merged or not.** `orca worktree rm
+   --delete-branch` keeps any branch it cannot prove merged, so removing a clean Orca folder
+   loses nothing. Guard 1 (uncommitted work) still applies to the folder; guard 2 governs only
+   the branch. A thread whose card stays open because its branch was unmerged is the defect
+   this rule removes (2026-11-27).
 
 For `/prune all`, collect the skips and report them at the end — never remove an unmerged/dirty worktree just because others qualified. If `/prune` (current) targets an unmerged/dirty worktree, stop and explain rather than removing.
 
@@ -41,7 +56,7 @@ For `/prune all`, collect the skips and report them at the end — never remove 
 
 7. **Write and deliver the closing note. Every `/prune` does this, inside Orca or not.** The closing note is the thread's formal end: a short brief that tells Andrew, weeks later and with no memory of the thread, what was asked, what was done and what is left.
    a) Copy `<skill-dir>/closing-template.md` to `~/.claude/closings/<yyyy-mm-dd>-<slug>.md`, where `<slug>` names the app and the change. Fill it in and delete its rules comment. That folder is outside every worktree, so the note survives the prune.
-   b) Sections, all plain English, each one readable on its own: **What you asked for** (two or three sentences), **What was done** (bullets: each change, every repo touched with its commits and whether they are merged or pushed, what was deployed and the SHA production serves, and where the results are), **Next steps for you** (numbered steps, one action each, with any command in its own `:::draft` box so it has a copy button; before writing this section, every step for the user must already be approved and created in their task tracker if the user-level instructions ask for that, and an approved step is then one line with its task link, never the full steps again), **Next steps for us** (optional: only steps that truly add value, each a command for a new Claude thread that names its repo and carries the closing note's absolute path). With nothing left, write "Nothing. This work is finished." under the heading instead of an empty list.
+   b) Sections, all plain English, each one readable on its own: **What you asked for** (two or three sentences), **What was done** (bullets: each change, every repo touched with its commits and whether they are merged or pushed, what was deployed and the SHA production serves, and where the results are), **Next steps for you** (numbered steps, one action each, with any command in its own `:::draft` box so it has a copy button; before writing this section, every step for the user must already be approved and created in their task tracker if the user-level instructions ask for that, and an approved step is then one line with its task link, never the full steps again), **Next steps for us** (optional: only steps that truly add value, each a command for a new Claude thread that names its repo and carries the closing note's absolute path), and **Left behind** (every branch, worktree or file this thread did not remove, each with its reason; omit the section only when nothing is left). With nothing left, write "Nothing. This work is finished." under the heading instead of an empty list.
    c) Build it with the peakstate-brief skill's builder: `node <peakstate-brief-dir>/assets/build-brief.mjs <note>.md`, where `<peakstate-brief-dir>` is the folder that skill loads from.
    d) Deliver it: start `brief-deliver <note>.html` as a background command. Agent X shows it as a **Thread done** bubble, because the file sits in `~/.claude/closings/`.
    e) The chat reply carries the same content, and nothing in it repeats the note's commands a second time outside it. If the thread's own worktree is Orca-managed and passed the guard, offer no next step in this thread: step 8 closes the chat.
